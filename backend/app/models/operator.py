@@ -5,6 +5,12 @@ import enum
 from ..database import Base
 
 
+class SuggestionStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
 class OperatorStatus(str, enum.Enum):
     active = "active"
     suspended = "suspended"
@@ -53,6 +59,7 @@ class BettingOperator(Base):
     documents = relationship("Document", back_populates="operator")
     brands = relationship("OperatorBrand", back_populates="operator", cascade="all, delete-orphan")
     endr_associations = relationship("EndrAssociation", back_populates="operator", cascade="all, delete-orphan")
+    contact_suggestions = relationship("ContactSuggestion", back_populates="operator", cascade="all, delete-orphan")
 
 
 class OperatorContact(Base):
@@ -101,3 +108,24 @@ class EndrAssociation(Base):
 
     operator = relationship("BettingOperator", back_populates="endr_associations")
     updated_by = relationship("User")
+
+
+class ContactSuggestion(Base):
+    """Sugestões de contato encontradas automaticamente, aguardando revisão humana."""
+    __tablename__ = "contact_suggestions"
+    id = Column(Integer, primary_key=True)
+    operator_id = Column(Integer, ForeignKey("betting_operators.id"), nullable=False)
+    type = Column(Enum(ContactType), nullable=False)
+    value = Column(String, nullable=False)
+    source = Column(String, nullable=False)
+    source_url = Column(String, nullable=True)
+    relationship_label = Column("relationship", String, nullable=True)
+    confidence = Column(String(10), nullable=True)  # "high", "medium", "low"
+    status = Column(Enum(SuggestionStatus), default=SuggestionStatus.pending)
+    notes = Column(Text, nullable=True)
+    found_at = Column(DateTime, server_default=func.now())
+    reviewed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+
+    operator = relationship("BettingOperator", back_populates="contact_suggestions")
+    reviewed_by = relationship("User")

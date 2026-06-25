@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, date
-from ..models.operator import OperatorStatus, ContactType
+from ..models.operator import OperatorStatus, ContactType, SuggestionStatus
 
 
 class ContactCreate(BaseModel):
@@ -70,6 +70,24 @@ class EndrAssociationOut(BaseModel):
     is_associated: bool
     notes: Optional[str]
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ContactSuggestionOut(BaseModel):
+    id: int
+    operator_id: int
+    type: ContactType
+    value: str
+    source: str
+    source_url: Optional[str] = None
+    relationship_label: Optional[str] = None
+    confidence: Optional[str] = None
+    status: SuggestionStatus
+    notes: Optional[str] = None
+    found_at: datetime
+    reviewed_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

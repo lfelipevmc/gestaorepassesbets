@@ -255,11 +255,30 @@ def _generate_monthly_reports():
         db.close()
 
 
+def job_weekly_contact_research():
+    """Every Sunday: research contacts for all active operators."""
+    db = SessionLocal()
+    try:
+        from .contact_researcher import research_all_operators
+        result = research_all_operators(db)
+        logger.info(f"Weekly contact research: {result}")
+    except Exception as e:
+        logger.error(f"Weekly research job error: {e}")
+    finally:
+        db.close()
+
+
 def start_scheduler():
     scheduler.add_job(job_sync_operators, CronTrigger(hour=7, minute=0), id="sync_mf", replace_existing=True)
     scheduler.add_job(job_send_first_notifications, CronTrigger(hour=8, minute=0), id="notify_1", replace_existing=True)
     scheduler.add_job(job_check_compliance_day20, CronTrigger(hour=9, minute=0), id="check_20", replace_existing=True)
     scheduler.add_job(job_send_second_notifications, CronTrigger(hour=8, minute=30), id="notify_2", replace_existing=True)
     scheduler.add_job(job_final_compliance_and_report, CronTrigger(hour=9, minute=0), id="final_check", replace_existing=True)
+    scheduler.add_job(
+        job_weekly_contact_research,
+        CronTrigger(day_of_week="sun", hour=6, minute=0),
+        id="weekly_research",
+        replace_existing=True,
+    )
     scheduler.start()
     logger.info("Scheduler started")

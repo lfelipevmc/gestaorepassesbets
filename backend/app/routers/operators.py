@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from datetime import datetime
 from ..database import get_db
 from ..models.operator import BettingOperator, OperatorContact, OperatorStatus, OperatorBrand, EndrAssociation
 from ..models.user import User
-from ..schemas.operator import OperatorCreate, OperatorUpdate, OperatorOut, ContactCreate, ContactOut, BrandCreate, BrandUpdate, BrandOut, EndrAssociationCreate, EndrAssociationOut
+from ..schemas.operator import OperatorCreate, OperatorUpdate, OperatorOut, ContactCreate, ContactOut, BrandCreate, BrandUpdate, BrandOut, EndrAssociationCreate, EndrAssociationOut, ContactSuggestionOut
 from ..core.auth import get_current_user, require_office
 from ..services.audit_service import log_action
 from ..services.mf_scraper import scrape_mf_operators, import_from_file, get_last_sync_info
@@ -225,3 +226,113 @@ async def import_operators(
     content = await file.read()
     result = import_from_file(db, content, file.filename, category, current_user.id)
     return result
+
+
+# --- Contact Research ---
+
+@router.post("/research-all")
+def research_all(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_office)
+):
+    """Inicia pesquisa de contatos para todos os operadores ativos."""
+    from ..services.contact_researcher import research_all_operators
+    background_tasks.add_task(research_all_operators, db)
+    return {"message": "Pesquisa de contatos iniciada para todos os operadores ativos"}
+
+
+@router.post("/{id}/research-contacts")
+def research_contacts(
+    id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_office)
+):
+    """Inicia pesquisa automática de contatos para o operador."""
+    op = db.query(BettingOperator).get(id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operador não encontrado")
+
+    from ..services.contact_researcher import research_operator
+    background_tasks.add_task(research_operator, db, id, current_user.id)
+    return {"message": f"Pesquisa de contatos iniciada para {op.company_name}"}
+
+
+@router.get("/{id}/suggestions", response_model=List[ContactSuggestionOut])
+def list_suggestions(
+    id: int,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Lista sugestões de contato para um operador."""
+    from ..models.operator import ContactSuggestion
+    q = db.query(ContactSuggestion).filter(ContactSuggestion.operator_id == id)
+    if status:
+        q = q.filter(ContactSuggestion.status == status)
+    return q.order_by(ContactSuggestion.found_at.desc()).all()
+
+
+@router.post("/{id}/suggestions/{suggestion_id}/approve")
+def approve_suggestion(
+    id: int,
+    suggestion_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_office)
+):
+    """Aprova uma sugestão de contato — cria o contato oficial."""
+    from ..models.operator import ContactSuggestion, SuggestionStatus
+    suggestion = db.query(ContactSuggestion).filter(
+        ContactSuggestion.id == suggestion_id,
+        ContactSuggestion.operator_id == id
+    ).first()
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Sugestão não encontrada")
+
+    # Cria contato oficial
+    contact = OperatorContact(
+        operator_id=id,
+        type=suggestion.type,
+        value=suggestion.value,
+        label=suggestion.relationship_label,
+        source=suggestion.source,
+        is_primary=False,
+    )
+    db.add(contact)
+
+    suggestion.status = SuggestionStatus.approved
+    suggestion.reviewed_by_id = current_user.id
+    suggestion.reviewed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(contact)
+
+    log_action(db=db, action="APPROVE_SUGGESTION", entity_type="BettingOperator", entity_id=id,
+               new_values={"value": suggestion.value, "type": str(suggestion.type)}, user_id=current_user.id)
+    return {"ok": True, "contact_id": contact.id}
+
+
+@router.post("/{id}/suggestions/{suggestion_id}/reject")
+def reject_suggestion(
+    id: int,
+    suggestion_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_office)
+):
+    """Rejeita uma sugestão de contato."""
+    from ..models.operator import ContactSuggestion, SuggestionStatus
+    suggestion = db.query(ContactSuggestion).filter(
+        ContactSuggestion.id == suggestion_id,
+        ContactSuggestion.operator_id == id
+    ).first()
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Sugestão não encontrada")
+
+    suggestion.status = SuggestionStatus.rejected
+    suggestion.reviewed_by_id = current_user.id
+    suggestion.reviewed_at = datetime.utcnow()
+    db.commit()
+
+    log_action(db=db, action="REJECT_SUGGESTION", entity_type="BettingOperator", entity_id=id,
+               new_values={"value": suggestion.value}, user_id=current_user.id)
+    return {"ok": True}

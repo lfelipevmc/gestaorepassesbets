@@ -105,3 +105,13 @@ export const updateUser = (id: number, data: any) => api.patch(`/api/users/${id}
 
 // AI
 export const draftNotification = (data: any) => api.post("/api/ai/draft-notification", data);
+
+// Contact Research
+export const researchContacts = (id: number) => api.post(`/api/operators/${id}/research-contacts`);
+export const getContactSuggestions = (id: number, status?: string) =>
+  api.get(`/api/operators/${id}/suggestions`, { params: status ? { status } : {} });
+export const approveSuggestion = (operatorId: number, suggestionId: number) =>
+  api.post(`/api/operators/${operatorId}/suggestions/${suggestionId}/approve`);
+export const rejectSuggestion = (operatorId: number, suggestionId: number) =>
+  api.post(`/api/operators/${operatorId}/suggestions/${suggestionId}/reject`);
+export const researchAllOperators = () => api.post('/api/operators/research-all');

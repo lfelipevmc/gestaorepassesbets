@@ -11,10 +11,11 @@ import {
   getPayments, getDocuments, getAuditLogs,
   addBrand, updateBrand, deleteBrand,
   addEndrAssociation, deleteEndrAssociation,
+  researchContacts, getContactSuggestions, approveSuggestion, rejectSuggestion,
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 
-const TABS = ["Dados Cadastrais", "Marcas Vinculadas", "ENDR", "Contatos", "Histórico de Pagamentos", "Documentos", "Auditoria"];
+const TABS = ["Dados Cadastrais", "Marcas Vinculadas", "ENDR", "Contatos", "Pesquisa de Contatos", "Histórico de Pagamentos", "Documentos", "Auditoria"];
 
 const MONTHS_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 
@@ -67,6 +68,12 @@ export default function OperatorDetailPage() {
   const [showEndrModal, setShowEndrModal] = useState(false);
   const [endrForm, setEndrForm] = useState({ month: String(new Date().getMonth() + 1).padStart(2, "0"), year: String(new Date().getFullYear()), is_associated: true, notes: "" });
   const [savingEndr, setSavingEndr] = useState(false);
+
+  // Contact Research
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [suggestionsFilter, setSuggestionsFilter] = useState<string>("pending");
+  const [researching, setResearching] = useState(false);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
   const fetchData = () => {
     setLoading(true);
