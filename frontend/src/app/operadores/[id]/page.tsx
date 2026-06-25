@@ -5,26 +5,68 @@ import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import Badge from "@/components/ui/Badge";
 import Modal from "@/components/ui/Modal";
-import { getOperator, addContact, deleteContact, findContactsAI, getPayments, getDocuments, getAuditLogs } from "@/lib/api";
+import {
+  getOperator, updateOperator,
+  addContact, deleteContact, findContactsAI,
+  getPayments, getDocuments, getAuditLogs,
+  addBrand, updateBrand, deleteBrand,
+  addEndrAssociation, deleteEndrAssociation,
+} from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 
-const TABS = ["Informações", "Contatos", "Pagamentos", "Documentos", "Auditoria"];
+const TABS = ["Dados Cadastrais", "Marcas Vinculadas", "ENDR", "Contatos", "Histórico de Pagamentos", "Documentos", "Auditoria"];
+
+const MONTHS_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+
+function toDateInput(val: string | null | undefined) {
+  if (!val) return "";
+  return val.split("T")[0];
+}
+
+function formatDateBR(val: string | null | undefined) {
+  if (!val) return "-";
+  const d = new Date(val);
+  return d.toLocaleDateString("pt-BR");
+}
+
+function formatMonthBR(val: string | null | undefined) {
+  if (!val) return "-";
+  const [year, month] = val.split("-");
+  return `${MONTHS_PT[parseInt(month) - 1]}/${year}`;
+}
 
 export default function OperatorDetailPage() {
   const { id } = useParams();
+  const numId = Number(id);
+
   const [operator, setOperator] = useState<any>(null);
   const [tab, setTab] = useState(0);
   const [payments, setPayments] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
   const [audit, setAudit] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Contacts
   const [showAddContact, setShowAddContact] = useState(false);
   const [contactForm, setContactForm] = useState({ type: "email", value: "", label: "", source: "", is_primary: false });
   const [aiResult, setAiResult] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [addingContact, setAddingContact] = useState(false);
 
-  const numId = Number(id);
+  // Edit operator
+  const [editForm, setEditForm] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Brands
+  const [showBrandModal, setShowBrandModal] = useState(false);
+  const [editingBrand, setEditingBrand] = useState<any>(null);
+  const [brandForm, setBrandForm] = useState({ name: "", website: "", instagram: "", twitter: "", facebook: "", other_social: "" });
+  const [savingBrand, setSavingBrand] = useState(false);
+
+  // ENDR
+  const [showEndrModal, setShowEndrModal] = useState(false);
+  const [endrForm, setEndrForm] = useState({ month: String(new Date().getMonth() + 1).padStart(2, "0"), year: String(new Date().getFullYear()), is_associated: true, notes: "" });
+  const [savingEndr, setSavingEndr] = useState(false);
 
   const fetchData = () => {
     setLoading(true);
@@ -33,15 +75,51 @@ export default function OperatorDetailPage() {
       getPayments({ operator_id: numId }),
       getDocuments({ operator_id: numId }),
       getAuditLogs({ entity_type: "BettingOperator" }),
-    ]).then(([op, pays, docs, audit]) => {
+    ]).then(([op, pays, docs, auditData]) => {
       setOperator(op.data);
+      initEditForm(op.data);
       setPayments(pays.data);
       setDocuments(docs.data);
-      setAudit(audit.data.filter((a: any) => a.entity_id === numId));
+      setAudit(auditData.data.filter((a: any) => a.entity_id === numId));
     }).finally(() => setLoading(false));
   };
 
+  function initEditForm(op: any) {
+    setEditForm({
+      company_name: op.company_name || "",
+      fantasy_name: op.fantasy_name || "",
+      cnpj: op.cnpj || "",
+      website: op.website || "",
+      status: op.status || "active",
+      notes: op.notes || "",
+      address_street: op.address_street || "",
+      address_number: op.address_number || "",
+      address_complement: op.address_complement || "",
+      address_neighborhood: op.address_neighborhood || "",
+      address_city: op.address_city || "",
+      address_state: op.address_state || "",
+      address_zip: op.address_zip || "",
+      authorization_number: op.authorization_number || "",
+      authorization_date: toDateInput(op.authorization_date),
+    });
+  }
+
   useEffect(() => { fetchData(); }, [numId]);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload: any = { ...editForm };
+      if (!payload.authorization_date) delete payload.authorization_date;
+      await updateOperator(numId, payload);
+      fetchData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao salvar");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handleAddContact(e: React.FormEvent) {
     e.preventDefault();
@@ -74,8 +152,79 @@ export default function OperatorDetailPage() {
     }
   }
 
+  function openNewBrand() {
+    setEditingBrand(null);
+    setBrandForm({ name: "", website: "", instagram: "", twitter: "", facebook: "", other_social: "" });
+    setShowBrandModal(true);
+  }
+
+  function openEditBrand(brand: any) {
+    setEditingBrand(brand);
+    setBrandForm({
+      name: brand.name || "",
+      website: brand.website || "",
+      instagram: brand.instagram || "",
+      twitter: brand.twitter || "",
+      facebook: brand.facebook || "",
+      other_social: brand.other_social || "",
+    });
+    setShowBrandModal(true);
+  }
+
+  async function handleSaveBrand(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingBrand(true);
+    try {
+      if (editingBrand) {
+        await updateBrand(numId, editingBrand.id, brandForm);
+      } else {
+        await addBrand(numId, brandForm);
+      }
+      setShowBrandModal(false);
+      fetchData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao salvar marca");
+    } finally {
+      setSavingBrand(false);
+    }
+  }
+
+  async function handleDeleteBrand(brandId: number) {
+    if (!confirm("Remover esta marca?")) return;
+    await deleteBrand(numId, brandId);
+    fetchData();
+  }
+
+  async function handleAddEndr(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingEndr(true);
+    try {
+      const reference_month = `${endrForm.year}-${endrForm.month}-01`;
+      await addEndrAssociation(numId, {
+        reference_month,
+        is_associated: endrForm.is_associated,
+        notes: endrForm.notes || undefined,
+      });
+      setShowEndrModal(false);
+      fetchData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao salvar associação ENDR");
+    } finally {
+      setSavingEndr(false);
+    }
+  }
+
+  async function handleDeleteEndr(assocId: number) {
+    if (!confirm("Remover esta associação ENDR?")) return;
+    await deleteEndrAssociation(numId, assocId);
+    fetchData();
+  }
+
   if (loading) return <AppShell><div className="text-muted">Carregando...</div></AppShell>;
   if (!operator) return <AppShell><div className="text-muted">Operador não encontrado</div></AppShell>;
+
+  const brands = operator.brands || [];
+  const endrAssocs = (operator.endr_associations || []).slice().sort((a: any, b: any) => b.reference_month.localeCompare(a.reference_month));
 
   return (
     <AppShell>
@@ -86,12 +235,12 @@ export default function OperatorDetailPage() {
       />
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-surface-border">
+      <div className="flex gap-1 mb-6 border-b border-surface-border overflow-x-auto">
         {TABS.map((t, i) => (
           <button
             key={t}
             onClick={() => setTab(i)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px whitespace-nowrap ${
               tab === i ? "border-primary text-primary" : "border-transparent text-muted hover:text-slate-300"
             }`}
           >
@@ -100,31 +249,288 @@ export default function OperatorDetailPage() {
         ))}
       </div>
 
-      {/* Tab 0: Info */}
-      {tab === 0 && (
-        <div className="grid grid-cols-2 gap-6">
+      {/* Tab 0: Dados Cadastrais */}
+      {tab === 0 && editForm && (
+        <form onSubmit={handleSave} className="space-y-6 max-w-3xl">
+          {/* Identificação */}
           <div className="card space-y-4">
-            <h3 className="font-semibold text-white">Dados Cadastrais</h3>
-            <Field label="Razão Social" value={operator.company_name} />
-            <Field label="Nome Fantasia" value={operator.fantasy_name} />
-            <Field label="CNPJ" value={operator.cnpj} mono />
-            <Field label="Nº Licença MF" value={operator.mf_license_number} />
-            <Field label="Website" value={operator.website} link />
-            <Field label="Status" value={<Badge status={operator.status} />} />
-            <Field label="Cadastrado em" value={formatDate(operator.created_at)} />
-            <Field label="Atualizado em" value={formatDate(operator.updated_at)} />
+            <h3 className="font-semibold text-white">Identificação</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="label">Razão Social *</label>
+                <input className="input" required value={editForm.company_name} onChange={e => setEditForm((f: any) => ({ ...f, company_name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Nome Fantasia</label>
+                <input className="input" value={editForm.fantasy_name} onChange={e => setEditForm((f: any) => ({ ...f, fantasy_name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">CNPJ</label>
+                <input className="input font-mono" placeholder="00.000.000/0000-00" value={editForm.cnpj} onChange={e => setEditForm((f: any) => ({ ...f, cnpj: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Status</label>
+                <select className="input" value={editForm.status} onChange={e => setEditForm((f: any) => ({ ...f, status: e.target.value }))}>
+                  <option value="active">Ativo</option>
+                  <option value="pending">Pendente</option>
+                  <option value="suspended">Suspenso</option>
+                  <option value="cancelled">Cancelado</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Última atualização</label>
+                <input className="input opacity-60 cursor-not-allowed" readOnly value={formatDateTime(operator.updated_at)} />
+              </div>
+            </div>
           </div>
-          {operator.notes && (
-            <div className="card">
-              <h3 className="font-semibold text-white mb-3">Observações</h3>
-              <p className="text-sm text-slate-300 whitespace-pre-wrap">{operator.notes}</p>
+
+          {/* Autorização MF */}
+          <div className="card space-y-4">
+            <h3 className="font-semibold text-white">Autorização MF</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Número da Autorização/Portaria</label>
+                <input className="input" placeholder="Ex: Portaria SPA 2024/..." value={editForm.authorization_number} onChange={e => setEditForm((f: any) => ({ ...f, authorization_number: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Data da Autorização</label>
+                <input className="input" type="date" value={editForm.authorization_date} onChange={e => setEditForm((f: any) => ({ ...f, authorization_date: e.target.value }))} />
+                {!editForm.authorization_date && (
+                  <p className="text-xs text-warning mt-1">Atenção: sem data de autorização, a cobrança não pode ser iniciada.</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Endereço */}
+          <div className="card space-y-4">
+            <h3 className="font-semibold text-white">Endereço (CNPJ)</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">CEP</label>
+                <input className="input" placeholder="00000-000" value={editForm.address_zip} onChange={e => setEditForm((f: any) => ({ ...f, address_zip: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Estado (UF)</label>
+                <input className="input" maxLength={2} placeholder="SP" value={editForm.address_state} onChange={e => setEditForm((f: any) => ({ ...f, address_state: e.target.value.toUpperCase() }))} />
+              </div>
+              <div className="col-span-2">
+                <label className="label">Logradouro</label>
+                <input className="input" value={editForm.address_street} onChange={e => setEditForm((f: any) => ({ ...f, address_street: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Número</label>
+                <input className="input" value={editForm.address_number} onChange={e => setEditForm((f: any) => ({ ...f, address_number: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Complemento</label>
+                <input className="input" value={editForm.address_complement} onChange={e => setEditForm((f: any) => ({ ...f, address_complement: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Bairro</label>
+                <input className="input" value={editForm.address_neighborhood} onChange={e => setEditForm((f: any) => ({ ...f, address_neighborhood: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Cidade</label>
+                <input className="input" value={editForm.address_city} onChange={e => setEditForm((f: any) => ({ ...f, address_city: e.target.value }))} />
+              </div>
+            </div>
+          </div>
+
+          {/* Website */}
+          <div className="card space-y-4">
+            <h3 className="font-semibold text-white">Website</h3>
+            <div>
+              <label className="label">Site oficial</label>
+              <input className="input" type="url" placeholder="https://..." value={editForm.website} onChange={e => setEditForm((f: any) => ({ ...f, website: e.target.value }))} />
+            </div>
+          </div>
+
+          {/* Observações */}
+          <div className="card space-y-4">
+            <h3 className="font-semibold text-white">Observações</h3>
+            <textarea className="input h-28 resize-none" value={editForm.notes} onChange={e => setEditForm((f: any) => ({ ...f, notes: e.target.value }))} />
+          </div>
+
+          <div className="flex justify-end">
+            <button type="submit" disabled={saving} className="btn-primary">
+              {saving ? "Salvando..." : "Salvar Alterações"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Tab 1: Marcas Vinculadas */}
+      {tab === 1 && (
+        <div className="max-w-3xl">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-muted">Até 3 marcas por agente operador. {brands.length}/3 cadastradas.</p>
+            <button
+              onClick={openNewBrand}
+              disabled={brands.length >= 3}
+              className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              + Adicionar Marca
+            </button>
+          </div>
+
+          {brands.length === 0 ? (
+            <div className="card text-center py-8 text-muted text-sm">Nenhuma marca cadastrada</div>
+          ) : (
+            <div className="space-y-4">
+              {brands.map((brand: any) => (
+                <div key={brand.id} className="card space-y-3">
+                  <div className="flex items-start justify-between">
+                    <h4 className="font-semibold text-white">{brand.name}</h4>
+                    <div className="flex gap-2">
+                      <button onClick={() => openEditBrand(brand)} className="text-primary text-xs hover:underline">Editar</button>
+                      <button onClick={() => handleDeleteBrand(brand.id)} className="text-danger text-xs hover:underline">Remover</button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    {brand.website && <div><span className="text-muted">Site: </span><a href={brand.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{brand.website}</a></div>}
+                    {brand.instagram && <div><span className="text-muted">Instagram: </span><span className="text-slate-300">{brand.instagram}</span></div>}
+                    {brand.twitter && <div><span className="text-muted">Twitter/X: </span><span className="text-slate-300">{brand.twitter}</span></div>}
+                    {brand.facebook && <div><span className="text-muted">Facebook: </span><span className="text-slate-300">{brand.facebook}</span></div>}
+                    {brand.other_social && <div><span className="text-muted">Outros: </span><span className="text-slate-300">{brand.other_social}</span></div>}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
+
+          <Modal isOpen={showBrandModal} onClose={() => setShowBrandModal(false)} title={editingBrand ? "Editar Marca" : "Nova Marca Vinculada"}>
+            <form onSubmit={handleSaveBrand} className="space-y-4">
+              <div>
+                <label className="label">Nome da Marca *</label>
+                <input className="input" required value={brandForm.name} onChange={e => setBrandForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Site</label>
+                <input className="input" type="url" placeholder="https://..." value={brandForm.website} onChange={e => setBrandForm(f => ({ ...f, website: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Instagram</label>
+                <input className="input" placeholder="@usuario" value={brandForm.instagram} onChange={e => setBrandForm(f => ({ ...f, instagram: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Twitter/X</label>
+                <input className="input" placeholder="@usuario" value={brandForm.twitter} onChange={e => setBrandForm(f => ({ ...f, twitter: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Facebook</label>
+                <input className="input" placeholder="@pagina" value={brandForm.facebook} onChange={e => setBrandForm(f => ({ ...f, facebook: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Outras Redes</label>
+                <input className="input" placeholder="Ex: TikTok @usuario" value={brandForm.other_social} onChange={e => setBrandForm(f => ({ ...f, other_social: e.target.value }))} />
+              </div>
+              <div className="flex gap-3 justify-end pt-2">
+                <button type="button" onClick={() => setShowBrandModal(false)} className="btn-secondary">Cancelar</button>
+                <button type="submit" disabled={savingBrand} className="btn-primary">{savingBrand ? "Salvando..." : "Salvar"}</button>
+              </div>
+            </form>
+          </Modal>
         </div>
       )}
 
-      {/* Tab 1: Contacts */}
-      {tab === 1 && (
+      {/* Tab 2: ENDR */}
+      {tab === 2 && (
+        <div className="max-w-3xl">
+          <div className="mb-4 p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg text-sm text-slate-300">
+            <p className="font-medium text-white mb-1">Sobre o ENDR</p>
+            <p>Se o agente operador estiver associado ao ENDR (Escritório Nacional de Rateios) em determinado mês, não será cobrado naquele mês. As notificações automáticas serão suspensas para os meses marcados como associado.</p>
+          </div>
+
+          <div className="flex justify-end mb-4">
+            <button onClick={() => setShowEndrModal(true)} className="btn-primary">+ Registrar Associação</button>
+          </div>
+
+          {endrAssocs.length === 0 ? (
+            <div className="card text-center py-8 text-muted text-sm">Nenhuma associação ENDR registrada</div>
+          ) : (
+            <div className="card p-0 overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-surface">
+                  <tr>
+                    <th className="table-th">Mês/Ano</th>
+                    <th className="table-th">Status</th>
+                    <th className="table-th">Observações</th>
+                    <th className="table-th">Registrado em</th>
+                    <th className="table-th"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {endrAssocs.map((assoc: any) => (
+                    <tr key={assoc.id}>
+                      <td className="table-td font-medium text-white">{formatMonthBR(assoc.reference_month)}</td>
+                      <td className="table-td">
+                        {assoc.is_associated ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-900/40 text-green-400 border border-green-700/40">Associado ENDR</span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-surface text-muted border border-surface-border">Não associado</span>
+                        )}
+                      </td>
+                      <td className="table-td text-muted">{assoc.notes || "-"}</td>
+                      <td className="table-td text-muted">{formatDate(assoc.created_at)}</td>
+                      <td className="table-td">
+                        <button onClick={() => handleDeleteEndr(assoc.id)} className="text-danger text-xs hover:underline">Remover</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <Modal isOpen={showEndrModal} onClose={() => setShowEndrModal(false)} title="Registrar Associação ENDR">
+            <form onSubmit={handleAddEndr} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Mês *</label>
+                  <select className="input" value={endrForm.month} onChange={e => setEndrForm(f => ({ ...f, month: e.target.value }))}>
+                    {MONTHS_PT.map((m, i) => (
+                      <option key={i} value={String(i + 1).padStart(2, "0")}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Ano *</label>
+                  <select className="input" value={endrForm.year} onChange={e => setEndrForm(f => ({ ...f, year: e.target.value }))}>
+                    {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(y => (
+                      <option key={y} value={String(y)}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="label">Status</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" checked={endrForm.is_associated} onChange={() => setEndrForm(f => ({ ...f, is_associated: true }))} />
+                    <span className="text-sm text-slate-300">Associado</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" checked={!endrForm.is_associated} onChange={() => setEndrForm(f => ({ ...f, is_associated: false }))} />
+                    <span className="text-sm text-slate-300">Não associado</span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label className="label">Observações</label>
+                <textarea className="input h-20 resize-none" value={endrForm.notes} onChange={e => setEndrForm(f => ({ ...f, notes: e.target.value }))} />
+              </div>
+              <div className="flex gap-3 justify-end pt-2">
+                <button type="button" onClick={() => setShowEndrModal(false)} className="btn-secondary">Cancelar</button>
+                <button type="submit" disabled={savingEndr} className="btn-primary">{savingEndr ? "Salvando..." : "Registrar"}</button>
+              </div>
+            </form>
+          </Modal>
+        </div>
+      )}
+
+      {/* Tab 3: Contacts */}
+      {tab === 3 && (
         <div>
           <div className="flex gap-3 mb-4">
             <button onClick={() => setShowAddContact(true)} className="btn-primary">+ Adicionar Contato</button>
@@ -238,8 +644,8 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 2: Payments */}
-      {tab === 2 && (
+      {/* Tab 4: Payments */}
+      {tab === 4 && (
         <div className="card p-0 overflow-hidden">
           <table className="w-full">
             <thead className="bg-surface">
@@ -272,8 +678,8 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 3: Documents */}
-      {tab === 3 && (
+      {/* Tab 5: Documents */}
+      {tab === 5 && (
         <div className="card p-0 overflow-hidden">
           <table className="w-full">
             <thead className="bg-surface">
@@ -302,8 +708,8 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 4: Audit */}
-      {tab === 4 && (
+      {/* Tab 6: Audit */}
+      {tab === 6 && (
         <div className="card p-0 overflow-hidden">
           <table className="w-full">
             <thead className="bg-surface">
@@ -330,22 +736,5 @@ export default function OperatorDetailPage() {
         </div>
       )}
     </AppShell>
-  );
-}
-
-function Field({ label, value, mono = false, link = false }: { label: string; value: any; mono?: boolean; link?: boolean }) {
-  return (
-    <div>
-      <p className="text-xs text-muted uppercase tracking-wide mb-0.5">{label}</p>
-      {value == null || value === "" ? (
-        <p className="text-sm text-muted">-</p>
-      ) : link ? (
-        <a href={value} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline">{value}</a>
-      ) : typeof value === "string" || typeof value === "number" ? (
-        <p className={`text-sm text-slate-200 ${mono ? "font-mono" : ""}`}>{value}</p>
-      ) : (
-        <div>{value}</div>
-      )}
-    </div>
   );
 }

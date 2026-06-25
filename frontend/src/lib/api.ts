@@ -54,6 +54,21 @@ export const deleteContact = (operatorId: number, contactId: number) => api.dele
 export const findContactsAI = (operatorId: number) => api.post(`/api/operators/${operatorId}/find-contacts`);
 export const syncFromMF = () => api.post("/api/operators/sync-mf");
 
+// Brands
+export const getOperatorBrands = (id: number) => api.get(`/api/operators/${id}/brands`);
+export const addBrand = (id: number, data: any) => api.post(`/api/operators/${id}/brands`, data);
+export const updateBrand = (id: number, brandId: number, data: any) => api.patch(`/api/operators/${id}/brands/${brandId}`, data);
+export const deleteBrand = (id: number, brandId: number) => api.delete(`/api/operators/${id}/brands/${brandId}`);
+
+// ENDR
+export const getEndrAssociations = (id: number) => api.get(`/api/operators/${id}/endr`);
+export const addEndrAssociation = (id: number, data: any) => api.post(`/api/operators/${id}/endr`, data);
+export const deleteEndrAssociation = (id: number, assocId: number) => api.delete(`/api/operators/${id}/endr/${assocId}`);
+
+// Import
+export const importOperators = (formData: FormData) => api.post('/api/operators/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+export const getSyncStatus = () => api.get('/api/operators/sync-status');
+
 // Collections
 export const getCollections = (params?: any) => api.get("/api/collections/", { params });
 export const getCollection = (id: number) => api.get(`/api/collections/${id}`);

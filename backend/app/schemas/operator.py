@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, date
 from ..models.operator import OperatorStatus, ContactType
 
 
@@ -25,6 +25,56 @@ class ContactOut(BaseModel):
         from_attributes = True
 
 
+class BrandCreate(BaseModel):
+    name: str
+    website: Optional[str] = None
+    instagram: Optional[str] = None
+    twitter: Optional[str] = None
+    facebook: Optional[str] = None
+    other_social: Optional[str] = None
+
+
+class BrandUpdate(BaseModel):
+    name: Optional[str] = None
+    website: Optional[str] = None
+    instagram: Optional[str] = None
+    twitter: Optional[str] = None
+    facebook: Optional[str] = None
+    other_social: Optional[str] = None
+
+
+class BrandOut(BaseModel):
+    id: int
+    name: str
+    website: Optional[str]
+    instagram: Optional[str]
+    twitter: Optional[str]
+    facebook: Optional[str]
+    other_social: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EndrAssociationCreate(BaseModel):
+    reference_month: date
+    is_associated: bool = True
+    notes: Optional[str] = None
+
+
+class EndrAssociationOut(BaseModel):
+    id: int
+    operator_id: int
+    reference_month: date
+    is_associated: bool
+    notes: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class OperatorCreate(BaseModel):
     company_name: str
     fantasy_name: Optional[str] = None
@@ -33,6 +83,17 @@ class OperatorCreate(BaseModel):
     website: Optional[str] = None
     status: OperatorStatus = OperatorStatus.active
     notes: Optional[str] = None
+    # Address
+    address_street: Optional[str] = None
+    address_number: Optional[str] = None
+    address_complement: Optional[str] = None
+    address_neighborhood: Optional[str] = None
+    address_city: Optional[str] = None
+    address_state: Optional[str] = None
+    address_zip: Optional[str] = None
+    # Authorization
+    authorization_number: Optional[str] = None
+    authorization_date: Optional[datetime] = None
 
 
 class OperatorUpdate(BaseModel):
@@ -42,6 +103,17 @@ class OperatorUpdate(BaseModel):
     website: Optional[str] = None
     status: Optional[OperatorStatus] = None
     notes: Optional[str] = None
+    # Address
+    address_street: Optional[str] = None
+    address_number: Optional[str] = None
+    address_complement: Optional[str] = None
+    address_neighborhood: Optional[str] = None
+    address_city: Optional[str] = None
+    address_state: Optional[str] = None
+    address_zip: Optional[str] = None
+    # Authorization
+    authorization_number: Optional[str] = None
+    authorization_date: Optional[datetime] = None
 
 
 class OperatorOut(BaseModel):
@@ -56,6 +128,20 @@ class OperatorOut(BaseModel):
     contacts: List[ContactOut] = []
     created_at: datetime
     updated_at: datetime
+    # Address
+    address_street: Optional[str] = None
+    address_number: Optional[str] = None
+    address_complement: Optional[str] = None
+    address_neighborhood: Optional[str] = None
+    address_city: Optional[str] = None
+    address_state: Optional[str] = None
+    address_zip: Optional[str] = None
+    # Authorization
+    authorization_number: Optional[str] = None
+    authorization_date: Optional[datetime] = None
+    # Relations
+    brands: List[BrandOut] = []
+    endr_associations: List[EndrAssociationOut] = []
 
     class Config:
         from_attributes = True

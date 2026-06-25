@@ -14,6 +14,18 @@ from .ai_service import analyze_payment_email
 from .audit_service import log_action
 
 logger = logging.getLogger(__name__)
+
+
+def is_endr_associated(db, operator_id: int, reference_month: date) -> bool:
+    from ..models.operator import EndrAssociation
+    assoc = db.query(EndrAssociation).filter(
+        EndrAssociation.operator_id == operator_id,
+        EndrAssociation.reference_month == reference_month,
+        EndrAssociation.is_associated == True
+    ).first()
+    return assoc is not None
+
+
 scheduler = BackgroundScheduler(timezone="America/Sao_Paulo")
 
 
@@ -81,6 +93,17 @@ def job_send_first_notifications():
 
             for payment in pending_payments:
                 op = db.query(BettingOperator).get(payment.operator_id)
+                if is_endr_associated(db, op.id, ref_month):
+                    event = CollectionEvent(
+                        cycle_id=cycle.id,
+                        operator_id=op.id,
+                        event_type=EventType.manual_note,
+                        channel=EventChannel.system,
+                        notes="Operador associado ao ENDR — cobrança suspensa neste mês",
+                    )
+                    db.add(event)
+                    db.commit()
+                    continue
                 send_collection_notification(
                     db=db,
                     cycle_id=cycle.id,
@@ -132,6 +155,16 @@ def job_send_second_notifications():
 
             for payment in overdue:
                 op = db.query(BettingOperator).get(payment.operator_id)
+                if is_endr_associated(db, op.id, ref_month):
+                    event = CollectionEvent(
+                        cycle_id=cycle.id,
+                        operator_id=op.id,
+                        event_type=EventType.manual_note,
+                        channel=EventChannel.system,
+                        notes="Operador associado ao ENDR — cobrança suspensa neste mês",
+                    )
+                    db.add(event)
+                    continue
                 send_collection_notification(
                     db=db, cycle_id=cycle.id, operator=op, confederation=conf,
                     reference_month=ref_month.strftime("%m/%Y"), notification_number=2,

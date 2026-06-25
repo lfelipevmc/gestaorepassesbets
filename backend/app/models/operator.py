@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey, Boolean, Text
+from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey, Boolean, Text, Date
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -34,10 +34,25 @@ class BettingOperator(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
+    # Address (from CNPJ)
+    address_street = Column(String, nullable=True)
+    address_number = Column(String(20), nullable=True)
+    address_complement = Column(String, nullable=True)
+    address_neighborhood = Column(String, nullable=True)
+    address_city = Column(String, nullable=True)
+    address_state = Column(String(2), nullable=True)
+    address_zip = Column(String(9), nullable=True)  # 00000-000
+
+    # Authorization
+    authorization_number = Column(String, nullable=True)   # portaria/número da autorização
+    authorization_date = Column(DateTime, nullable=True)   # data da autorização MF (cobrança só a partir desta data)
+
     contacts = relationship("OperatorContact", back_populates="operator", cascade="all, delete-orphan")
     payments = relationship("Payment", back_populates="operator")
     collection_events = relationship("CollectionEvent", back_populates="operator")
     documents = relationship("Document", back_populates="operator")
+    brands = relationship("OperatorBrand", back_populates="operator", cascade="all, delete-orphan")
+    endr_associations = relationship("EndrAssociation", back_populates="operator", cascade="all, delete-orphan")
 
 
 class OperatorContact(Base):
@@ -53,3 +68,36 @@ class OperatorContact(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     operator = relationship("BettingOperator", back_populates="contacts")
+
+
+class OperatorBrand(Base):
+    """Marcas vinculadas a um agente operador (até 3 por operador)."""
+    __tablename__ = "operator_brands"
+    id = Column(Integer, primary_key=True)
+    operator_id = Column(Integer, ForeignKey("betting_operators.id"), nullable=False)
+    name = Column(String, nullable=False)           # nome da marca
+    website = Column(String, nullable=True)
+    instagram = Column(String, nullable=True)
+    twitter = Column(String, nullable=True)
+    facebook = Column(String, nullable=True)
+    other_social = Column(String, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    operator = relationship("BettingOperator", back_populates="brands")
+
+
+class EndrAssociation(Base):
+    """Associação mensal ao ENDR (Escritório Nacional de Rateios).
+    Se associada em dado mês, a bet não deve ser cobrada naquele mês."""
+    __tablename__ = "endr_associations"
+    id = Column(Integer, primary_key=True)
+    operator_id = Column(Integer, ForeignKey("betting_operators.id"), nullable=False)
+    reference_month = Column(Date, nullable=False)  # primeiro dia do mês de referência
+    is_associated = Column(Boolean, default=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    operator = relationship("BettingOperator", back_populates="endr_associations")
+    updated_by = relationship("User")

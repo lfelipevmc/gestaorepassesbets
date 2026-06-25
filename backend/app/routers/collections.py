@@ -86,10 +86,27 @@ def send_notifications(id: int, notification_number: int = 1, db: Session = Depe
         Payment.status.in_([PaymentStatus.pending, PaymentStatus.overdue])
     ).all()
 
+    from ..services.scheduler import is_endr_associated
+    from ..models.collection import CollectionEvent, EventType, EventChannel
+
     sent = 0
     failed = 0
+    skipped_endr = 0
     for payment in pending:
         op = db.query(BettingOperator).get(payment.operator_id)
+        if is_endr_associated(db, op.id, cycle.reference_month):
+            event = CollectionEvent(
+                cycle_id=id,
+                operator_id=op.id,
+                event_type=EventType.manual_note,
+                channel=EventChannel.system,
+                notes="Operador associado ao ENDR — cobrança suspensa neste mês",
+                performed_by_id=current_user.id,
+            )
+            db.add(event)
+            db.commit()
+            skipped_endr += 1
+            continue
         success = send_collection_notification(
             db=db, cycle_id=id, operator=op, confederation=confederation,
             reference_month=cycle.reference_month.strftime("%m/%Y"),
@@ -102,4 +119,4 @@ def send_notifications(id: int, notification_number: int = 1, db: Session = Depe
         else:
             failed += 1
 
-    return {"sent": sent, "failed": failed, "total": len(pending)}
+    return {"sent": sent, "failed": failed, "skipped_endr": skipped_endr, "total": len(pending)}

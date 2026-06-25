@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, U
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from ..database import get_db
-from ..models.operator import BettingOperator, OperatorContact, OperatorStatus
+from ..models.operator import BettingOperator, OperatorContact, OperatorStatus, OperatorBrand, EndrAssociation
 from ..models.user import User
-from ..schemas.operator import OperatorCreate, OperatorUpdate, OperatorOut, ContactCreate, ContactOut
+from ..schemas.operator import OperatorCreate, OperatorUpdate, OperatorOut, ContactCreate, ContactOut, BrandCreate, BrandUpdate, BrandOut, EndrAssociationCreate, EndrAssociationOut
 from ..core.auth import get_current_user, require_office
 from ..services.audit_service import log_action
 from ..services.mf_scraper import scrape_mf_operators, import_from_file, get_last_sync_info
@@ -118,6 +118,89 @@ def sync_from_mf(db: Session = Depends(get_db), current_user: User = Depends(req
     """Tenta sincronizar diretamente com o site do MF/SPA."""
     result = scrape_mf_operators(db)
     return result
+
+
+# --- Brands ---
+
+@router.get("/{id}/brands", response_model=List[BrandOut])
+def list_brands(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    op = db.query(BettingOperator).get(id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operador não encontrado")
+    return op.brands
+
+
+@router.post("/{id}/brands", response_model=BrandOut)
+def add_brand(id: int, data: BrandCreate, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    op = db.query(BettingOperator).get(id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operador não encontrado")
+    if len(op.brands) >= 3:
+        raise HTTPException(status_code=400, detail="Limite de 3 marcas por agente operador atingido")
+    brand = OperatorBrand(operator_id=id, **data.model_dump())
+    db.add(brand)
+    db.commit()
+    db.refresh(brand)
+    log_action(db=db, action="ADD_BRAND", entity_type="BettingOperator", entity_id=id, new_values=data.model_dump(), user_id=current_user.id)
+    return brand
+
+
+@router.patch("/{id}/brands/{brand_id}", response_model=BrandOut)
+def update_brand(id: int, brand_id: int, data: BrandUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    brand = db.query(OperatorBrand).filter(OperatorBrand.id == brand_id, OperatorBrand.operator_id == id).first()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Marca não encontrada")
+    for k, v in data.model_dump(exclude_none=True).items():
+        setattr(brand, k, v)
+    db.commit()
+    db.refresh(brand)
+    log_action(db=db, action="UPDATE_BRAND", entity_type="BettingOperator", entity_id=id, new_values=data.model_dump(exclude_none=True), user_id=current_user.id)
+    return brand
+
+
+@router.delete("/{id}/brands/{brand_id}")
+def delete_brand(id: int, brand_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    brand = db.query(OperatorBrand).filter(OperatorBrand.id == brand_id, OperatorBrand.operator_id == id).first()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Marca não encontrada")
+    db.delete(brand)
+    db.commit()
+    log_action(db=db, action="DELETE_BRAND", entity_type="BettingOperator", entity_id=id, user_id=current_user.id)
+    return {"ok": True}
+
+
+# --- ENDR Associations ---
+
+@router.get("/{id}/endr", response_model=List[EndrAssociationOut])
+def list_endr(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    op = db.query(BettingOperator).get(id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operador não encontrado")
+    return op.endr_associations
+
+
+@router.post("/{id}/endr", response_model=EndrAssociationOut)
+def add_endr(id: int, data: EndrAssociationCreate, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    op = db.query(BettingOperator).get(id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operador não encontrado")
+    assoc = EndrAssociation(operator_id=id, updated_by_id=current_user.id, **data.model_dump())
+    db.add(assoc)
+    db.commit()
+    db.refresh(assoc)
+    log_action(db=db, action="ADD_ENDR_ASSOCIATION", entity_type="BettingOperator", entity_id=id, new_values=data.model_dump(default=str), user_id=current_user.id)
+    return assoc
+
+
+@router.delete("/{id}/endr/{assoc_id}")
+def delete_endr(id: int, assoc_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    assoc = db.query(EndrAssociation).filter(EndrAssociation.id == assoc_id, EndrAssociation.operator_id == id).first()
+    if not assoc:
+        raise HTTPException(status_code=404, detail="Associação ENDR não encontrada")
+    db.delete(assoc)
+    db.commit()
+    log_action(db=db, action="DELETE_ENDR_ASSOCIATION", entity_type="BettingOperator", entity_id=id, user_id=current_user.id)
+    return {"ok": True}
 
 
 @router.post("/import")
