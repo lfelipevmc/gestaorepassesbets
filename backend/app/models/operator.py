@@ -94,6 +94,20 @@ class OperatorBrand(Base):
     operator = relationship("BettingOperator", back_populates="brands")
 
 
+class ENDREntity(Base):
+    """Dados cadastrais do ENDR (entidade única no sistema)."""
+    __tablename__ = "endr_entity"
+    id = Column(Integer, primary_key=True, default=1)
+    name = Column(String(300), default="ENDR – Escritório Nacional de Direitos de Rateio")
+    cnpj = Column(String(20), nullable=True)
+    website = Column(String(300), nullable=True)
+    phone = Column(String(50), nullable=True)
+    email = Column(String(200), nullable=True)
+    address = Column(String(500), nullable=True)
+    notes = Column(Text, nullable=True)
+    updated_at = Column(DateTime, onupdate=func.now())
+
+
 class EndrAssociation(Base):
     """Associação mensal ao ENDR (Escritório Nacional de Rateios).
     Se associada em dado mês, a bet não deve ser cobrada naquele mês."""

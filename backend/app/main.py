@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import Base, engine
-from .routers import auth, users, confederations, operators, collections, payments, reports, documents, ai, audit
+from .routers import auth, users, confederations, operators, collections, payments, reports, documents, ai, audit, endr
 from .services.scheduler import start_scheduler
 import os
 
@@ -67,6 +67,7 @@ app.include_router(reports.router)
 app.include_router(documents.router)
 app.include_router(ai.router)
 app.include_router(audit.router)
+app.include_router(endr.router)
 
 
 @app.get("/health")

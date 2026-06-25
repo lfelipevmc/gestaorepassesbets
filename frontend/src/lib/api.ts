@@ -60,10 +60,18 @@ export const addBrand = (id: number, data: any) => api.post(`/api/operators/${id
 export const updateBrand = (id: number, brandId: number, data: any) => api.patch(`/api/operators/${id}/brands/${brandId}`, data);
 export const deleteBrand = (id: number, brandId: number) => api.delete(`/api/operators/${id}/brands/${brandId}`);
 
-// ENDR
+// ENDR (per-operator)
 export const getEndrAssociations = (id: number) => api.get(`/api/operators/${id}/endr`);
 export const addEndrAssociation = (id: number, data: any) => api.post(`/api/operators/${id}/endr`, data);
 export const deleteEndrAssociation = (id: number, assocId: number) => api.delete(`/api/operators/${id}/endr/${assocId}`);
+
+// ENDR entity & monthly view
+export const getEndrEntity = () => api.get("/api/endr/entity");
+export const updateEndrEntity = (data: any) => api.patch("/api/endr/entity", data);
+export const getEndrMonthly = (month: string) => api.get("/api/endr/monthly", { params: { month } });
+export const getEndrAvailableOperators = (month: string) => api.get("/api/endr/operators-available", { params: { month } });
+export const addEndrMonthly = (data: any) => api.post("/api/endr/monthly", data);
+export const removeEndrMonthly = (assocId: number) => api.delete(`/api/endr/monthly/${assocId}`);
 
 // Import
 export const importOperators = (formData: FormData) => api.post('/api/operators/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
