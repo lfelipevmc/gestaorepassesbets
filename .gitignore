@@ -1,0 +1,30 @@
+# Secrets - NUNCA commitar
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Node
+node_modules/
+.next/
+frontend/.next/
+frontend/out/
+
+# Uploads
+backend/uploads/
+uploads/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
