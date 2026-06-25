@@ -6,14 +6,14 @@ import os, shutil, uuid
 from ..database import get_db
 from ..models.payment import Payment, PaymentStatus, ENDRPayment, ENDRPaymentBetLink
 from ..models.user import User
-from ..schemas.payment import PaymentOut, PaymentDeclareGGR, PaymentConfirm, PaymentRegisterReport, ENDRPaymentOut, ENDRPaymentCreate
+from ..schemas.payment import PaymentOut, PaymentDeclareValue, PaymentConfirm, PaymentRegisterReport, ENDRPaymentOut, ENDRPaymentCreate
 from ..core.auth import get_current_user, require_office
 from ..services.audit_service import log_action
-from decimal import Decimal
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
-GGR_MULTIPLIER = Decimal("0.12") * Decimal("0.073")
+# NOTA: o escritório NÃO calcula o valor da contrapartida. A apuração é exclusiva do agente
+# operador (CBT/CBTM Art. 4º e 8º §2º; CBW Art. 10 §único). Apenas registramos o valor informado.
 REPORT_UPLOAD_DIR = "/app/uploads/reports"
 
 
@@ -47,39 +47,24 @@ def list_payments(
     return q.offset(skip).limit(limit).all()
 
 
-@router.post("/{id}/declare-ggr", response_model=PaymentOut)
-def declare_ggr(id: int, data: PaymentDeclareGGR, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+@router.post("/{id}/declare-value", response_model=PaymentOut)
+def declare_value(id: int, data: PaymentDeclareValue, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Registra o valor devido apurado pelo agente operador (informado no relatório).
+    O escritório não calcula este valor — apenas o registra conforme informado pela operadora."""
     payment = db.query(Payment).get(id)
     if not payment:
         raise HTTPException(status_code=404, detail="Pagamento não encontrado")
 
-    old = {"ggr_declared": str(payment.ggr_declared), "calculated_amount": str(payment.calculated_amount)}
-    payment.ggr_declared = data.ggr_declared
-
-    # Percentage priority: explicit in request > per-operator rule > confederation default
-    pct = data.operator_percentage
-    if pct is None:
-        from ..models.confederation import OperatorConfederationRule
-        rule = db.query(OperatorConfederationRule).filter(
-            OperatorConfederationRule.operator_id == payment.operator_id,
-            OperatorConfederationRule.confederation_id == payment.confederation_id,
-        ).first()
-        if rule:
-            pct = rule.percentage
-    if pct is None:
-        from ..models.confederation import Confederation
-        conf = db.query(Confederation).get(payment.confederation_id)
-        pct = conf.ggr_percentage or Decimal("1")
-
-    payment.operator_percentage = pct
-    payment.calculated_amount = data.ggr_declared * GGR_MULTIPLIER * pct
-
+    old = {"amount_due": str(payment.amount_due), "base_calculo": str(payment.base_calculo)}
+    payment.amount_due = data.amount_due
+    if data.base_calculo is not None:
+        payment.base_calculo = data.base_calculo
     if data.notes:
         payment.notes = data.notes
     db.commit()
     db.refresh(payment)
-    log_action(db=db, action="DECLARE_GGR", entity_type="Payment", entity_id=id,
-               old_values=old, new_values={"ggr_declared": str(data.ggr_declared), "percentage": str(pct)},
+    log_action(db=db, action="DECLARE_VALUE", entity_type="Payment", entity_id=id,
+               old_values=old, new_values={"amount_due": str(data.amount_due)},
                user_id=current_user.id)
     return payment
 

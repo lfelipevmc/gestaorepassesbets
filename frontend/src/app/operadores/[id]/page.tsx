@@ -800,9 +800,9 @@ export default function OperatorDetailPage() {
               <tr>
                 <th className="table-th">Ciclo</th>
                 <th className="table-th">Confederação</th>
-                <th className="table-th">GGR Declarado</th>
-                <th className="table-th">Valor Calculado</th>
-                <th className="table-th">Valor Pago</th>
+                <th className="table-th">Valor Devido</th>
+                <th className="table-th">Valor Recebido</th>
+                <th className="table-th">Relatório</th>
                 <th className="table-th">Data Pagamento</th>
                 <th className="table-th">Status</th>
               </tr>
@@ -814,9 +814,9 @@ export default function OperatorDetailPage() {
                 <tr key={p.id}>
                   <td className="table-td text-muted">#{p.cycle_id}</td>
                   <td className="table-td">#{p.confederation_id}</td>
-                  <td className="table-td">{formatCurrency(p.ggr_declared)}</td>
-                  <td className="table-td">{formatCurrency(p.calculated_amount)}</td>
+                  <td className="table-td">{formatCurrency(p.amount_due)}</td>
                   <td className="table-td">{formatCurrency(p.amount_paid)}</td>
+                  <td className="table-td">{p.report_received ? <span className="text-success text-xs">✓</span> : <span className="text-muted text-xs">—</span>}</td>
                   <td className="table-td">{formatDate(p.payment_date)}</td>
                   <td className="table-td"><Badge status={p.status} /></td>
                 </tr>

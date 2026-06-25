@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Numeric, Text, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -28,8 +28,8 @@ class Confederation(Base):
     contact_email = Column(String, nullable=True)
     finance_email = Column(String, nullable=True)
     payment_due_day = Column(Integer, default=10)
-    # Percentual padrão (sobrescrito por OperatorConfederationRule quando configurado por bet)
-    ggr_percentage = Column(Numeric(10, 6), nullable=True)
+    # Prazo (dias) para repasse aos beneficiários finais após o recebimento (ex: CBW 90 dias)
+    redistribution_deadline_days = Column(Integer, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -37,20 +37,32 @@ class Confederation(Base):
     collection_cycles = relationship("CollectionCycle", back_populates="confederation")
     payments = relationship("Payment", back_populates="confederation")
     documents = relationship("Document", back_populates="confederation")
-    operator_rules = relationship("OperatorConfederationRule", back_populates="confederation")
+    distribution_rules = relationship("DistributionRule", back_populates="confederation", cascade="all, delete-orphan")
 
 
-class OperatorConfederationRule(Base):
-    """Percentual de rateio específico por agente operador por confederação."""
-    __tablename__ = "operator_confederation_rules"
+class DistributionRule(Base):
+    """Matriz de rateio por cenário de competição, conforme o regulamento interno da confederação.
+
+    O rateio NÃO é um percentual fixo por bet: depende do tipo de competição (internacional/nacional),
+    da participação de integrantes do Sinesp e é apurado por partida pelo próprio agente operador.
+    Esta tabela documenta como a confederação redistribui as Contrapartidas recebidas.
+    """
+    __tablename__ = "distribution_rules"
     id = Column(Integer, primary_key=True)
-    operator_id = Column(Integer, ForeignKey("betting_operators.id"), nullable=False)
     confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=False)
-    percentage = Column(Numeric(10, 6), nullable=False)
-    notes = Column(Text, nullable=True)
+    scenario_code = Column(String(50), nullable=False)   # ex: intl_no_sinesp, intl_sinesp, nacional_sinesp
+    scenario_label = Column(String(200), nullable=False)
+    article_ref = Column(String(50), nullable=True)      # ex: "Art. 6º"
+    # Percentuais fixos quando o regulamento os especifica (ex: CBW). Nulo quando "equânime/variável".
+    confederation_pct = Column(Numeric(6, 4), nullable=True)
+    athlete_pct = Column(Numeric(6, 4), nullable=True)        # atleta(s)
+    entity_pct = Column(Numeric(6, 4), nullable=True)         # entidade de prática esportiva (clube)
+    federation_pct = Column(Numeric(6, 4), nullable=True)     # federação estadual
+    is_equanime = Column(Boolean, default=False)             # rateio igualitário entre participantes do Sinesp
+    description = Column(Text, nullable=True)                # texto da regra (do regulamento)
+    order_index = Column(Integer, default=0)
     created_at = Column(DateTime, server_default=func.now())
     updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    confederation = relationship("Confederation", back_populates="operator_rules")
-    operator = relationship("BettingOperator")
+    confederation = relationship("Confederation", back_populates="distribution_rules")
     updated_by = relationship("User")

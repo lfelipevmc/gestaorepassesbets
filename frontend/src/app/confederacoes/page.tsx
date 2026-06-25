@@ -25,8 +25,10 @@ export default function ConfederacoesPage() {
           {confederations.map(conf => {
             const confPays = payments.filter(p => p.confederation_id === conf.id);
             const paid = confPays.filter(p => p.status === "paid").length;
-            const overdue = confPays.filter(p => p.status === "overdue").length;
-            const rate = confPays.length > 0 ? Math.round((paid / confPays.length) * 100) : 0;
+            const reportPending = confPays.filter(p => p.status === "report_pending").length;
+            const overdue = confPays.filter(p => p.status === "overdue" || p.status === "pending").length;
+            const adimplentes = paid + reportPending;
+            const rate = confPays.length > 0 ? Math.round((adimplentes / confPays.length) * 100) : 0;
             const totalReceived = confPays.reduce((s, p) => s + parseFloat(p.amount_paid || 0), 0);
 
             return (
@@ -44,14 +46,18 @@ export default function ConfederacoesPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="grid grid-cols-4 gap-2 mb-4">
                   <div className="bg-success/10 rounded-lg p-3 text-center">
                     <p className="text-xl font-bold text-success">{paid}</p>
-                    <p className="text-xs text-muted">Adimplentes</p>
+                    <p className="text-xs text-muted">Adimpl.</p>
+                  </div>
+                  <div className="bg-warning/10 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-warning">{reportPending}</p>
+                    <p className="text-xs text-muted">Pend. Rel.</p>
                   </div>
                   <div className="bg-danger/10 rounded-lg p-3 text-center">
                     <p className="text-xl font-bold text-danger">{overdue}</p>
-                    <p className="text-xs text-muted">Inadimplentes</p>
+                    <p className="text-xs text-muted">Inadimpl.</p>
                   </div>
                   <div className="bg-surface rounded-lg p-3 text-center">
                     <p className="text-xl font-bold text-white">{confPays.length}</p>
@@ -62,11 +68,6 @@ export default function ConfederacoesPage() {
                 <div className="flex items-center justify-between text-sm mb-4">
                   <span className="text-muted">Total Recebido:</span>
                   <span className="font-semibold text-success">{formatCurrency(totalReceived)}</span>
-                </div>
-
-                <div className="flex items-center justify-between text-sm mb-4">
-                  <span className="text-muted">% do GGR:</span>
-                  <span className="font-medium text-white">{conf.ggr_percentage ? `${(parseFloat(conf.ggr_percentage) * 100).toFixed(1)}%` : "-"}</span>
                 </div>
 
                 <Link href={`/confederacoes/${conf.id}`} className="btn-secondary block text-center">

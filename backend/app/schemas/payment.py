@@ -5,9 +5,10 @@ from decimal import Decimal
 from ..models.payment import PaymentStatus
 
 
-class PaymentDeclareGGR(BaseModel):
-    ggr_declared: Decimal
-    operator_percentage: Optional[Decimal] = None   # % individual da bet (sobrescreve padrão)
+class PaymentDeclareValue(BaseModel):
+    """Registra o valor apurado/informado pelo agente operador (não há cálculo pelo escritório)."""
+    amount_due: Decimal                       # valor devido informado pelo operador
+    base_calculo: Optional[Decimal] = None    # Base de Cálculo apurada (do relatório)
     notes: Optional[str] = None
 
 
@@ -27,9 +28,8 @@ class PaymentOut(BaseModel):
     cycle_id: int
     operator_id: int
     confederation_id: int
-    ggr_declared: Optional[Decimal]
-    operator_percentage: Optional[Decimal]
-    calculated_amount: Optional[Decimal]
+    base_calculo: Optional[Decimal]
+    amount_due: Optional[Decimal]
     amount_paid: Optional[Decimal]
     payment_date: Optional[date]
     payment_confirmed_at: Optional[datetime]

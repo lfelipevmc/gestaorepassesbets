@@ -7,7 +7,7 @@ import Badge from "@/components/ui/Badge";
 import Modal from "@/components/ui/Modal";
 import {
   getCollection, getCollectionEvents, getPayments, getConfederation, getOperators,
-  sendNotifications, confirmPayment, declareGGR, addCollectionEvent
+  sendNotifications, confirmPayment, declareValue, addCollectionEvent
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 
@@ -33,7 +33,7 @@ export default function CollectionDetailPage() {
   const [showDeclare, setShowDeclare] = useState<any>(null);
   const [showEvent, setShowEvent] = useState<any>(null);
   const [confirmForm, setConfirmForm] = useState({ amount_paid: "", payment_date: "", notes: "" });
-  const [declareForm, setDeclareForm] = useState({ ggr_declared: "", notes: "" });
+  const [declareForm, setDeclareForm] = useState({ amount_due: "", base_calculo: "", notes: "" });
   const [eventForm, setEventForm] = useState({ event_type: "manual_note", channel: "manual", notes: "" });
 
   const fetchAll = () => {
@@ -80,10 +80,14 @@ export default function CollectionDetailPage() {
     }
   }
 
-  async function handleDeclareGGR(e: React.FormEvent) {
+  async function handleDeclareValue(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await declareGGR(showDeclare.id, { ggr_declared: parseFloat(declareForm.ggr_declared), notes: declareForm.notes });
+      await declareValue(showDeclare.id, {
+        amount_due: parseFloat(declareForm.amount_due),
+        base_calculo: declareForm.base_calculo ? parseFloat(declareForm.base_calculo) : null,
+        notes: declareForm.notes,
+      });
       setShowDeclare(null);
       fetchAll();
     } catch (err: any) {
@@ -105,8 +109,10 @@ export default function CollectionDetailPage() {
   if (loading) return <AppShell><div className="text-muted">Carregando...</div></AppShell>;
 
   const paid = payments.filter(p => p.status === "paid").length;
+  const reportPending = payments.filter(p => p.status === "report_pending").length;
   const total = payments.length;
-  const rate = total > 0 ? Math.round((paid / total) * 100) : 0;
+  const adimplentes = paid + reportPending;
+  const rate = total > 0 ? Math.round((adimplentes / total) * 100) : 0;
 
   return (
     <AppShell>
@@ -147,17 +153,21 @@ export default function CollectionDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="card text-center">
           <p className={`text-3xl font-bold ${rate >= 70 ? "text-success" : rate >= 40 ? "text-warning" : "text-danger"}`}>{rate}%</p>
           <p className="text-xs text-muted">Adimplência</p>
         </div>
         <div className="card text-center">
           <p className="text-3xl font-bold text-success">{paid}</p>
-          <p className="text-xs text-muted">Pagaram</p>
+          <p className="text-xs text-muted">Adimplentes</p>
         </div>
         <div className="card text-center">
-          <p className="text-3xl font-bold text-danger">{total - paid}</p>
+          <p className="text-3xl font-bold text-warning">{reportPending}</p>
+          <p className="text-xs text-muted">Pend. de Relatório</p>
+        </div>
+        <div className="card text-center">
+          <p className="text-3xl font-bold text-danger">{total - adimplentes}</p>
           <p className="text-xs text-muted">Inadimplentes</p>
         </div>
       </div>
@@ -171,9 +181,9 @@ export default function CollectionDetailPage() {
           <thead className="bg-surface">
             <tr>
               <th className="table-th">Operador</th>
-              <th className="table-th">GGR Declarado</th>
-              <th className="table-th">Valor Calculado</th>
-              <th className="table-th">Valor Pago</th>
+              <th className="table-th">Valor Devido (operador)</th>
+              <th className="table-th">Valor Recebido</th>
+              <th className="table-th">Relatório</th>
               <th className="table-th">Status</th>
               <th className="table-th">Ações</th>
             </tr>
@@ -184,17 +194,15 @@ export default function CollectionDetailPage() {
               return (
                 <tr key={p.id} className="hover:bg-surface-light/20">
                   <td className="table-td">{op?.fantasy_name || op?.company_name || `#${p.operator_id}`}</td>
-                  <td className="table-td">{formatCurrency(p.ggr_declared)}</td>
-                  <td className="table-td">{formatCurrency(p.calculated_amount)}</td>
+                  <td className="table-td">{formatCurrency(p.amount_due)}</td>
                   <td className="table-td">{formatCurrency(p.amount_paid)}</td>
+                  <td className="table-td">{p.report_received ? <span className="text-xs text-success">✓</span> : <span className="text-xs text-muted">—</span>}</td>
                   <td className="table-td"><Badge status={p.status} /></td>
                   <td className="table-td">
                     <div className="flex gap-2">
+                      <button onClick={() => { setShowDeclare(p); setDeclareForm({ amount_due: "", base_calculo: "", notes: "" }); }} className="text-xs text-blue-400 hover:underline">Registrar Valor</button>
                       {p.status !== "paid" && (
-                        <>
-                          <button onClick={() => { setShowDeclare(p); setDeclareForm({ ggr_declared: "", notes: "" }); }} className="text-xs text-blue-400 hover:underline">Declarar GGR</button>
-                          <button onClick={() => { setShowConfirm(p); setConfirmForm({ amount_paid: "", payment_date: "", notes: "" }); }} className="text-xs text-success hover:underline">Confirmar</button>
-                        </>
+                        <button onClick={() => { setShowConfirm(p); setConfirmForm({ amount_paid: "", payment_date: "", notes: "" }); }} className="text-xs text-success hover:underline">Confirmar</button>
                       )}
                     </div>
                   </td>
@@ -256,13 +264,17 @@ export default function CollectionDetailPage() {
         </form>
       </Modal>
 
-      {/* Declare GGR Modal */}
-      <Modal isOpen={!!showDeclare} onClose={() => setShowDeclare(null)} title="Declarar GGR">
-        <form onSubmit={handleDeclareGGR} className="space-y-4">
-          <p className="text-sm text-muted">GGR × 12% × 7.3% × % confederação = valor devido</p>
+      {/* Registrar Valor Devido Modal */}
+      <Modal isOpen={!!showDeclare} onClose={() => setShowDeclare(null)} title="Registrar Valor Devido">
+        <form onSubmit={handleDeclareValue} className="space-y-4">
+          <p className="text-sm text-muted">O valor é apurado pelo próprio agente operador e informado no relatório. O escritório apenas registra o que foi informado — não há cálculo a partir do GGR.</p>
           <div>
-            <label className="label">GGR do Mês (R$) *</label>
-            <input type="number" step="0.01" className="input" required value={declareForm.ggr_declared} onChange={e => setDeclareForm(f => ({ ...f, ggr_declared: e.target.value }))} />
+            <label className="label">Valor Devido informado pelo operador (R$) *</label>
+            <input type="number" step="0.01" className="input" required value={declareForm.amount_due} onChange={e => setDeclareForm(f => ({ ...f, amount_due: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Base de Cálculo (R$) <span className="text-muted">(opcional, do relatório)</span></label>
+            <input type="number" step="0.01" className="input" value={declareForm.base_calculo} onChange={e => setDeclareForm(f => ({ ...f, base_calculo: e.target.value }))} />
           </div>
           <div>
             <label className="label">Observações</label>
@@ -270,7 +282,7 @@ export default function CollectionDetailPage() {
           </div>
           <div className="flex gap-3 justify-end">
             <button type="button" onClick={() => setShowDeclare(null)} className="btn-secondary">Cancelar</button>
-            <button type="submit" className="btn-primary">Declarar</button>
+            <button type="submit" className="btn-primary">Registrar</button>
           </div>
         </form>
       </Modal>

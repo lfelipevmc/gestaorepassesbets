@@ -5,6 +5,9 @@ from .database import Base, engine
 from .routers import auth, users, confederations, operators, collections, payments, reports, documents, ai, audit, endr
 from .services.scheduler import start_scheduler
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Gestão de Haveres de Bets", version="1.0.0")
 
@@ -20,6 +23,7 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
+    _run_light_migrations()
     for d in ["/app/uploads", "/app/uploads/logos", "/app/uploads/reports"]:
         os.makedirs(d, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
@@ -27,21 +31,55 @@ def startup():
     start_scheduler()
 
 
+def _run_light_migrations():
+    """Migração leve e idempotente para bancos já existentes (volume persistente).
+
+    O SQLAlchemy create_all() cria TABELAS faltantes, mas não adiciona COLUNAS novas a tabelas
+    já existentes nem novos valores de ENUM. Aqui adicionamos colunas faltantes (nulas) e o novo
+    valor de enum 'report_pending'. Tudo é IF NOT EXISTS — seguro para bancos novos ou antigos.
+    """
+    from sqlalchemy import inspect, text
+    try:
+        insp = inspect(engine)
+        for table in Base.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue  # tabela nova: create_all já criou com todas as colunas
+            existing = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in existing:
+                    continue
+                try:
+                    coltype = col.type.compile(dialect=engine.dialect)
+                    with engine.begin() as conn:
+                        conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS "{col.name}" {coltype}'))
+                    logger.info(f"Migração: coluna {table.name}.{col.name} adicionada")
+                except Exception as e:
+                    logger.warning(f"Migração: falha ao adicionar {table.name}.{col.name}: {e}")
+
+        # Novo valor de enum em PaymentStatus (Postgres). PG16 suporta ADD VALUE IF NOT EXISTS.
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TYPE paymentstatus ADD VALUE IF NOT EXISTS 'report_pending'"))
+        except Exception as e:
+            logger.warning(f"Migração: enum paymentstatus já atualizado ou indisponível: {e}")
+    except Exception as e:
+        logger.error(f"Migração leve falhou: {e}")
+
+
 def _seed_initial_data():
     from .database import SessionLocal
     from .models.confederation import Confederation
     from .models.user import User, UserRole
     from .core.auth import get_password_hash
-    from decimal import Decimal
 
     db = SessionLocal()
     try:
         if db.query(Confederation).count() == 0:
             confederations = [
-                Confederation(name="Confederação Brasileira de Tênis de Mesa", acronym="CBTM", ggr_percentage=Decimal("0.25")),
-                Confederation(name="Confederação Brasileira de Tênis", acronym="CBT", ggr_percentage=Decimal("0.25")),
-                Confederation(name="Confederação Brasileira de Wrestling", acronym="CBW", ggr_percentage=Decimal("0.25")),
-                Confederation(name="Confederação Brasileira de Hipismo", acronym="CBH", ggr_percentage=Decimal("0.25")),
+                Confederation(name="Confederação Brasileira de Tênis de Mesa", acronym="CBTM"),
+                Confederation(name="Confederação Brasileira de Tênis", acronym="CBT"),
+                Confederation(name="Confederação Brasileira de Wrestling", acronym="CBW", redistribution_deadline_days=90),
+                Confederation(name="Confederação Brasileira de Hipismo", acronym="CBH"),
             ]
             for c in confederations:
                 db.add(c)
@@ -56,8 +94,78 @@ def _seed_initial_data():
             )
             db.add(admin)
             db.commit()
+
+        _seed_distribution_rules(db)
     finally:
         db.close()
+
+
+def _seed_distribution_rules(db):
+    """Semeia a matriz de rateio de cada confederação conforme seus regulamentos."""
+    from .models.confederation import Confederation, DistributionRule
+    from decimal import Decimal
+
+    if db.query(DistributionRule).count() > 0:
+        return
+
+    def conf_id(acr):
+        c = db.query(Confederation).filter(Confederation.acronym == acr).first()
+        return c.id if c else None
+
+    rules = []
+
+    # CBW — percentuais fixos (Regulamento CBW, Cap. II)
+    cbw = conf_id("CBW")
+    if cbw:
+        rules += [
+            DistributionRule(confederation_id=cbw, scenario_code="intl_no_brasil", order_index=1,
+                scenario_label="Evento Internacional sem atleta brasileiro", article_ref="Art. 3º",
+                confederation_pct=Decimal("1.0"),
+                description="Contrapartidas de luta sem participação de atleta brasileiro: 100% à CBW."),
+            DistributionRule(confederation_id=cbw, scenario_code="intl_com_brasil", order_index=2,
+                scenario_label="Evento Internacional com atleta brasileiro", article_ref="Art. 4º",
+                confederation_pct=Decimal("0.5"), athlete_pct=Decimal("0.5"),
+                description="50% à CBW e 50% ao(s) atleta(s) brasileiro(s) participante(s)."),
+            DistributionRule(confederation_id=cbw, scenario_code="nac_atleta", order_index=3,
+                scenario_label="Evento Nacional – referência só ao atleta", article_ref="Art. 5º",
+                confederation_pct=Decimal("0.5"), athlete_pct=Decimal("0.5"),
+                description="50% à CBW e 50% ao(s) atleta(s) referenciado(s)."),
+            DistributionRule(confederation_id=cbw, scenario_code="nac_atleta_clube", order_index=4,
+                scenario_label="Evento Nacional – atleta + clube", article_ref="Art. 6º",
+                confederation_pct=Decimal("0.5"), entity_pct=Decimal("0.3"), athlete_pct=Decimal("0.2"),
+                description="50% à CBW, 30% à entidade de prática esportiva, 20% ao atleta."),
+            DistributionRule(confederation_id=cbw, scenario_code="nac_atleta_federacao", order_index=5,
+                scenario_label="Evento Nacional – atleta + federação estadual", article_ref="Art. 7º",
+                confederation_pct=Decimal("0.5"), federation_pct=Decimal("0.2"), athlete_pct=Decimal("0.3"),
+                description="50% à CBW, 20% à federação estadual, 30% ao atleta."),
+        ]
+
+    # CBT e CBTM — rateio equânime (Regulamentos CBT/CBTM, Cap. III)
+    for acr in ("CBT", "CBTM"):
+        cid = conf_id(acr)
+        if not cid:
+            continue
+        rules += [
+            DistributionRule(confederation_id=cid, scenario_code="intl_no_sinesp", order_index=1,
+                scenario_label="Competição Internacional sem integrantes do Sinesp", article_ref="Art. 5º",
+                confederation_pct=Decimal("1.0"),
+                description="Recursos integralmente revertidos à confederação."),
+            DistributionRule(confederation_id=cid, scenario_code="intl_com_sinesp", order_index=2,
+                scenario_label="Competição Internacional com integrantes do Sinesp", article_ref="Art. 6º",
+                is_equanime=True,
+                description="Rateio equânime, em percentuais idênticos, entre confederação, entidade de prática "
+                            "e/ou atleta cujos direitos foram explorados, por partida/jogo. Duplas/equipes "
+                            "dividem igualmente a parcela do atleta."),
+            DistributionRule(confederation_id=cid, scenario_code="nac_com_sinesp", order_index=3,
+                scenario_label="Competição Nacional com integrantes do Sinesp", article_ref="Art. 7º",
+                is_equanime=True,
+                description="Rateio equânime, em percentuais idênticos, entre todos os integrantes do Sinesp "
+                            "que participaram do jogo/partida apostada."),
+        ]
+
+    for r in rules:
+        db.add(r)
+    db.commit()
 
 
 app.include_router(auth.router)

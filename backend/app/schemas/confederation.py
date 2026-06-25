@@ -4,22 +4,47 @@ from datetime import datetime
 from decimal import Decimal
 
 
-class OperatorRuleOut(BaseModel):
+class DistributionRuleOut(BaseModel):
     id: int
-    operator_id: int
     confederation_id: int
-    percentage: Decimal
-    notes: Optional[str]
-    created_at: datetime
+    scenario_code: str
+    scenario_label: str
+    article_ref: Optional[str]
+    confederation_pct: Optional[Decimal]
+    athlete_pct: Optional[Decimal]
+    entity_pct: Optional[Decimal]
+    federation_pct: Optional[Decimal]
+    is_equanime: bool
+    description: Optional[str]
+    order_index: int
 
     class Config:
         from_attributes = True
 
 
-class OperatorRuleCreate(BaseModel):
-    operator_id: int
-    percentage: Decimal
-    notes: Optional[str] = None
+class DistributionRuleCreate(BaseModel):
+    scenario_code: str
+    scenario_label: str
+    article_ref: Optional[str] = None
+    confederation_pct: Optional[Decimal] = None
+    athlete_pct: Optional[Decimal] = None
+    entity_pct: Optional[Decimal] = None
+    federation_pct: Optional[Decimal] = None
+    is_equanime: bool = False
+    description: Optional[str] = None
+    order_index: int = 0
+
+
+class DistributionRuleUpdate(BaseModel):
+    scenario_label: Optional[str] = None
+    article_ref: Optional[str] = None
+    confederation_pct: Optional[Decimal] = None
+    athlete_pct: Optional[Decimal] = None
+    entity_pct: Optional[Decimal] = None
+    federation_pct: Optional[Decimal] = None
+    is_equanime: Optional[bool] = None
+    description: Optional[str] = None
+    order_index: Optional[int] = None
 
 
 class ConfederationCreate(BaseModel):
@@ -39,7 +64,7 @@ class ConfederationCreate(BaseModel):
     contact_email: Optional[str] = None
     finance_email: Optional[str] = None
     payment_due_day: int = 10
-    ggr_percentage: Optional[Decimal] = None
+    redistribution_deadline_days: Optional[int] = None
 
 
 class ConfederationUpdate(BaseModel):
@@ -58,7 +83,7 @@ class ConfederationUpdate(BaseModel):
     finance_email: Optional[str] = None
     contact_email: Optional[str] = None
     payment_due_day: Optional[int] = None
-    ggr_percentage: Optional[Decimal] = None
+    redistribution_deadline_days: Optional[int] = None
 
 
 class ConfederationOut(BaseModel):
@@ -79,7 +104,7 @@ class ConfederationOut(BaseModel):
     contact_email: Optional[str]
     finance_email: Optional[str]
     payment_due_day: int
-    ggr_percentage: Optional[Decimal]
+    redistribution_deadline_days: Optional[int]
     created_at: datetime
 
     class Config:

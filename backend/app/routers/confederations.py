@@ -3,9 +3,9 @@ from sqlalchemy.orm import Session
 from typing import List
 import os, shutil, uuid
 from ..database import get_db
-from ..models.confederation import Confederation, OperatorConfederationRule
+from ..models.confederation import Confederation, DistributionRule
 from ..models.user import User
-from ..schemas.confederation import ConfederationCreate, ConfederationUpdate, ConfederationOut, OperatorRuleCreate, OperatorRuleOut
+from ..schemas.confederation import ConfederationCreate, ConfederationUpdate, ConfederationOut, DistributionRuleCreate, DistributionRuleUpdate, DistributionRuleOut
 from ..core.auth import get_current_user, require_office
 from ..services.audit_service import log_action
 
@@ -73,47 +73,53 @@ async def upload_logo(id: int, file: UploadFile = File(...), db: Session = Depen
     return {"logo_url": conf.logo_url}
 
 
-@router.get("/{id}/rules", response_model=List[OperatorRuleOut])
-def list_rules(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return db.query(OperatorConfederationRule).filter(OperatorConfederationRule.confederation_id == id).all()
+# --- Regras de rateio (matriz por cenário de competição, conforme regulamento) ---
 
-
-@router.post("/{id}/rules", response_model=OperatorRuleOut)
-def upsert_rule(id: int, data: OperatorRuleCreate, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
-    existing = db.query(OperatorConfederationRule).filter(
-        OperatorConfederationRule.confederation_id == id,
-        OperatorConfederationRule.operator_id == data.operator_id,
-    ).first()
-    if existing:
-        existing.percentage = data.percentage
-        existing.notes = data.notes
-        existing.updated_by_id = current_user.id
-        db.commit()
-        db.refresh(existing)
-        return existing
-    rule = OperatorConfederationRule(
-        confederation_id=id,
-        operator_id=data.operator_id,
-        percentage=data.percentage,
-        notes=data.notes,
-        updated_by_id=current_user.id,
+@router.get("/{id}/distribution-rules", response_model=List[DistributionRuleOut])
+def list_distribution_rules(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return (
+        db.query(DistributionRule)
+        .filter(DistributionRule.confederation_id == id)
+        .order_by(DistributionRule.order_index)
+        .all()
     )
+
+
+@router.post("/{id}/distribution-rules", response_model=DistributionRuleOut)
+def create_distribution_rule(id: int, data: DistributionRuleCreate, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    rule = DistributionRule(confederation_id=id, updated_by_id=current_user.id, **data.model_dump())
     db.add(rule)
     db.commit()
     db.refresh(rule)
-    log_action(db=db, action="SET_OPERATOR_RULE", entity_type="Confederation", entity_id=id,
-               new_values=data.model_dump(), user_id=current_user.id)
+    log_action(db=db, action="CREATE_DISTRIBUTION_RULE", entity_type="Confederation", entity_id=id,
+               new_values={"scenario": data.scenario_code}, user_id=current_user.id)
     return rule
 
 
-@router.delete("/{id}/rules/{rule_id}")
-def delete_rule(id: int, rule_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
-    rule = db.query(OperatorConfederationRule).filter(
-        OperatorConfederationRule.id == rule_id,
-        OperatorConfederationRule.confederation_id == id,
+@router.patch("/{id}/distribution-rules/{rule_id}", response_model=DistributionRuleOut)
+def update_distribution_rule(id: int, rule_id: int, data: DistributionRuleUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    rule = db.query(DistributionRule).filter(
+        DistributionRule.id == rule_id, DistributionRule.confederation_id == id
     ).first()
     if not rule:
-        raise HTTPException(status_code=404, detail="Regra não encontrada")
+        raise HTTPException(status_code=404, detail="Regra de rateio não encontrada")
+    for k, v in data.model_dump(exclude_none=True).items():
+        setattr(rule, k, v)
+    rule.updated_by_id = current_user.id
+    db.commit()
+    db.refresh(rule)
+    log_action(db=db, action="UPDATE_DISTRIBUTION_RULE", entity_type="Confederation", entity_id=id,
+               new_values=data.model_dump(exclude_none=True), user_id=current_user.id)
+    return rule
+
+
+@router.delete("/{id}/distribution-rules/{rule_id}")
+def delete_distribution_rule(id: int, rule_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    rule = db.query(DistributionRule).filter(
+        DistributionRule.id == rule_id, DistributionRule.confederation_id == id
+    ).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Regra de rateio não encontrada")
     db.delete(rule)
     db.commit()
     return {"ok": True}

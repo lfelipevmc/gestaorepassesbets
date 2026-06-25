@@ -5,7 +5,7 @@ import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import {
   getConfederation, updateConfederation, uploadConfederationLogo,
-  getConfederationRules, upsertConfederationRule, deleteConfederationRule,
+  getDistributionRules, deleteDistributionRule,
   getCollections, getPayments, getOperators,
   getEndrPayments, createEndrPayment, uploadEndrReport, deleteEndrPayment,
   registerReport, uploadPaymentReport,
@@ -13,17 +13,17 @@ import {
 import { formatDate, formatCurrency } from "@/lib/utils";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const TABS = ["Visão Geral", "Cadastro", "Receitas por Mês", "Repasses ENDR", "Regras por Bet"];
+const TABS = ["Visão Geral", "Cadastro", "Receitas por Mês", "Repasses ENDR", "Regras de Rateio"];
 
 type Conf = {
   id: number; name: string; acronym: string; cnpj?: string; website?: string; phone?: string;
   address?: string; president_name?: string; president_email?: string; president_phone?: string;
   president_term?: string; logo_url?: string; regulation_text?: string; rateio_rules?: string;
-  contact_email?: string; finance_email?: string; payment_due_day: number;
+  contact_email?: string; finance_email?: string; payment_due_day: number; redistribution_deadline_days?: number;
 };
 type Payment = {
   id: number; cycle_id: number; operator_id: number; status: string;
-  amount_paid?: string; ggr_declared?: string; report_received: boolean;
+  amount_paid?: string; amount_due?: string; base_calculo?: string; report_received: boolean;
   report_reference_month?: string; report_notes?: string; report_file_url?: string;
 };
 type ENDRPay = {
@@ -31,7 +31,11 @@ type ENDRPay = {
   amount_received: string; received_date: string; notes?: string;
   report_file_url?: string; bet_links: { id: number; operator_id: number }[];
 };
-type Rule = { id: number; operator_id: number; percentage: string; notes?: string };
+type DistRule = {
+  id: number; scenario_code: string; scenario_label: string; article_ref?: string;
+  confederation_pct?: string; athlete_pct?: string; entity_pct?: string; federation_pct?: string;
+  is_equanime: boolean; description?: string; order_index: number;
+};
 
 function toFirstOfMonth(d: Date) {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-01";
@@ -57,7 +61,7 @@ export default function ConfederationDetailPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [operators, setOperators] = useState<any[]>([]);
   const [endrPayments, setEndrPayments] = useState<ENDRPay[]>([]);
-  const [rules, setRules] = useState<Rule[]>([]);
+  const [rules, setRules] = useState<DistRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState(0);
   const [msg, setMsg] = useState("");
@@ -80,8 +84,6 @@ export default function ConfederationDetailPage() {
   const [reportForm, setReportForm] = useState({ report_reference_month: "", report_notes: "" });
   const reportFileRef = useRef<HTMLInputElement>(null);
 
-  const [ruleForm, setRuleForm] = useState({ operator_id: "", percentage: "", notes: "" });
-  const [savingRule, setSavingRule] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -90,7 +92,7 @@ export default function ConfederationDetailPage() {
       getPayments({ confederation_id: numId, limit: 500 }),
       getOperators({ limit: 300 }),
       getEndrPayments({ confederation_id: numId }),
-      getConfederationRules(numId),
+      getDistributionRules(numId),
     ]).then(([c, cols, pays, ops, endr, rls]) => {
       setConf(c.data);
       setConfForm(c.data);
@@ -167,15 +169,10 @@ export default function ConfederationDetailPage() {
     } catch { flash("Erro ao registrar relatório."); }
   }
 
-  async function saveRule() {
-    if (!ruleForm.operator_id || !ruleForm.percentage) return;
-    setSavingRule(true);
-    try {
-      const r = await upsertConfederationRule(numId, { operator_id: Number(ruleForm.operator_id), percentage: parseFloat(ruleForm.percentage) / 100, notes: ruleForm.notes || null });
-      setRules(prev => { const idx = prev.findIndex(x => x.operator_id === r.data.operator_id); if (idx >= 0) { const n = [...prev]; n[idx] = r.data; return n; } return [...prev, r.data]; });
-      setRuleForm({ operator_id: "", percentage: "", notes: "" }); flash("Regra salva.");
-    } catch { flash("Erro ao salvar."); }
-    setSavingRule(false);
+  async function handleDeleteRule(ruleId: number) {
+    if (!confirm("Remover esta regra de rateio?")) return;
+    await deleteDistributionRule(numId, ruleId);
+    setRules(p => p.filter(x => x.id !== ruleId));
   }
 
   if (loading) return <AppShell><div className="text-muted p-8">Carregando...</div></AppShell>;
@@ -337,8 +334,8 @@ export default function ConfederationDetailPage() {
                 <thead>
                   <tr className="border-b border-surface-border bg-surface">
                     <th className="table-th">Operador</th>
-                    <th className="table-th">Valor Pago</th>
-                    <th className="table-th">GGR Declarado</th>
+                    <th className="table-th">Valor Recebido</th>
+                    <th className="table-th">Valor Devido (operador)</th>
                     <th className="table-th">Status</th>
                     <th className="table-th">Relatório</th>
                     <th className="table-th">Mês Competência</th>
@@ -353,7 +350,7 @@ export default function ConfederationDetailPage() {
                       <tr key={p.id} className="border-b border-surface-border/50 hover:bg-surface-border/30">
                         <td className="table-td text-white">{op?.fantasy_name || op?.company_name || ("#" + p.operator_id)}</td>
                         <td className="table-td">{formatCurrency(parseFloat(p.amount_paid || "0"))}</td>
-                        <td className="table-td">{p.ggr_declared ? formatCurrency(parseFloat(p.ggr_declared)) : "—"}</td>
+                        <td className="table-td">{p.amount_due ? formatCurrency(parseFloat(p.amount_due)) : "—"}</td>
                         <td className="table-td"><StatusBadge status={p.status} /></td>
                         <td className="table-td">{p.report_received ? <span className="text-xs text-success">✓ Recebido</span> : <span className="text-xs text-warning">Pendente</span>}</td>
                         <td className="table-td text-muted text-xs">{p.report_reference_month ? new Date(p.report_reference_month + "T12:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" }) : "—"}</td>
@@ -459,60 +456,54 @@ export default function ConfederationDetailPage() {
         </div>
       )}
 
-      {/* TAB 4: REGRAS POR BET */}
+      {/* TAB 4: REGRAS DE RATEIO */}
       {tab === 4 && (
         <div className="space-y-4">
-          <p className="text-sm text-muted">Percentual de rateio individual por agente operador. Se não configurado, usa o percentual padrão da confederação.</p>
-          <div className="card">
-            <h4 className="font-semibold text-white mb-4">Adicionar / Atualizar Regra</h4>
-            <div className="flex gap-3 items-end flex-wrap">
-              <div className="flex-1 min-w-48">
-                <label className="block text-xs text-muted mb-1">Agente Operador</label>
-                <select value={ruleForm.operator_id} onChange={e => setRuleForm(f => ({ ...f, operator_id: e.target.value }))}
-                  className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary">
-                  <option value="">Selecione...</option>
-                  {operators.map(op => <option key={op.id} value={op.id}>{op.company_name}{op.fantasy_name ? ` (${op.fantasy_name})` : ""}</option>)}
-                </select>
-              </div>
-              <div className="w-32">
-                <label className="block text-xs text-muted mb-1">Percentual (%)</label>
-                <input type="number" step="0.001" placeholder="ex: 0.25" value={ruleForm.percentage}
-                  onChange={e => setRuleForm(f => ({ ...f, percentage: e.target.value }))}
-                  className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary" />
-              </div>
-              <div className="flex-1 min-w-32">
-                <label className="block text-xs text-muted mb-1">Observação</label>
-                <input value={ruleForm.notes} onChange={e => setRuleForm(f => ({ ...f, notes: e.target.value }))}
-                  className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary" />
-              </div>
-              <button onClick={saveRule} disabled={savingRule || !ruleForm.operator_id || !ruleForm.percentage}
-                className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 disabled:opacity-50 transition-colors">
-                {savingRule ? "..." : "Salvar"}
-              </button>
-            </div>
-          </div>
-          {rules.length === 0
-            ? <p className="text-muted text-sm text-center py-6">Nenhuma regra individual configurada.</p>
-            : (
-              <div className="card p-0 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead><tr className="border-b border-surface-border bg-surface"><th className="table-th">Operador</th><th className="table-th">Percentual</th><th className="table-th">Observação</th><th className="table-th"></th></tr></thead>
-                  <tbody>
-                    {rules.map(r => { const op = opMap[r.operator_id]; return (
-                      <tr key={r.id} className="border-b border-surface-border/50 hover:bg-surface-border/30">
-                        <td className="table-td text-white">{op?.company_name || ("#" + r.operator_id)}</td>
-                        <td className="table-td text-primary font-mono">{(parseFloat(r.percentage) * 100).toFixed(4)}%</td>
-                        <td className="table-td text-muted">{r.notes || "—"}</td>
-                        <td className="table-td text-right">
-                          <button onClick={() => deleteConfederationRule(numId, r.id).then(() => setRules(p => p.filter(x => x.id !== r.id)))}
-                            className="px-2 py-1 text-xs text-danger border border-danger/30 rounded hover:bg-danger/10 transition-colors">Remover</button>
-                        </td>
-                      </tr>
-                    ); })}
-                  </tbody>
-                </table>
-              </div>
+          <div className="card bg-primary/5 border-primary/20">
+            <p className="text-sm text-slate-300">
+              O rateio <strong>não é um percentual fixo por bet</strong>. Conforme o regulamento, o valor é apurado
+              <strong> pelo próprio agente operador</strong> (1ª fase de rateios) e depende do <strong>tipo de competição</strong>
+              {" "}e da participação de integrantes do Sinesp, sendo apurado por partida. A matriz abaixo documenta como
+              esta confederação redistribui as Contrapartidas recebidas aos beneficiários finais.
+            </p>
+            {conf.redistribution_deadline_days && (
+              <p className="text-xs text-muted mt-2">Prazo para repasse aos beneficiários finais: <strong>{conf.redistribution_deadline_days} dias</strong> do recebimento.</p>
             )}
+          </div>
+
+          {rules.length === 0 ? (
+            <p className="text-muted text-sm text-center py-6">Nenhuma regra de rateio cadastrada.</p>
+          ) : (
+            <div className="space-y-3">
+              {rules.map(r => (
+                <div key={r.id} className="card">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-semibold text-white">{r.scenario_label}</h4>
+                        {r.article_ref && <span className="px-2 py-0.5 text-xs bg-surface-border rounded text-muted">{r.article_ref}</span>}
+                      </div>
+                      {r.description && <p className="text-xs text-slate-400 mb-3">{r.description}</p>}
+                      <div className="flex flex-wrap gap-2">
+                        {r.is_equanime ? (
+                          <span className="px-2.5 py-1 text-xs bg-warning/10 text-warning border border-warning/30 rounded">Rateio equânime entre participantes (variável)</span>
+                        ) : (
+                          <>
+                            {r.confederation_pct && <span className="px-2.5 py-1 text-xs bg-primary/10 text-primary border border-primary/30 rounded">Confederação: {(parseFloat(r.confederation_pct) * 100).toFixed(0)}%</span>}
+                            {r.athlete_pct && <span className="px-2.5 py-1 text-xs bg-success/10 text-success border border-success/30 rounded">Atleta(s): {(parseFloat(r.athlete_pct) * 100).toFixed(0)}%</span>}
+                            {r.entity_pct && <span className="px-2.5 py-1 text-xs bg-blue-400/10 text-blue-400 border border-blue-400/30 rounded">Entidade/Clube: {(parseFloat(r.entity_pct) * 100).toFixed(0)}%</span>}
+                            {r.federation_pct && <span className="px-2.5 py-1 text-xs bg-purple-400/10 text-purple-400 border border-purple-400/30 rounded">Federação Estadual: {(parseFloat(r.federation_pct) * 100).toFixed(0)}%</span>}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <button onClick={() => handleDeleteRule(r.id)}
+                      className="px-2 py-1 text-xs text-danger border border-danger/30 rounded hover:bg-danger/10 transition-colors flex-shrink-0">Remover</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -520,7 +511,7 @@ export default function ConfederationDetailPage() {
       {reportModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-surface-card border border-surface-border rounded-xl p-6 w-full max-w-md space-y-4">
-            <h3 className="font-semibold text-white">Registrar Relatório GGR</h3>
+            <h3 className="font-semibold text-white">Registrar Relatório do Operador</h3>
             <p className="text-xs text-muted">O sistema mantém regime de caixa. Informe aqui o mês de competência declarado no relatório recebido.</p>
             <div>
               <label className="block text-xs text-muted mb-1">Mês de Competência (do relatório)</label>

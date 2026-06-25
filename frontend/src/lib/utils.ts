@@ -25,8 +25,9 @@ export const STATUS_LABELS: Record<string, string> = {
   active: "Ativo",
   suspended: "Suspenso",
   cancelled: "Cancelado",
-  pending: "Pendente",
+  pending: "Inadimplente",
   paid: "Adimplente",
+  report_pending: "Pend. de Relatório",
   overdue: "Em Atraso",
   partial: "Parcial",
   open: "Aberto",
@@ -38,6 +39,7 @@ export const STATUS_LABELS: Record<string, string> = {
 export const STATUS_COLORS: Record<string, string> = {
   active: "text-success bg-success/10",
   paid: "text-success bg-success/10",
+  report_pending: "text-warning bg-warning/10",
   open: "text-blue-400 bg-blue-400/10",
   collecting: "text-primary bg-primary/10",
   suspended: "text-warning bg-warning/10",

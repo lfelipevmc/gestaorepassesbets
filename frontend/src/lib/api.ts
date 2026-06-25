@@ -45,9 +45,11 @@ export const createConfederation = (data: any) => api.post("/api/confederations/
 export const updateConfederation = (id: number, data: any) => api.patch(`/api/confederations/${id}`, data);
 export const uploadConfederationLogo = (id: number, formData: FormData) =>
   api.post(`/api/confederations/${id}/upload-logo`, formData, { headers: { "Content-Type": "multipart/form-data" } });
-export const getConfederationRules = (id: number) => api.get(`/api/confederations/${id}/rules`);
-export const upsertConfederationRule = (id: number, data: any) => api.post(`/api/confederations/${id}/rules`, data);
-export const deleteConfederationRule = (id: number, ruleId: number) => api.delete(`/api/confederations/${id}/rules/${ruleId}`);
+// Regras de rateio (matriz por cenário de competição)
+export const getDistributionRules = (id: number) => api.get(`/api/confederations/${id}/distribution-rules`);
+export const createDistributionRule = (id: number, data: any) => api.post(`/api/confederations/${id}/distribution-rules`, data);
+export const updateDistributionRule = (id: number, ruleId: number, data: any) => api.patch(`/api/confederations/${id}/distribution-rules/${ruleId}`, data);
+export const deleteDistributionRule = (id: number, ruleId: number) => api.delete(`/api/confederations/${id}/distribution-rules/${ruleId}`);
 
 // Operators
 export const getOperators = (params?: any) => api.get("/api/operators/", { params });
@@ -93,7 +95,7 @@ export const sendNotifications = (id: number, notificationNumber: number) =>
 
 // Payments
 export const getPayments = (params?: any) => api.get("/api/payments/", { params });
-export const declareGGR = (id: number, data: any) => api.post(`/api/payments/${id}/declare-ggr`, data);
+export const declareValue = (id: number, data: any) => api.post(`/api/payments/${id}/declare-value`, data);
 export const confirmPayment = (id: number, data: any) => api.post(`/api/payments/${id}/confirm`, data);
 export const registerReport = (id: number, data: any) => api.post(`/api/payments/${id}/register-report`, data);
 export const uploadPaymentReport = (id: number, formData: FormData) =>

@@ -18,7 +18,7 @@ export default function AuditoriaPage() {
       .finally(() => setLoading(false));
   }, [actionFilter, entityFilter]);
 
-  const actions = ["LOGIN", "CREATE", "UPDATE", "DELETE", "SEND_NOTIFICATION", "CONFIRM_PAYMENT", "DECLARE_GGR", "UPLOAD_DOCUMENT", "SCRAPE_MF", "AI_FIND_CONTACTS"];
+  const actions = ["LOGIN", "CREATE", "UPDATE", "DELETE", "SEND_NOTIFICATION", "CONFIRM_PAYMENT", "DECLARE_VALUE", "REGISTER_REPORT", "ENDR_PAYMENT", "IMPORT_FILE", "UPLOAD_DOCUMENT", "SCRAPE_MF", "AI_FIND_CONTACTS"];
   const entities = ["User", "Confederation", "BettingOperator", "CollectionCycle", "Payment", "Document"];
 
   return (

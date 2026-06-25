@@ -112,7 +112,7 @@ def send_notifications(id: int, notification_number: int = 1, db: Session = Depe
             reference_month=cycle.reference_month.strftime("%m/%Y"),
             notification_number=notification_number,
             performed_by_id=current_user.id,
-            calculated_amount=float(payment.calculated_amount) if payment.calculated_amount else None
+            calculated_amount=float(payment.amount_due) if payment.amount_due else None
         )
         if success:
             sent += 1

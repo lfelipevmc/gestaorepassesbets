@@ -80,7 +80,7 @@ export default function RelatoriosPage() {
 
       {report && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <div className="card text-center">
               <p className="text-3xl font-bold text-white">{report.summary.total_operators}</p>
               <p className="text-xs text-muted">Total de Operadores</p>
@@ -88,6 +88,10 @@ export default function RelatoriosPage() {
             <div className="card text-center">
               <p className="text-3xl font-bold text-success">{report.summary.paid}</p>
               <p className="text-xs text-muted">Adimplentes</p>
+            </div>
+            <div className="card text-center">
+              <p className="text-3xl font-bold text-warning">{report.summary.report_pending}</p>
+              <p className="text-xs text-muted">Pend. de Relatório</p>
             </div>
             <div className="card text-center">
               <p className="text-3xl font-bold text-danger">{report.summary.overdue}</p>
@@ -101,15 +105,9 @@ export default function RelatoriosPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="card">
-              <p className="text-xs text-muted mb-1">Total Esperado</p>
-              <p className="text-2xl font-bold text-white">{formatCurrency(report.summary.total_expected_brl)}</p>
-            </div>
-            <div className="card">
-              <p className="text-xs text-muted mb-1">Total Recebido</p>
-              <p className="text-2xl font-bold text-success">{formatCurrency(report.summary.total_received_brl)}</p>
-            </div>
+          <div className="card mb-6">
+            <p className="text-xs text-muted mb-1">Total Recebido (regime de caixa)</p>
+            <p className="text-2xl font-bold text-success">{formatCurrency(report.summary.total_received_brl)}</p>
           </div>
 
           {/* Non-compliant */}
@@ -125,8 +123,7 @@ export default function RelatoriosPage() {
                     <th className="table-th">Nome Fantasia</th>
                     <th className="table-th">CNPJ</th>
                     <th className="table-th">Status</th>
-                    <th className="table-th">GGR Declarado</th>
-                    <th className="table-th">Valor Calculado</th>
+                    <th className="table-th">Valor Devido</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -136,8 +133,37 @@ export default function RelatoriosPage() {
                       <td className="table-td">{p.fantasy_name || "-"}</td>
                       <td className="table-td font-mono text-xs">{p.cnpj || "-"}</td>
                       <td className="table-td"><Badge status={p.status} /></td>
-                      <td className="table-td">{formatCurrency(p.ggr_declared)}</td>
-                      <td className="table-td">{formatCurrency(p.calculated_amount)}</td>
+                      <td className="table-td">{formatCurrency(p.amount_due)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pendentes de Relatório */}
+          {report.report_pending_list?.length > 0 && (
+            <div className="card p-0 overflow-hidden mb-4">
+              <div className="p-4 border-b border-surface-border bg-warning/5">
+                <h3 className="font-semibold text-warning">Pendentes de Relatório ({report.report_pending_list.length})</h3>
+                <p className="text-xs text-muted mt-1">Pagaram, mas ainda não enviaram o relatório de individualização.</p>
+              </div>
+              <table className="w-full">
+                <thead className="bg-surface">
+                  <tr>
+                    <th className="table-th">Razão Social</th>
+                    <th className="table-th">CNPJ</th>
+                    <th className="table-th">Valor Recebido</th>
+                    <th className="table-th">Data Recebimento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.report_pending_list.map((p: any) => (
+                    <tr key={p.operator_id}>
+                      <td className="table-td">{p.company_name}</td>
+                      <td className="table-td font-mono text-xs">{p.cnpj || "-"}</td>
+                      <td className="table-td text-warning">{formatCurrency(p.amount_paid)}</td>
+                      <td className="table-td">{p.payment_date || "-"}</td>
                     </tr>
                   ))}
                 </tbody>

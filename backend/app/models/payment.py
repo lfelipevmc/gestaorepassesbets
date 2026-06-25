@@ -19,10 +19,12 @@ class Payment(Base):
     cycle_id = Column(Integer, ForeignKey("collection_cycles.id"), nullable=False)
     operator_id = Column(Integer, ForeignKey("betting_operators.id"), nullable=False)
     confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=False)
-    ggr_declared = Column(Numeric(15, 2), nullable=True)
-    operator_percentage = Column(Numeric(10, 6), nullable=True)  # % individual da bet
-    calculated_amount = Column(Numeric(15, 2), nullable=True)
-    amount_paid = Column(Numeric(15, 2), nullable=True)
+    # IMPORTANTE: o valor NÃO é calculado pelo escritório. Quem apura é o agente operador
+    # (CBT/CBTM Art. 4º e 8º §2º; CBW Art. 10 §único). O escritório apenas registra o valor
+    # informado/repassado pelo operador e concilia com o relatório recebido.
+    base_calculo = Column(Numeric(15, 2), nullable=True)       # Base de Cálculo apurada pelo operador (do relatório)
+    amount_due = Column(Numeric(15, 2), nullable=True)          # Valor devido informado pelo operador
+    amount_paid = Column(Numeric(15, 2), nullable=True)         # Valor efetivamente recebido (regime de caixa)
     payment_date = Column(Date, nullable=True)
     payment_confirmed_at = Column(DateTime, nullable=True)
     confirmed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
