@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from .database import Base, engine
 from .routers import auth, users, confederations, operators, collections, payments, reports, documents, ai, audit, endr
 from .services.scheduler import start_scheduler
@@ -19,7 +20,9 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     Base.metadata.create_all(bind=engine)
-    os.makedirs("/app/uploads", exist_ok=True)
+    for d in ["/app/uploads", "/app/uploads/logos", "/app/uploads/reports"]:
+        os.makedirs(d, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
     _seed_initial_data()
     start_scheduler()
 
