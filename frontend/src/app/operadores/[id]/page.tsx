@@ -113,6 +113,10 @@ export default function OperatorDetailPage() {
 
   useEffect(() => { fetchData(); }, [numId]);
 
+  useEffect(() => {
+    if (tab === 4) fetchSuggestions();
+  }, [tab]);
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -225,6 +229,39 @@ export default function OperatorDetailPage() {
     if (!confirm("Remover esta associação ENDR?")) return;
     await deleteEndrAssociation(numId, assocId);
     fetchData();
+  }
+
+  async function fetchSuggestions(filter?: string) {
+    setSuggestionsLoading(true);
+    try {
+      const f = filter !== undefined ? filter : suggestionsFilter;
+      const r = await getContactSuggestions(numId, f || undefined);
+      setSuggestions(r.data);
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  }
+
+  async function handleResearchContacts() {
+    setResearching(true);
+    try {
+      await researchContacts(numId);
+      alert("Pesquisa iniciada! Os resultados aparecerão em instantes. Clique em 'Pendentes' para atualizar.");
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao iniciar pesquisa");
+    } finally {
+      setResearching(false);
+    }
+  }
+
+  async function handleApproveSuggestion(suggestionId: number) {
+    await approveSuggestion(numId, suggestionId);
+    fetchSuggestions();
+  }
+
+  async function handleRejectSuggestion(suggestionId: number) {
+    await rejectSuggestion(numId, suggestionId);
+    fetchSuggestions();
   }
 
   if (loading) return <AppShell><div className="text-muted">Carregando...</div></AppShell>;
@@ -651,8 +688,112 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 4: Payments */}
+      {/* Tab 4: Contact Research */}
       {tab === 4 && (
+        <div className="max-w-5xl">
+          <div className="flex items-start justify-between mb-4 gap-4">
+            <div className="text-sm text-muted max-w-xl">
+              O sistema pesquisa automaticamente contatos nas seguintes fontes: <span className="text-slate-300">Receita Federal (BrasilAPI)</span>, <span className="text-slate-300">DuckDuckGo</span>, <span className="text-slate-300">Claude AI</span>. Resultados ficam pendentes até revisão humana.
+            </div>
+            <button onClick={handleResearchContacts} disabled={researching} className="btn-primary whitespace-nowrap">
+              {researching ? "Pesquisando..." : "Iniciar Pesquisa"}
+            </button>
+          </div>
+
+          {/* Filter buttons */}
+          <div className="flex gap-2 mb-4">
+            {[
+              { label: "Pendentes", value: "pending" },
+              { label: "Aprovados", value: "approved" },
+              { label: "Rejeitados", value: "rejected" },
+              { label: "Todos", value: "" },
+            ].map(f => (
+              <button
+                key={f.value}
+                onClick={() => { setSuggestionsFilter(f.value); fetchSuggestions(f.value); }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                  suggestionsFilter === f.value
+                    ? "bg-primary text-white border-primary"
+                    : "border-surface-border text-muted hover:text-slate-300"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+            <button
+              onClick={() => fetchSuggestions()}
+              className="px-3 py-1.5 text-xs font-medium rounded-full border border-surface-border text-muted hover:text-slate-300 transition-colors ml-auto"
+            >
+              Atualizar
+            </button>
+          </div>
+
+          {suggestionsLoading ? (
+            <div className="card text-center py-8 text-muted text-sm">Carregando...</div>
+          ) : suggestions.length === 0 ? (
+            <div className="card text-center py-8 text-muted text-sm">
+              Nenhuma sugestão encontrada. Clique em &ldquo;Iniciar Pesquisa&rdquo; para buscar contatos automaticamente.
+            </div>
+          ) : (
+            <div className="card p-0 overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-surface">
+                  <tr>
+                    <th className="table-th">Tipo</th>
+                    <th className="table-th">Valor</th>
+                    <th className="table-th">Fonte</th>
+                    <th className="table-th">Vínculo</th>
+                    <th className="table-th">Confiança</th>
+                    <th className="table-th">Encontrado em</th>
+                    <th className="table-th">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {suggestions.map((s: any) => (
+                    <tr key={s.id} className="hover:bg-surface-light/20 transition-colors">
+                      <td className="table-td">
+                        {s.type === "email" && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-900/40 text-blue-300 border border-blue-700/40">Email</span>}
+                        {(s.type === "phone" || s.type === "whatsapp") && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-900/40 text-green-400 border border-green-700/40">{s.type === "whatsapp" ? "WhatsApp" : "Telefone"}</span>}
+                        {s.type === "social_media" && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-900/40 text-purple-300 border border-purple-700/40">Rede Social</span>}
+                        {s.type === "other" && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-surface text-muted border border-surface-border">Outro</span>}
+                      </td>
+                      <td className="table-td font-mono text-xs max-w-xs truncate" title={s.value}>{s.value}</td>
+                      <td className="table-td text-muted text-xs">{s.source}</td>
+                      <td className="table-td text-muted text-xs">{s.relationship_label || "-"}</td>
+                      <td className="table-td">
+                        {s.confidence === "high" && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-900/40 text-green-400 border border-green-700/40">Alta</span>}
+                        {s.confidence === "medium" && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-900/40 text-yellow-400 border border-yellow-700/40">Média</span>}
+                        {s.confidence === "low" && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-surface text-muted border border-surface-border">Baixa</span>}
+                        {!s.confidence && "-"}
+                      </td>
+                      <td className="table-td text-muted text-xs whitespace-nowrap">
+                        {s.found_at ? new Date(s.found_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-"}
+                      </td>
+                      <td className="table-td">
+                        {s.status === "pending" && (
+                          <div className="flex gap-2">
+                            <button onClick={() => handleApproveSuggestion(s.id)} className="text-xs px-2 py-1 bg-green-900/40 text-green-400 border border-green-700/40 rounded hover:bg-green-800/40 transition-colors">
+                              Aprovar
+                            </button>
+                            <button onClick={() => handleRejectSuggestion(s.id)} className="text-xs px-2 py-1 bg-red-900/40 text-danger border border-red-700/40 rounded hover:bg-red-800/40 transition-colors">
+                              Rejeitar
+                            </button>
+                          </div>
+                        )}
+                        {s.status === "approved" && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-900/40 text-green-400 border border-green-700/40">Aprovado</span>}
+                        {s.status === "rejected" && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-900/40 text-danger border border-red-700/40">Rejeitado</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 5: Payments */}
+      {tab === 5 && (
         <div className="card p-0 overflow-hidden">
           <table className="w-full">
             <thead className="bg-surface">
@@ -685,8 +826,8 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 5: Documents */}
-      {tab === 5 && (
+      {/* Tab 6: Documents */}
+      {tab === 6 && (
         <div className="card p-0 overflow-hidden">
           <table className="w-full">
             <thead className="bg-surface">
@@ -715,8 +856,8 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 6: Audit */}
-      {tab === 6 && (
+      {/* Tab 7: Audit */}
+      {tab === 7 && (
         <div className="card p-0 overflow-hidden">
           <table className="w-full">
             <thead className="bg-surface">

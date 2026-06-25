@@ -5,7 +5,7 @@ import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import Badge from "@/components/ui/Badge";
 import Modal from "@/components/ui/Modal";
-import { getOperators, createOperator, syncFromMF, importOperators, getSyncStatus } from "@/lib/api";
+import { getOperators, createOperator, syncFromMF, importOperators, getSyncStatus, researchAllOperators } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
@@ -27,6 +27,7 @@ export default function OperadoresPage() {
   const [creating, setCreating] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [researchingAll, setResearchingAll] = useState(false);
   const [page, setPage] = useState(0);
   const [syncInfo, setSyncInfo] = useState<any>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -98,6 +99,18 @@ export default function OperadoresPage() {
     }
   }
 
+  async function handleResearchAll() {
+    setResearchingAll(true);
+    try {
+      await researchAllOperators();
+      alert("Pesquisa iniciada para todos os operadores. Resultados disponíveis em alguns minutos.");
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao iniciar pesquisa");
+    } finally {
+      setResearchingAll(false);
+    }
+  }
+
   async function handleImport(e: React.FormEvent) {
     e.preventDefault();
     if (!importFile) return;
@@ -146,6 +159,9 @@ export default function OperadoresPage() {
         }
         actions={
           <>
+            <button onClick={handleResearchAll} disabled={researchingAll} className="btn-secondary">
+              {researchingAll ? "Iniciando..." : "Pesquisar Todos"}
+            </button>
             <button onClick={() => setShowImport(true)} className="btn-secondary">
               Importar Planilha
             </button>
