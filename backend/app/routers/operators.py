@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from ..database import get_db
@@ -7,10 +7,23 @@ from ..models.user import User
 from ..schemas.operator import OperatorCreate, OperatorUpdate, OperatorOut, ContactCreate, ContactOut
 from ..core.auth import get_current_user, require_office
 from ..services.audit_service import log_action
-from ..services.mf_scraper import scrape_mf_operators
+from ..services.mf_scraper import scrape_mf_operators, import_from_file, get_last_sync_info
 from ..services.ai_service import find_operator_contacts
 
 router = APIRouter(prefix="/api/operators", tags=["operators"])
+
+
+@router.get("/sync-status")
+def sync_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Retorna data/hora da última sincronização e total de operadores."""
+    total = db.query(BettingOperator).count()
+    ativos = db.query(BettingOperator).filter(BettingOperator.status == OperatorStatus.active).count()
+    sync_info = get_last_sync_info(db)
+    return {
+        "total_operators": total,
+        "active_operators": ativos,
+        **sync_info
+    }
 
 
 @router.get("/", response_model=List[OperatorOut])
@@ -18,7 +31,7 @@ def list_operators(
     status: Optional[OperatorStatus] = None,
     search: Optional[str] = Query(None),
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 200,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -31,7 +44,7 @@ def list_operators(
             BettingOperator.fantasy_name.ilike(f"%{search}%") |
             BettingOperator.cnpj.ilike(f"%{search}%")
         )
-    return q.offset(skip).limit(limit).all()
+    return q.order_by(BettingOperator.company_name).offset(skip).limit(limit).all()
 
 
 @router.post("/", response_model=OperatorOut)
@@ -101,6 +114,31 @@ def ai_find_contacts(id: int, db: Session = Depends(get_db), current_user: User 
 
 
 @router.post("/sync-mf")
-def sync_from_mf(background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
-    background_tasks.add_task(scrape_mf_operators, db)
-    return {"message": "Sincronização iniciada em segundo plano"}
+def sync_from_mf(db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Tenta sincronizar diretamente com o site do MF/SPA."""
+    result = scrape_mf_operators(db)
+    return result
+
+
+@router.post("/import")
+async def import_operators(
+    file: UploadFile = File(...),
+    category: str = Form("autorizada"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_office)
+):
+    """
+    Importa operadores de um arquivo CSV ou XLSX.
+    Categorias: 'autorizada' ou 'judicial' (decisão judicial).
+    Colunas aceitas: Razão Social, Nome Fantasia, CNPJ, Site, Licença/Autorização
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Nenhum arquivo enviado")
+
+    allowed = (".csv", ".xlsx", ".xls")
+    if not any(file.filename.lower().endswith(ext) for ext in allowed):
+        raise HTTPException(status_code=400, detail="Formato inválido. Use CSV ou XLSX.")
+
+    content = await file.read()
+    result = import_from_file(db, content, file.filename, category, current_user.id)
+    return result
