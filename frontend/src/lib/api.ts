@@ -130,6 +130,8 @@ export const downloadExcelReport = (cycleId: number) =>
 export const getCrossReport = (params?: any) => api.get("/api/reports/cross", { params });
 export const downloadCrossExcel = (params?: any) =>
   api.get("/api/reports/cross/excel", { params, responseType: "blob" });
+export const downloadCrossPdf = (params?: any) =>
+  api.get("/api/reports/cross/pdf", { params, responseType: "blob" });
 
 // Documents
 export const getDocuments = (params?: any) => api.get("/api/documents/", { params });
@@ -140,11 +142,18 @@ export const downloadDocument = (id: number) =>
 
 // Audit
 export const getAuditLogs = (params?: any) => api.get("/api/audit/", { params });
+export const getAuditActions = () => api.get("/api/audit/actions");
+export const downloadAuditPdf = (params?: any) =>
+  api.get("/api/audit/pdf", { params, responseType: "blob" });
 
 // Users
 export const getUsers = () => api.get("/api/users/");
 export const createUser = (data: any) => api.post("/api/users/", data);
 export const updateUser = (id: number, data: any) => api.patch(`/api/users/${id}`, data);
+export const deleteUser = (id: number) => api.delete(`/api/users/${id}`);
+
+// Finance - Fase 1 (repasses recebidos)
+export const getPhase1 = (params?: any) => api.get("/api/finance/phase1", { params });
 
 // AI
 export const draftNotification = (data: any) => api.post("/api/ai/draft-notification", data);

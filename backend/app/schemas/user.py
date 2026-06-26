@@ -7,6 +7,7 @@ from ..models.user import UserRole
 class UserCreate(BaseModel):
     email: EmailStr
     name: str
+    phone: Optional[str] = None
     password: str
     role: UserRole = UserRole.office_staff
     confederation_id: Optional[int] = None
@@ -14,6 +15,8 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
+    phone: Optional[str] = None
+    password: Optional[str] = None
     role: Optional[UserRole] = None
     confederation_id: Optional[int] = None
     is_active: Optional[bool] = None
@@ -23,6 +26,7 @@ class UserOut(BaseModel):
     id: int
     email: str
     name: str
+    phone: Optional[str] = None
     role: UserRole
     confederation_id: Optional[int]
     is_active: bool

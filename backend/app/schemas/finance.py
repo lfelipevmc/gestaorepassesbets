@@ -80,6 +80,7 @@ class RedistributionCreate(BaseModel):
     source_type: RedistributionSource = RedistributionSource.manual
     source_payment_id: Optional[int] = None
     source_endr_id: Optional[int] = None
+    source_direct_payment_id: Optional[int] = None
     competition_name: Optional[str] = None
     reference_month: Optional[date] = None
     amount_received: Decimal
@@ -94,6 +95,7 @@ class RedistributionOut(BaseModel):
     source_type: RedistributionSource
     source_payment_id: Optional[int]
     source_endr_id: Optional[int]
+    source_direct_payment_id: Optional[int] = None
     competition_name: Optional[str]
     reference_month: Optional[date]
     amount_received: Decimal

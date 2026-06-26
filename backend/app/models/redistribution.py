@@ -34,6 +34,7 @@ class Redistribution(Base):
     source_type = Column(Enum(RedistributionSource), default=RedistributionSource.manual)
     source_payment_id = Column(Integer, ForeignKey("payments.id"), nullable=True)
     source_endr_id = Column(Integer, ForeignKey("endr_payments.id"), nullable=True)
+    source_direct_payment_id = Column(Integer, ForeignKey("direct_payments.id"), nullable=True)
     competition_name = Column(String(300), nullable=True)
     reference_month = Column(Date, nullable=True)
     amount_received = Column(Numeric(15, 2), nullable=False)   # valor recebido (Fase 1) a redistribuir

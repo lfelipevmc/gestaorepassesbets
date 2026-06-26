@@ -70,6 +70,7 @@ def create_redistribution(data: RedistributionCreate, db: Session = Depends(get_
         source_type=data.source_type,
         source_payment_id=data.source_payment_id,
         source_endr_id=data.source_endr_id,
+        source_direct_payment_id=data.source_direct_payment_id,
         competition_name=data.competition_name,
         reference_month=data.reference_month,
         amount_received=data.amount_received,

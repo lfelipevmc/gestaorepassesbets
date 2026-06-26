@@ -240,3 +240,66 @@ def generate_excel_report(db: Session, cycle_id: int) -> bytes:
         df.to_excel(writer, sheet_name="Relatório", index=False)
 
     return output.getvalue()
+
+
+def generate_cross_pdf(db: Session, confederation_id=None, month=None, operator_id=None, status=None) -> bytes:
+    """Gera o relatório consolidado/individualizado em PDF, respeitando os filtros aplicados."""
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    rep = get_cross_report(db, confederation_id, month, operator_id, status)
+    rows = rep["rows"]
+    totals = rep["totals"]
+
+    def brl(v):
+        return ("R$ {:,.2f}".format(v or 0)).replace(",", "X").replace(".", ",").replace("X", ".")
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), topMargin=1*cm, bottomMargin=1*cm, leftMargin=1*cm, rightMargin=1*cm)
+    styles = getSampleStyleSheet()
+    small = styles["BodyText"]; small.fontSize = 7; small.leading = 9
+
+    elements = [Paragraph("Relatório Consolidado de Repasses", styles["Title"])]
+    filtros = []
+    if confederation_id:
+        c = db.query(Confederation).get(confederation_id)
+        filtros.append(f"Confederação: {c.acronym if c else confederation_id}")
+    if month: filtros.append(f"Mês: {month.strftime('%m/%Y')}")
+    if operator_id:
+        o = db.query(BettingOperator).get(operator_id)
+        filtros.append(f"Bet: {(o.fantasy_name or o.company_name) if o else operator_id}")
+    if status: filtros.append(f"Situação: {STATUS_LABELS_PT.get(getattr(status, 'value', status), status)}")
+    elements.append(Paragraph("Filtros: " + (" · ".join(filtros) if filtros else "nenhum") +
+                              f" — Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Normal"]))
+    elements.append(Spacer(1, 0.3*cm))
+    elements.append(Paragraph(
+        f"Total de registros: {totals['count']} · Adimplentes: {totals['adimplentes']} · "
+        f"Pend. relatório: {totals['pendente_relatorio']} · Inadimplentes: {totals['inadimplentes']} · "
+        f"Recebido: {brl(totals['amount_paid'])}", styles["Normal"]))
+    elements.append(Spacer(1, 0.4*cm))
+
+    data = [["Confederação", "Mês", "Bet", "CNPJ", "Situação", "Devido", "Recebido", "Relatório"]]
+    for r in rows:
+        data.append([
+            r["confederation_acronym"], r["reference_month"] or "—",
+            Paragraph((r["fantasy_name"] or r["company_name"] or "")[:60], small),
+            r["cnpj"] or "—", r["status_label"],
+            brl(r["amount_due"]), brl(r["amount_paid"]),
+            "Sim" if r["report_received"] else "Não",
+        ])
+    table = Table(data, colWidths=[2.5*cm, 1.8*cm, 7*cm, 3*cm, 3.2*cm, 3*cm, 3*cm, 2*cm], repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e293b")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 7),
+        ("GRID", (0, 0), (-1, -1), 0.3, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f1f5f9")]),
+    ]))
+    elements.append(table)
+    doc.build(elements)
+    buf.seek(0)
+    return buf.getvalue()

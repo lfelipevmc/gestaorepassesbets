@@ -5,11 +5,12 @@ from typing import List, Optional
 from datetime import date
 from decimal import Decimal
 from ..database import get_db
-from ..models.payment import Payment, PaymentStatus, ENDRPayment
+from ..models.payment import Payment, PaymentStatus, ENDRPayment, DirectPayment
 from ..models.redistribution import Redistribution, RedistributionItem, RedistributionStatus, ItemStatus
 from ..models.beneficiary import Beneficiary
 from ..models.collection import CollectionCycle
 from ..models.confederation import Confederation
+from ..models.operator import BettingOperator
 from ..models.messaging import EmailMessage
 from ..models.user import User
 from ..schemas.finance import EmailMessageOut
@@ -93,6 +94,71 @@ def financial_summary(
             "total_redistribuicoes": len(redistributions),
         },
     }
+
+
+@router.get("/phase1")
+def phase1_received(
+    confederation_id: Optional[int] = None,
+    operator_id: Optional[int] = None,
+    month: Optional[date] = Query(None, description="Mês de competência (YYYY-MM-01)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Fase 1 — repasses efetivamente recebidos (ciclos + lançamentos avulsos), base para a Repartição (Fase 2)."""
+    if current_user.role == "confederation_viewer":
+        confederation_id = current_user.confederation_id
+
+    confs = {c.id: c for c in db.query(Confederation).all()}
+    ops = {o.id: o for o in db.query(BettingOperator).all()}
+
+    def op_label(i):
+        o = ops.get(i)
+        return (o.fantasy_name or o.company_name) if o else f"Operador #{i}"
+
+    results = []
+
+    # Repasses registrados em ciclos (amount_paid > 0)
+    pq = db.query(Payment).filter(Payment.amount_paid.isnot(None), Payment.amount_paid > 0)
+    if confederation_id:
+        pq = pq.filter(Payment.confederation_id == confederation_id)
+    if operator_id:
+        pq = pq.filter(Payment.operator_id == operator_id)
+    for p in pq.all():
+        cyc = db.query(CollectionCycle).get(p.cycle_id) if p.cycle_id else None
+        ref = cyc.reference_month if cyc else None
+        if month and ref != month:
+            continue
+        c = confs.get(p.confederation_id)
+        results.append({
+            "source": "payment", "id": p.id, "confederation_id": p.confederation_id,
+            "confederation_acronym": c.acronym if c else "?", "operator_id": p.operator_id,
+            "operator_label": op_label(p.operator_id),
+            "reference_month": ref.isoformat() if ref else None,
+            "amount": float(p.amount_paid or 0), "received_date": p.payment_date.isoformat() if p.payment_date else None,
+            "report_received": bool(p.report_received),
+        })
+
+    # Lançamentos avulsos (DirectPayment)
+    dq = db.query(DirectPayment)
+    if confederation_id:
+        dq = dq.filter(DirectPayment.confederation_id == confederation_id)
+    if operator_id:
+        dq = dq.filter(DirectPayment.operator_id == operator_id)
+    if month:
+        dq = dq.filter(DirectPayment.reference_month == month)
+    for d in dq.all():
+        c = confs.get(d.confederation_id)
+        results.append({
+            "source": "direct", "id": d.id, "confederation_id": d.confederation_id,
+            "confederation_acronym": c.acronym if c else "?", "operator_id": d.operator_id,
+            "operator_label": op_label(d.operator_id),
+            "reference_month": d.reference_month.isoformat() if d.reference_month else None,
+            "amount": float(d.amount_received or 0), "received_date": d.received_date.isoformat() if d.received_date else None,
+            "report_received": bool(d.report_file_url),
+        })
+
+    results.sort(key=lambda r: (r["received_date"] or ""), reverse=True)
+    return {"items": results, "total": sum(r["amount"] for r in results)}
 
 
 @router.get("/by-confederation")

@@ -5,7 +5,7 @@ import Header from "@/components/layout/Header";
 import Badge from "@/components/ui/Badge";
 import {
   getConfederations, getCollections, getOperators, getComplianceReport, downloadExcelReport,
-  getCrossReport, downloadCrossExcel,
+  getCrossReport, downloadCrossExcel, downloadCrossPdf,
 } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
@@ -84,6 +84,17 @@ function Consolidado({ confederations, operators }: { confederations: any[]; ope
     } finally { setDownloading(false); }
   }
 
+  async function downloadPdf() {
+    setDownloading(true);
+    try {
+      const r = await downloadCrossPdf(buildParams());
+      const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = "relatorio_consolidado.pdf"; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setDownloading(false); }
+  }
+
   return (
     <>
       <div className="card mb-6">
@@ -117,6 +128,7 @@ function Consolidado({ confederations, operators }: { confederations: any[]; ope
         <div className="flex gap-3 mt-4">
           <button onClick={generate} disabled={loading} className="btn-primary">{loading ? "Gerando..." : "Aplicar Filtros"}</button>
           <button onClick={download} disabled={downloading} className="btn-secondary">{downloading ? "Baixando..." : "Exportar Excel"}</button>
+          <button onClick={downloadPdf} disabled={downloading} className="btn-secondary">{downloading ? "Baixando..." : "Exportar PDF"}</button>
           <button onClick={() => { setFilters({ confederation_id: "", month: "", operator_id: "", status: "" }); }} className="btn-secondary">Limpar</button>
         </div>
       </div>

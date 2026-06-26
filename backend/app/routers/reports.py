@@ -8,7 +8,7 @@ from ..models.user import User
 from ..models.payment import PaymentStatus
 from ..core.auth import get_current_user
 from ..services.report_service import (
-    get_compliance_report, generate_excel_report, get_cross_report, generate_cross_excel
+    get_compliance_report, generate_excel_report, get_cross_report, generate_cross_excel, generate_cross_pdf
 )
 import io
 
@@ -46,6 +46,24 @@ def cross_report_excel(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=relatorio_consolidado.xlsx"},
+    )
+
+
+@router.get("/cross/pdf")
+def cross_report_pdf(
+    confederation_id: Optional[int] = None,
+    month: Optional[date] = Query(None),
+    operator_id: Optional[int] = None,
+    status: Optional[PaymentStatus] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role == "confederation_viewer":
+        confederation_id = current_user.confederation_id
+    data = generate_cross_pdf(db, confederation_id, month, operator_id, status)
+    return StreamingResponse(
+        io.BytesIO(data), media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=relatorio_consolidado.pdf"},
     )
 
 

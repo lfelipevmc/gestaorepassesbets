@@ -16,6 +16,7 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, nullable=False)
     name = Column(String, nullable=False)
+    phone = Column(String(50), nullable=True)
     hashed_password = Column(String, nullable=False)
     role = Column(Enum(UserRole), default=UserRole.office_staff)
     confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=True)

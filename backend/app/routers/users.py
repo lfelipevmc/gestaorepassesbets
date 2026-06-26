@@ -22,6 +22,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), current_user: U
     user = User(
         email=data.email,
         name=data.name,
+        phone=data.phone,
         hashed_password=get_password_hash(data.password),
         role=data.role,
         confederation_id=data.confederation_id,
@@ -38,9 +39,27 @@ def update_user(id: int, data: UserUpdate, db: Session = Depends(get_db), curren
     user = db.query(User).get(id)
     if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    for k, v in data.model_dump(exclude_none=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    new_password = payload.pop("password", None)
+    if new_password:
+        user.hashed_password = get_password_hash(new_password)
+    for k, v in payload.items():
         setattr(user, k, v)
     db.commit()
     db.refresh(user)
     log_action(db=db, action="UPDATE_USER", entity_type="User", entity_id=id, user_id=current_user.id)
     return user
+
+
+@router.delete("/{id}")
+def delete_user(id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    user = db.query(User).get(id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Você não pode desativar o próprio usuário")
+    # Preserva o histórico de auditoria: desativa em vez de apagar
+    user.is_active = False
+    db.commit()
+    log_action(db=db, action="DEACTIVATE_USER", entity_type="User", entity_id=id, user_id=current_user.id)
+    return {"ok": True, "deactivated": True}
