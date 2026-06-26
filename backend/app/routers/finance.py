@@ -191,6 +191,7 @@ def summary_by_confederation(db: Session = Depends(get_db), current_user: User =
 @router.get("/emails", response_model=List[EmailMessageOut])
 def list_emails(
     operator_id: Optional[int] = None,
+    confederation_id: Optional[int] = None,
     matched: Optional[bool] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_office),
@@ -198,6 +199,8 @@ def list_emails(
     q = db.query(EmailMessage)
     if operator_id:
         q = q.filter(EmailMessage.operator_id == operator_id)
+    if confederation_id:
+        q = q.filter(EmailMessage.confederation_id == confederation_id)
     if matched is not None:
         q = q.filter(EmailMessage.matched == matched)
     return q.order_by(EmailMessage.created_at.desc()).limit(200).all()

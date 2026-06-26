@@ -5,7 +5,7 @@ import Header from "@/components/layout/Header";
 import Badge from "@/components/ui/Badge";
 import {
   getConfederations, getCollections, getOperators, getComplianceReport, downloadExcelReport,
-  getCrossReport, downloadCrossExcel, downloadCrossPdf, downloadEvidencePdf,
+  getCrossReport, downloadCrossExcel, downloadCrossPdf, downloadEvidencePdf, downloadCycleActivityPdf,
 } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
@@ -283,6 +283,19 @@ function PorCiclo({ confederations, cycles }: { confederations: any[]; cycles: a
     } finally { setDownloading(false); }
   }
 
+  async function handleDownloadActivity() {
+    if (!selectedCycle) return;
+    setDownloading(true);
+    try {
+      const r = await downloadCycleActivityPdf(parseInt(selectedCycle));
+      const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = `relatorio_atividades_ciclo_${selectedCycle}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert("Erro ao gerar relatório de atividades."); }
+    finally { setDownloading(false); }
+  }
+
   const getCycleName = (c: any) => {
     const conf = confederations.find(cf => cf.id === c.confederation_id);
     return `${conf?.acronym || "?"} - ${c.reference_month}`;
@@ -302,7 +315,9 @@ function PorCiclo({ confederations, cycles }: { confederations: any[]; cycles: a
           </div>
           <button onClick={handleGenerate} disabled={!selectedCycle || loading} className="btn-primary">{loading ? "Gerando..." : "Gerar Relatório"}</button>
           <button onClick={handleDownloadExcel} disabled={!selectedCycle || downloading} className="btn-secondary">{downloading ? "Baixando..." : "Exportar Excel"}</button>
+          <button onClick={handleDownloadActivity} disabled={!selectedCycle || downloading} className="btn-secondary">{downloading ? "..." : "Relatório de Atividades (PDF)"}</button>
         </div>
+        <p className="text-xs text-muted mt-3">O <b>Relatório de Atividades</b> consolida as diligências do mês (notificações, contatos, conciliações e recebimentos) e evidencia o acompanhamento realizado pelo escritório.</p>
       </div>
 
       {report && (

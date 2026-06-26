@@ -21,6 +21,7 @@ function monthBR(iso?: string) { if (!iso) return "—"; const [y, m] = iso.spli
 
 export default function FinanceiroPage() {
   const [tab, setTab] = useState(0);
+  const [activeConf, setActiveConf] = useState<string>("");  // cliente selecionado ("" = visão geral consolidada)
   const [confs, setConfs] = useState<any[]>([]);
   const [operators, setOperators] = useState<any[]>([]);
   const [msg, setMsg] = useState("");
@@ -33,7 +34,6 @@ export default function FinanceiroPage() {
   // Fase 1 — repasses recebidos
   const [phase1, setPhase1] = useState<any[]>([]);
   const [phase1Total, setPhase1Total] = useState(0);
-  const [p1Conf, setP1Conf] = useState("");
   const [p1Op, setP1Op] = useState("");
   const [p1Month, setP1Month] = useState("");
   const [showDirectForm, setShowDirectForm] = useState(false);
@@ -44,13 +44,11 @@ export default function FinanceiroPage() {
   // Fase 2 — repartição
   const [f2sub, setF2sub] = useState<"repart" | "benef">("repart");
   const [redis, setRedis] = useState<any[]>([]);
-  const [redisConf, setRedisConf] = useState("");
   const [onlyOverdue, setOnlyOverdue] = useState(false);
   const [showNew, setShowNew] = useState(false);
 
   // Beneficiários
   const [beneficiaries, setBeneficiaries] = useState<any[]>([]);
-  const [benConf, setBenConf] = useState("");
   const [editBen, setEditBen] = useState<any>(null);
 
   // E-mails
@@ -61,36 +59,55 @@ export default function FinanceiroPage() {
     getConfederations().then(r => setConfs(r.data));
     getOperators({ limit: 300 }).then(r => setOperators(r.data));
   }, []);
+  function loadSummary() {
+    const params: any = {};
+    if (activeConf) params.confederation_id = Number(activeConf);
+    getFinanceSummary(params).then(r => setSummary(r.data));
+    getFinanceByConfederation().then(r => setByConf(r.data));
+  }
   useEffect(() => {
-    if (tab === 0) { getFinanceSummary().then(r => setSummary(r.data)); getFinanceByConfederation().then(r => setByConf(r.data)); }
+    if (tab === 0) loadSummary();
     if (tab === 1) loadPhase1();
     if (tab === 2) { f2sub === "repart" ? loadRedis() : loadBen(); }
-    if (tab === 3) getFinanceEmails().then(r => setEmails(r.data));
+    if (tab === 3) loadEmails();
   }, [tab]);
+
+  // Trocar de cliente recarrega a aba ativa escopada à confederação
+  useEffect(() => {
+    if (tab === 0) loadSummary();
+    if (tab === 1) loadPhase1();
+    if (tab === 2) { f2sub === "repart" ? loadRedis() : loadBen(); }
+    if (tab === 3) loadEmails();
+  }, [activeConf]);
 
   function loadPhase1() {
     const params: any = {};
-    if (p1Conf) params.confederation_id = Number(p1Conf);
+    if (activeConf) params.confederation_id = Number(activeConf);
     if (p1Op) params.operator_id = Number(p1Op);
     if (p1Month) params.month = p1Month + "-01";
     getPhase1(params).then(r => { setPhase1(r.data.items); setPhase1Total(r.data.total); });
     getDirectPayments(params).then(r => setDirectPayments(r.data));
   }
-  useEffect(() => { if (tab === 1) loadPhase1(); }, [p1Conf, p1Op, p1Month]);
+  useEffect(() => { if (tab === 1) loadPhase1(); }, [p1Op, p1Month]);
 
   function loadRedis() {
     const params: any = {};
-    if (redisConf) params.confederation_id = Number(redisConf);
+    if (activeConf) params.confederation_id = Number(activeConf);
     if (onlyOverdue) params.overdue = true;
     getRedistributions(params).then(r => setRedis(r.data));
   }
   function loadBen() {
     const params: any = {};
-    if (benConf) params.confederation_id = Number(benConf);
+    if (activeConf) params.confederation_id = Number(activeConf);
     getBeneficiaries(params).then(r => setBeneficiaries(r.data));
   }
-  useEffect(() => { if (tab === 2 && f2sub === "repart") loadRedis(); }, [redisConf, onlyOverdue, f2sub]);
-  useEffect(() => { if (tab === 2 && f2sub === "benef") loadBen(); }, [benConf, f2sub]);
+  function loadEmails() {
+    const params: any = {};
+    if (activeConf) params.confederation_id = Number(activeConf);
+    getFinanceEmails(params).then(r => setEmails(r.data));
+  }
+  useEffect(() => { if (tab === 2 && f2sub === "repart") loadRedis(); }, [onlyOverdue, f2sub]);
+  useEffect(() => { if (tab === 2 && f2sub === "benef") loadBen(); }, [f2sub]);
 
   async function handleSaveDirectPayment(e: React.FormEvent) {
     e.preventDefault();
@@ -125,7 +142,7 @@ export default function FinanceiroPage() {
       const r = await syncEmails();
       if (!r.data.configured) flash("Integração de e-mail (M365) não configurada no .env.");
       else flash(`Sincronizado: ${r.data.imported} importados, ${r.data.matched} casados.`);
-      getFinanceEmails().then(rr => setEmails(rr.data));
+      loadEmails();
     } catch { flash("Erro ao sincronizar e-mails."); }
     setSyncing(false);
   }
@@ -134,8 +151,26 @@ export default function FinanceiroPage() {
 
   return (
     <AppShell>
-      <Header title="Financeiro" subtitle="ERP de repasses: Fase 1 (recebimento) e Fase 2 (repartição aos beneficiários)" />
+      <Header title="Financeiro" subtitle="ERP de repasses por confederação — cada cliente é uma estrutura financeira independente" />
       {msg && <div className="mb-4 bg-primary/10 border border-primary/30 text-primary rounded-lg px-4 py-3 text-sm">{msg}</div>}
+
+      {/* Seletor de cliente (confederação) — escopa toda a estrutura financeira */}
+      <div className="card mb-6">
+        <p className="text-xs text-muted mb-2 uppercase tracking-wide">Cliente (Confederação)</p>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setActiveConf("")}
+            className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-colors ${activeConf === "" ? "bg-primary/15 text-primary border-primary/30" : "border-surface-border text-muted hover:text-slate-200"}`}>
+            Visão Geral (consolidado)
+          </button>
+          {confs.map(c => (
+            <button key={c.id} onClick={() => setActiveConf(String(c.id))}
+              className={`px-3.5 py-1.5 rounded-lg text-sm font-medium border transition-colors ${activeConf === String(c.id) ? "bg-primary/15 text-primary border-primary/30" : "border-surface-border text-muted hover:text-slate-200"}`}>
+              {c.acronym}
+            </button>
+          ))}
+        </div>
+        {activeConf && <p className="text-xs text-muted mt-2">Exibindo a estrutura financeira isolada de <span className="text-slate-200 font-medium">{confs.find(c => String(c.id) === activeConf)?.name}</span>.</p>}
+      </div>
 
       <div className="flex gap-1 border-b border-surface-border mb-6">
         {TABS.map((t, i) => (
@@ -166,28 +201,31 @@ export default function FinanceiroPage() {
               <div className="card"><p className="text-xs text-muted">Prazos Vencidos</p><p className={"text-2xl font-bold " + (summary.repasses.redistribuicoes_vencidas > 0 ? "text-danger" : "text-success")}>{summary.repasses.redistribuicoes_vencidas}</p></div>
             </div>
           </div>
-          <div className="card p-0 overflow-hidden">
-            <div className="p-4 border-b border-surface-border"><h3 className="font-semibold text-white">Por Confederação</h3></div>
-            <table className="w-full text-sm">
-              <thead className="bg-surface"><tr>
-                <th className="table-th">Confederação</th><th className="table-th">Receita Total</th>
-                <th className="table-th">Repassado</th><th className="table-th">Pendente Repasse</th>
-                <th className="table-th">Vencidos</th><th className="table-th">Beneficiários</th>
-              </tr></thead>
-              <tbody>
-                {byConf.map(c => (
-                  <tr key={c.confederation_id} className="border-b border-surface-border/50">
-                    <td className="table-td text-white">{c.acronym}</td>
-                    <td className="table-td text-success">{formatCurrency(c.receita_total)}</td>
-                    <td className="table-td">{formatCurrency(c.total_repassado)}</td>
-                    <td className="table-td text-warning">{formatCurrency(c.pendente_repasse)}</td>
-                    <td className="table-td">{c.redistribuicoes_vencidas > 0 ? <span className="text-danger">{c.redistribuicoes_vencidas}</span> : "0"}</td>
-                    <td className="table-td text-muted">{c.beneficiarios}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {activeConf === "" && (
+            <div className="card p-0 overflow-hidden">
+              <div className="p-4 border-b border-surface-border"><h3 className="font-semibold text-white">Comparativo por Confederação</h3></div>
+              <table className="w-full text-sm">
+                <thead className="bg-surface"><tr>
+                  <th className="table-th">Confederação</th><th className="table-th">Receita Total</th>
+                  <th className="table-th">Repassado</th><th className="table-th">Pendente Repasse</th>
+                  <th className="table-th">Vencidos</th><th className="table-th">Beneficiários</th><th className="table-th"></th>
+                </tr></thead>
+                <tbody>
+                  {byConf.map(c => (
+                    <tr key={c.confederation_id} className="border-b border-surface-border/50 hover:bg-surface-border/20 cursor-pointer" onClick={() => setActiveConf(String(c.confederation_id))}>
+                      <td className="table-td text-white">{c.acronym}</td>
+                      <td className="table-td text-success">{formatCurrency(c.receita_total)}</td>
+                      <td className="table-td">{formatCurrency(c.total_repassado)}</td>
+                      <td className="table-td text-warning">{formatCurrency(c.pendente_repasse)}</td>
+                      <td className="table-td">{c.redistribuicoes_vencidas > 0 ? <span className="text-danger">{c.redistribuicoes_vencidas}</span> : "0"}</td>
+                      <td className="table-td text-muted">{c.beneficiarios}</td>
+                      <td className="table-td text-primary text-xs">Abrir →</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -197,17 +235,13 @@ export default function FinanceiroPage() {
           <p className="text-sm text-muted">Repasses efetivamente recebidos das Bets: provenientes de ciclos de cobrança ou de lançamentos avulsos. Estes valores são a origem das repartições da Fase 2.</p>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3 flex-wrap">
-              <select className="input w-44" value={p1Conf} onChange={e => setP1Conf(e.target.value)}>
-                <option value="">Todas as confederações</option>
-                {confs.map(c => <option key={c.id} value={c.id}>{c.acronym}</option>)}
-              </select>
               <select className="input w-56" value={p1Op} onChange={e => setP1Op(e.target.value)}>
                 <option value="">Todos os agentes operadores</option>
                 {operators.map(o => <option key={o.id} value={o.id}>{o.fantasy_name || o.company_name}</option>)}
               </select>
               <input type="month" className="input w-44" value={p1Month} onChange={e => setP1Month(e.target.value)} />
             </div>
-            <button onClick={() => { setDirectForm(f => ({ ...f, confederation_id: confs[0]?.id?.toString() || "" })); setShowDirectForm(true); }} className="btn-primary">+ Novo Lançamento Avulso</button>
+            <button onClick={() => { setDirectForm(f => ({ ...f, confederation_id: activeConf || confs[0]?.id?.toString() || "" })); setShowDirectForm(true); }} className="btn-primary">+ Novo Lançamento Avulso</button>
           </div>
 
           <div className="card"><p className="text-xs text-muted">Total recebido (filtros aplicados)</p><p className="text-2xl font-bold text-success">{formatCurrency(phase1Total)}</p></div>
@@ -301,15 +335,9 @@ export default function FinanceiroPage() {
             <>
               <p className="text-sm text-muted">Cada repartição deve estar vinculada a um repasse recebido na Fase 1. Os valores são distribuídos aos beneficiários finais conforme o regulamento.</p>
               <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <select className="input w-48" value={redisConf} onChange={e => setRedisConf(e.target.value)}>
-                    <option value="">Todas as confederações</option>
-                    {confs.map(c => <option key={c.id} value={c.id}>{c.acronym}</option>)}
-                  </select>
-                  <label className="flex items-center gap-2 text-sm text-slate-300">
-                    <input type="checkbox" checked={onlyOverdue} onChange={e => setOnlyOverdue(e.target.checked)} /> Só prazos vencidos
-                  </label>
-                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-300">
+                  <input type="checkbox" checked={onlyOverdue} onChange={e => setOnlyOverdue(e.target.checked)} /> Só prazos vencidos
+                </label>
                 <button onClick={() => setShowNew(true)} className="btn-primary">+ Nova Repartição</button>
               </div>
 
@@ -320,12 +348,8 @@ export default function FinanceiroPage() {
             </>
           ) : (
             <>
-              <div className="flex items-center justify-between">
-                <select className="input w-56" value={benConf} onChange={e => setBenConf(e.target.value)}>
-                  <option value="">Todas as confederações</option>
-                  {confs.map(c => <option key={c.id} value={c.id}>{c.acronym}</option>)}
-                </select>
-                <button onClick={() => setEditBen({ type: "atleta", name: "", confederation_id: benConf ? Number(benConf) : (confs[0]?.id) })} className="btn-primary">+ Beneficiário</button>
+              <div className="flex items-center justify-end">
+                <button onClick={() => setEditBen({ type: "atleta", name: "", confederation_id: activeConf ? Number(activeConf) : (confs[0]?.id) })} className="btn-primary">+ Beneficiário</button>
               </div>
               <div className="card p-0 overflow-hidden">
                 <table className="w-full text-sm">
