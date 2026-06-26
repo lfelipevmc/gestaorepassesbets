@@ -67,6 +67,25 @@ def cross_report_pdf(
     )
 
 
+@router.get("/evidence/pdf")
+def evidence_report_pdf(
+    month: date = Query(..., description="Mês de competência (YYYY-MM-01)"),
+    confederation_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Relatório de Evidências Mensal (ISO 9001): dossiê consolidado do mês para auditoria."""
+    from ..services.evidence_report import generate_evidence_pdf
+    if current_user.role == "confederation_viewer":
+        confederation_id = current_user.confederation_id
+    data = generate_evidence_pdf(db, month, confederation_id)
+    fname = f"evidencias_{month.strftime('%Y_%m')}.pdf"
+    return StreamingResponse(
+        io.BytesIO(data), media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )
+
+
 @router.get("/compliance/{cycle_id}")
 def compliance_report(cycle_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     report = get_compliance_report(db, cycle_id)

@@ -5,7 +5,7 @@ import Header from "@/components/layout/Header";
 import Badge from "@/components/ui/Badge";
 import {
   getConfederations, getCollections, getOperators, getComplianceReport, downloadExcelReport,
-  getCrossReport, downloadCrossExcel, downloadCrossPdf,
+  getCrossReport, downloadCrossExcel, downloadCrossPdf, downloadEvidencePdf,
 } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
@@ -19,7 +19,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function RelatoriosPage() {
-  const [tab, setTab] = useState<"consolidado" | "ciclo">("consolidado");
+  const [tab, setTab] = useState<"consolidado" | "ciclo" | "evidencias">("consolidado");
   const [confederations, setConfederations] = useState<any[]>([]);
   const [cycles, setCycles] = useState<any[]>([]);
   const [operators, setOperators] = useState<any[]>([]);
@@ -36,11 +36,12 @@ export default function RelatoriosPage() {
       <div className="flex gap-2 mb-6">
         <button onClick={() => setTab("consolidado")} className={tab === "consolidado" ? "btn-primary" : "btn-secondary"}>Consolidado / Cruzado</button>
         <button onClick={() => setTab("ciclo")} className={tab === "ciclo" ? "btn-primary" : "btn-secondary"}>Por Ciclo</button>
+        <button onClick={() => setTab("evidencias")} className={tab === "evidencias" ? "btn-primary" : "btn-secondary"}>Evidências (ISO 9001)</button>
       </div>
 
-      {tab === "consolidado"
-        ? <Consolidado confederations={confederations} operators={operators} />
-        : <PorCiclo confederations={confederations} cycles={cycles} />}
+      {tab === "consolidado" && <Consolidado confederations={confederations} operators={operators} />}
+      {tab === "ciclo" && <PorCiclo confederations={confederations} cycles={cycles} />}
+      {tab === "evidencias" && <Evidencias confederations={confederations} />}
     </AppShell>
   );
 }
@@ -379,6 +380,64 @@ function CycleTable({ title, rows }: { title: string; rows: any[] }) {
           </tr>
         ))}</tbody>
       </table>
+    </div>
+  );
+}
+
+/* ------------------------- Evidências (ISO 9001) ------------------------- */
+function Evidencias({ confederations }: { confederations: any[] }) {
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [confId, setConfId] = useState("");
+  const [downloading, setDownloading] = useState(false);
+
+  async function download() {
+    if (!month) { alert("Selecione o mês de competência."); return; }
+    setDownloading(true);
+    try {
+      const params: any = { month: `${month}-01` };
+      if (confId) params.confederation_id = Number(confId);
+      const r = await downloadEvidencePdf(params);
+      const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = `evidencias_${month.replace("-", "_")}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert(e.response?.data?.detail || "Erro ao gerar o relatório de evidências.");
+    } finally { setDownloading(false); }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="card bg-blue-500/5 border border-blue-500/20">
+        <h3 className="font-semibold text-white text-sm mb-1">Dossiê Mensal de Evidências</h3>
+        <p className="text-xs text-muted">
+          Gera um PDF consolidando todas as evidências do mês para fins de auditoria e rastreabilidade
+          (ISO 9001 — 7.5 Informação documentada e 8.5 Provisão de serviço): notificações enviadas,
+          respostas recebidas das Bets, valores declarados x recebidos, relatórios de GGR e repartições
+          aos beneficiários. Ideal para apresentar à confederação como comprovação do trabalho realizado.
+        </p>
+      </div>
+
+      <div className="card">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <div>
+            <label className="label">Mês de competência *</label>
+            <input type="month" className="input" value={month} onChange={e => setMonth(e.target.value)} />
+            <p className="text-xs text-muted mt-1">Mês a que se referem os repasses (competência).</p>
+          </div>
+          <div>
+            <label className="label">Confederação</label>
+            <select className="input" value={confId} onChange={e => setConfId(e.target.value)}>
+              <option value="">Todas as confederações</option>
+              {confederations.map(c => <option key={c.id} value={c.id}>{c.acronym} — {c.name}</option>)}
+            </select>
+            <p className="text-xs text-muted mt-1">Deixe em branco para um dossiê completo.</p>
+          </div>
+          <button onClick={download} disabled={downloading} className="btn-primary">
+            {downloading ? "Gerando dossiê..." : "⬇ Gerar Dossiê em PDF"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

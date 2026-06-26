@@ -209,3 +209,19 @@ export const deleteTemplate = (id: number) => api.delete(`/api/templates/${id}`)
 // ---- Alertas e compliance ----
 export const getAlerts = () => api.get('/api/alerts/');
 export const getComplianceHistory = (params?: any) => api.get('/api/alerts/compliance-history', { params });
+
+// ---- Histórico e score do operador ----
+export const getOperatorMonthlyHistory = (id: number, months = 12) =>
+  api.get(`/api/operators/${id}/monthly-history`, { params: { months } });
+export const getOperatorComplianceScore = (id: number) =>
+  api.get(`/api/operators/${id}/compliance-score`);
+
+// ---- Fila de e-mails não casados ----
+export const suggestEmailOperator = (emailId: number) =>
+  api.post(`/api/finance/emails/${emailId}/suggest-operator`);
+export const linkEmailOperator = (emailId: number, data: { operator_id: number; add_as_contact?: boolean }) =>
+  api.post(`/api/finance/emails/${emailId}/link`, data);
+
+// ---- Relatório de evidências ISO 9001 ----
+export const downloadEvidencePdf = (params: { month: string; confederation_id?: number }) =>
+  api.get("/api/reports/evidence/pdf", { params, responseType: "blob" });

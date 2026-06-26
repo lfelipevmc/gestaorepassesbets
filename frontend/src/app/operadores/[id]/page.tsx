@@ -15,6 +15,7 @@ import {
   researchContacts, getContactSuggestions, approveSuggestion, rejectSuggestion,
   getDirectPayments, createDirectPayment, deleteDirectPayment,
   getConfederations,
+  getOperatorMonthlyHistory, getOperatorComplianceScore,
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 
@@ -55,6 +56,10 @@ export default function OperatorDetailPage() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [audit, setAudit] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Histórico (12 meses) + score
+  const [monthlyHistory, setMonthlyHistory] = useState<any[]>([]);
+  const [complianceScore, setComplianceScore] = useState<any>(null);
 
   // Contacts
   const [showAddContact, setShowAddContact] = useState(false);
@@ -147,6 +152,10 @@ export default function OperatorDetailPage() {
 
   useEffect(() => {
     if (tab === 5) fetchSuggestions();
+    if (tab === 6 && monthlyHistory.length === 0) {
+      getOperatorMonthlyHistory(numId, 12).then(r => setMonthlyHistory(r.data.history || [])).catch(() => {});
+      getOperatorComplianceScore(numId).then(r => setComplianceScore(r.data)).catch(() => {});
+    }
   }, [tab]);
 
   async function handleSave(e: React.FormEvent) {
@@ -960,6 +969,63 @@ export default function OperatorDetailPage() {
       {/* Tab 6: Payments */}
       {tab === 6 && (
         <div className="space-y-6">
+          {/* Painel: Score + Histórico 12 meses */}
+          <div className="card">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="font-semibold text-white">Histórico dos Últimos 12 Meses</h3>
+                <p className="text-xs text-muted mt-0.5">Situação mês a mês e índice de adimplência do operador.</p>
+              </div>
+              {complianceScore && complianceScore.score !== null && (
+                <div className="text-right">
+                  <div className={`text-3xl font-bold ${
+                    complianceScore.score >= 90 ? "text-success" :
+                    complianceScore.score >= 70 ? "text-success" :
+                    complianceScore.score >= 40 ? "text-warning" : "text-danger"
+                  }`}>{complianceScore.score}%</div>
+                  <div className="text-xs text-muted">Adimplência · {complianceScore.label}</div>
+                  <div className="text-xs text-muted mt-0.5">{complianceScore.paid}/{complianceScore.total} pagamentos</div>
+                </div>
+              )}
+            </div>
+
+            {monthlyHistory.length === 0 ? (
+              <p className="text-muted text-sm py-4">Sem histórico de pagamentos registrado.</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-6 lg:grid-cols-12 gap-2">
+                  {monthlyHistory.map((h, i) => {
+                    const colors: Record<string, string> = {
+                      paid: "bg-success/20 border-success/40 text-success",
+                      overdue: "bg-danger/20 border-danger/40 text-danger",
+                      pending: "bg-warning/20 border-warning/40 text-warning",
+                      none: "bg-surface border-surface-border text-muted",
+                    };
+                    const labels: Record<string, string> = {
+                      paid: "Pago", overdue: "Inadimplente", pending: "Pendente", none: "Sem cobrança",
+                    };
+                    return (
+                      <div key={i} className={`rounded-lg border p-2 text-center ${colors[h.situation]}`} title={labels[h.situation]}>
+                        <div className="text-[10px] font-medium opacity-80">{h.month}</div>
+                        <div className="text-xs font-bold mt-1">
+                          {h.received > 0 ? formatCurrency(h.received).replace("R$", "").trim() : "—"}
+                        </div>
+                        {h.has_report && <div className="text-[9px] mt-0.5">📄</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap gap-4 mt-4 text-xs text-muted">
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-success/40 inline-block"></span> Pago</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-warning/40 inline-block"></span> Pendente</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-danger/40 inline-block"></span> Inadimplente</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-surface-border inline-block"></span> Sem cobrança</span>
+                  <span className="flex items-center gap-1">📄 Relatório de GGR recebido</span>
+                </div>
+              </>
+            )}
+          </div>
+
           {/* Lançamentos Avulsos */}
           <div className="card">
             <div className="flex items-center justify-between mb-4">

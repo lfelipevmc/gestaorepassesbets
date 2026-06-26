@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func, false
 from typing import List, Optional
@@ -207,3 +208,88 @@ def sync_emails(db: Session = Depends(get_db), current_user: User = Depends(requ
     """Lê a caixa de entrada (M365) e importa respostas das Bets, casando por remetente."""
     from ..services.email_matcher import sync_inbox
     return sync_inbox(db)
+
+
+@router.post("/emails/{email_id}/suggest-operator")
+def suggest_operator(email_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Usa IA para sugerir qual agente operador é o remetente de um e-mail não casado."""
+    from ..services.ai_service import suggest_operator_for_email
+    from ..models.operator import OperatorBrand
+
+    email = db.query(EmailMessage).get(email_id)
+    if not email:
+        from fastapi import HTTPException
+        raise HTTPException(404, "E-mail não encontrado")
+
+    # Monta candidatos com domínios das marcas
+    operators = db.query(BettingOperator).filter(BettingOperator.status == "active").all()
+    brands = db.query(OperatorBrand).all()
+    brands_by_op = {}
+    for b in brands:
+        brands_by_op.setdefault(b.operator_id, []).append(b)
+
+    candidates = []
+    for op in operators:
+        domains = []
+        for b in brands_by_op.get(op.id, []):
+            for d in (b.domain, b.website):
+                if d:
+                    domains.append(d.replace("https://", "").replace("http://", "").split("/")[0])
+        if op.website:
+            domains.append(op.website.replace("https://", "").replace("http://", "").split("/")[0])
+        candidates.append({
+            "id": op.id, "company_name": op.company_name,
+            "fantasy_name": op.fantasy_name, "domains": domains,
+        })
+
+    result = suggest_operator_for_email(email.from_addr, email.subject, email.body_preview, candidates)
+    # Anexa rótulo do operador sugerido
+    if result.get("operator_id"):
+        op = db.query(BettingOperator).get(result["operator_id"])
+        if op:
+            result["operator_label"] = op.fantasy_name or op.company_name
+    return result
+
+
+class LinkEmailRequest(BaseModel):
+    operator_id: int
+    add_as_contact: bool = False
+
+
+@router.post("/emails/{email_id}/link")
+def link_email_to_operator(
+    email_id: int, data: LinkEmailRequest,
+    db: Session = Depends(get_db), current_user: User = Depends(require_office),
+):
+    """Vincula manualmente um e-mail não casado a um operador (revisão humana da fila)."""
+    from fastapi import HTTPException
+    from ..models.operator import OperatorContact, ContactType
+    from ..services.audit_service import log_action
+
+    email = db.query(EmailMessage).get(email_id)
+    if not email:
+        raise HTTPException(404, "E-mail não encontrado")
+    op = db.query(BettingOperator).get(data.operator_id)
+    if not op:
+        raise HTTPException(404, "Operador não encontrado")
+
+    email.operator_id = data.operator_id
+    email.matched = True
+
+    # Opcionalmente cadastra o remetente como contato de e-mail do operador
+    if data.add_as_contact and email.from_addr:
+        exists = db.query(OperatorContact).filter(
+            OperatorContact.operator_id == data.operator_id,
+            OperatorContact.value == email.from_addr,
+        ).first()
+        if not exists:
+            db.add(OperatorContact(
+                operator_id=data.operator_id, type=ContactType.email,
+                value=email.from_addr, label="Identificado por e-mail recebido",
+                source="email_queue",
+            ))
+
+    log_action(db=db, action="LINK_EMAIL", entity_type="BettingOperator", entity_id=data.operator_id,
+               new_values={"email_id": email_id, "from": email.from_addr}, user_id=current_user.id)
+    db.commit()
+    return {"ok": True, "operator_id": data.operator_id, "operator_label": op.fantasy_name or op.company_name}

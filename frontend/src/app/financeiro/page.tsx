@@ -8,6 +8,7 @@ import {
   getBeneficiaries, createBeneficiary, updateBeneficiary, deleteBeneficiary,
   getDistributionRules, getFinanceEmails, syncEmails,
   getDirectPayments, createDirectPayment, deleteDirectPayment, getOperators, getPhase1,
+  suggestEmailOperator, linkEmailOperator,
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -358,30 +359,47 @@ export default function FinanceiroPage() {
 
       {/* E-MAILS */}
       {tab === 3 && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted">Respostas das Bets importadas automaticamente da caixa de entrada (M365), casadas pelo remetente e arquivadas como documento para auditoria.</p>
+            <p className="text-sm text-muted">Respostas das Bets importadas da caixa de entrada (M365), casadas pelo remetente e arquivadas como documento para auditoria.</p>
             <button onClick={doSync} disabled={syncing} className="btn-primary">{syncing ? "Sincronizando..." : "Sincronizar Caixa de Entrada"}</button>
           </div>
-          <div className="card p-0 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-surface"><tr>
-                <th className="table-th">Recebido</th><th className="table-th">De</th><th className="table-th">Assunto</th>
-                <th className="table-th">Bet</th><th className="table-th">Status</th>
-              </tr></thead>
-              <tbody>
-                {emails.filter(e => e.direction === "inbound").map(e => (
-                  <tr key={e.id} className="border-b border-surface-border/50">
-                    <td className="table-td text-muted text-xs">{e.received_at ? formatDate(e.received_at) : "—"}</td>
-                    <td className="table-td text-xs">{e.from_addr}</td>
-                    <td className="table-td">{e.subject || "(sem assunto)"}</td>
-                    <td className="table-td">{e.operator_id ? `#${e.operator_id}` : "—"}</td>
-                    <td className="table-td">{e.matched ? <span className="text-xs text-success">✓ Casada</span> : <span className="text-xs text-warning">Sem correspondência</span>}</td>
-                  </tr>
-                ))}
-                {emails.length === 0 && <tr><td colSpan={5} className="table-td text-center text-muted py-8">Nenhuma resposta importada ainda.</td></tr>}
-              </tbody>
-            </table>
+
+          {/* Fila de revisão — e-mails não casados */}
+          <EmailReviewQueue
+            emails={emails.filter(e => e.direction === "inbound" && !e.matched)}
+            operators={operators}
+            onLinked={() => { getFinanceEmails().then(r => setEmails(r.data)); flash("E-mail vinculado ao operador."); }}
+          />
+
+          {/* E-mails já casados */}
+          <div>
+            <h3 className="font-semibold text-white text-sm mb-2">Respostas já vinculadas</h3>
+            <div className="card p-0 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-surface"><tr>
+                  <th className="table-th">Recebido</th><th className="table-th">De</th><th className="table-th">Assunto</th>
+                  <th className="table-th">Bet</th><th className="table-th">Status</th>
+                </tr></thead>
+                <tbody>
+                  {emails.filter(e => e.direction === "inbound" && e.matched).map(e => {
+                    const op = operators.find(o => o.id === e.operator_id);
+                    return (
+                      <tr key={e.id} className="border-b border-surface-border/50">
+                        <td className="table-td text-muted text-xs">{e.received_at ? formatDate(e.received_at) : "—"}</td>
+                        <td className="table-td text-xs">{e.from_addr}</td>
+                        <td className="table-td">{e.subject || "(sem assunto)"}</td>
+                        <td className="table-td text-xs">{op ? (op.fantasy_name || op.company_name) : `#${e.operator_id}`}</td>
+                        <td className="table-td"><span className="text-xs text-success">✓ Casada</span></td>
+                      </tr>
+                    );
+                  })}
+                  {emails.filter(e => e.direction === "inbound" && e.matched).length === 0 && (
+                    <tr><td colSpan={5} className="table-td text-center text-muted py-8">Nenhuma resposta casada ainda.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -647,6 +665,111 @@ function BeneficiaryModal({ confs, ben, onClose, onSaved }: any) {
           <button onClick={onClose} className="btn-secondary">Cancelar</button>
           <button onClick={save} disabled={saving} className="btn-primary">{saving ? "Salvando..." : "Salvar"}</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Fila de revisão de e-mails não casados (com sugestão de IA) ---------- */
+function EmailReviewQueue({ emails, operators, onLinked }: any) {
+  const [suggestions, setSuggestions] = useState<Record<number, any>>({});
+  const [loadingId, setLoadingId] = useState<number | null>(null);
+  const [selectedOp, setSelectedOp] = useState<Record<number, string>>({});
+  const [addContact, setAddContact] = useState<Record<number, boolean>>({});
+  const [linkingId, setLinkingId] = useState<number | null>(null);
+
+  async function suggest(emailId: number) {
+    setLoadingId(emailId);
+    try {
+      const r = await suggestEmailOperator(emailId);
+      setSuggestions(s => ({ ...s, [emailId]: r.data }));
+      if (r.data.operator_id) {
+        setSelectedOp(s => ({ ...s, [emailId]: String(r.data.operator_id) }));
+      }
+    } catch {
+      setSuggestions(s => ({ ...s, [emailId]: { error: true } }));
+    } finally { setLoadingId(null); }
+  }
+
+  async function link(emailId: number) {
+    const opId = selectedOp[emailId];
+    if (!opId) return;
+    setLinkingId(emailId);
+    try {
+      await linkEmailOperator(emailId, { operator_id: Number(opId), add_as_contact: !!addContact[emailId] });
+      onLinked();
+    } catch {
+      // noop
+    } finally { setLinkingId(null); }
+  }
+
+  if (emails.length === 0) {
+    return (
+      <div className="bg-success/10 border border-success/30 rounded-lg px-4 py-3 text-sm text-success">
+        ✓ Nenhum e-mail aguardando revisão — todas as respostas estão vinculadas a um operador.
+      </div>
+    );
+  }
+
+  const confColors: Record<string, string> = { high: "text-success", medium: "text-warning", low: "text-muted" };
+
+  return (
+    <div>
+      <h3 className="font-semibold text-white text-sm mb-2 flex items-center gap-2">
+        Fila de Revisão
+        <span className="text-xs bg-warning/20 text-warning px-2 py-0.5 rounded-full">{emails.length} sem correspondência</span>
+      </h3>
+      <p className="text-xs text-muted mb-3">E-mails recebidos cujo remetente não está cadastrado. Use a sugestão da IA e confirme o vínculo (revisão humana).</p>
+      <div className="space-y-3">
+        {emails.map((e: any) => {
+          const sug = suggestions[e.id];
+          return (
+            <div key={e.id} className="card">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm text-white truncate">{e.subject || "(sem assunto)"}</p>
+                  <p className="text-xs text-muted mt-0.5">De: <span className="font-mono">{e.from_addr}</span> · {e.received_at ? formatDate(e.received_at) : "—"}</p>
+                  {e.body_preview && <p className="text-xs text-muted mt-1 line-clamp-2">{e.body_preview.replace(/<[^>]+>/g, "").slice(0, 180)}</p>}
+                </div>
+                <button onClick={() => suggest(e.id)} disabled={loadingId === e.id} className="btn-secondary text-xs whitespace-nowrap">
+                  {loadingId === e.id ? "Analisando..." : "✨ Sugerir com IA"}
+                </button>
+              </div>
+
+              {sug && !sug.error && (
+                <div className="mt-3 p-2 bg-surface rounded-lg text-xs">
+                  {sug.operator_id ? (
+                    <p className="text-slate-300">
+                      Sugestão: <span className="text-white font-medium">{sug.operator_label}</span>
+                      <span className={`ml-2 ${confColors[sug.confidence] || "text-muted"}`}>({sug.confidence})</span>
+                      {sug.reasoning && <span className="block text-muted mt-0.5">{sug.reasoning}</span>}
+                    </p>
+                  ) : (
+                    <p className="text-muted">A IA não encontrou correspondência clara. Selecione o operador manualmente.{sug.reasoning ? ` ${sug.reasoning}` : ""}</p>
+                  )}
+                </div>
+              )}
+              {sug?.error && <p className="mt-3 text-xs text-danger">Erro ao consultar a IA.</p>}
+
+              <div className="flex flex-wrap items-end gap-3 mt-3">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="label">Vincular ao operador</label>
+                  <select className="input" value={selectedOp[e.id] || ""} onChange={ev => setSelectedOp(s => ({ ...s, [e.id]: ev.target.value }))}>
+                    <option value="">Selecione...</option>
+                    {operators.map((o: any) => <option key={o.id} value={o.id}>{o.fantasy_name || o.company_name}</option>)}
+                  </select>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-300 pb-2">
+                  <input type="checkbox" checked={!!addContact[e.id]} onChange={ev => setAddContact(s => ({ ...s, [e.id]: ev.target.checked }))} />
+                  Cadastrar remetente como contato
+                </label>
+                <button onClick={() => link(e.id)} disabled={!selectedOp[e.id] || linkingId === e.id} className="btn-primary text-sm">
+                  {linkingId === e.id ? "Vinculando..." : "Confirmar vínculo"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

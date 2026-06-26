@@ -124,3 +124,56 @@ Responda em JSON:
         return json.loads(message.content[0].text)
     except Exception:
         return {"has_payment_confirmation": False, "raw": message.content[0].text}
+
+
+def suggest_operator_for_email(from_addr: str, subject: str, body_preview: str, candidates: list) -> dict:
+    """Sugere qual agente operador é o remetente de um e-mail não casado.
+
+    candidates: lista de dicts {id, company_name, fantasy_name, domains: [..], emails: [..]}.
+    Retorna {operator_id, confidence, reasoning} ou {operator_id: None} se incerto.
+    """
+    cl = get_client()
+    if not cl:
+        # Fallback heurístico sem IA: casa pelo domínio do e-mail
+        domain = (from_addr or "").split("@")[-1].lower().strip()
+        if domain:
+            for c in candidates:
+                doms = [d.lower() for d in (c.get("domains") or []) if d]
+                if any(domain in d or d in domain for d in doms):
+                    return {"operator_id": c["id"], "confidence": "medium",
+                            "reasoning": f"Domínio do e-mail ({domain}) corresponde à marca cadastrada.", "ai": False}
+        return {"operator_id": None, "confidence": "low", "reasoning": "IA não configurada e domínio não reconhecido.", "ai": False}
+
+    candidates_text = "\n".join(
+        f"- ID {c['id']}: {c['company_name']} (fantasia: {c.get('fantasy_name') or '-'}; "
+        f"domínios: {', '.join(c.get('domains') or []) or '-'})"
+        for c in candidates[:80]
+    )
+
+    prompt = f"""Você é um assistente que identifica de qual agente operador de apostas veio um e-mail.
+
+E-mail recebido:
+- Remetente: {from_addr}
+- Assunto: {subject or '(sem assunto)'}
+- Trecho: {(body_preview or '')[:600]}
+
+Candidatos cadastrados:
+{candidates_text}
+
+Com base no domínio do remetente, no assunto e no corpo, identifique o agente operador mais provável.
+Se não houver correspondência razoável, retorne operator_id null.
+
+Responda APENAS em JSON:
+{{"operator_id": <id ou null>, "confidence": "high|medium|low", "reasoning": "justificativa curta"}}"""
+
+    message = cl.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=512,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    try:
+        result = json.loads(message.content[0].text)
+        result["ai"] = True
+        return result
+    except Exception:
+        return {"operator_id": None, "confidence": "low", "reasoning": message.content[0].text[:200], "ai": True}

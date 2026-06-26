@@ -418,3 +418,66 @@ def operator_compliance_score(
         "overdue": overdue,
         "pending": total - paid - overdue,
     }
+
+
+@router.get("/{id}/monthly-history")
+def operator_monthly_history(
+    id: int,
+    months: int = 12,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Histórico mês a mês (últimos N meses) do operador: valor recebido e situação por mês."""
+    from ..models.payment import Payment, PaymentStatus, DirectPayment
+    from ..models.collection import CollectionCycle
+    from datetime import date
+
+    op = db.query(BettingOperator).get(id)
+    if not op:
+        raise HTTPException(404, "Operador não encontrado")
+
+    today = date.today()
+    # mapa cycle_id -> reference_month
+    cycle_map = {c.id: c.reference_month for c in db.query(CollectionCycle).all()}
+
+    payments = db.query(Payment).filter(Payment.operator_id == id).all()
+    directs = db.query(DirectPayment).filter(DirectPayment.operator_id == id).all()
+
+    # Constrói lista dos últimos N meses
+    history = []
+    for i in range(months - 1, -1, -1):
+        m = today.month - i
+        y = today.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        ref = date(y, m, 1)
+        label = ref.strftime("%m/%Y")
+
+        # pagamentos de ciclo cujo mês de referência == ref
+        month_payments = [p for p in payments if cycle_map.get(p.cycle_id) == ref]
+        month_directs = [d for d in directs if d.reference_month == ref]
+
+        received = sum(float(p.amount_paid or 0) for p in month_payments) + \
+                   sum(float(d.amount_received or 0) for d in month_directs)
+
+        # situação: paid se algum pago; overdue se algum vencido sem pagamento; pending; sem cobrança
+        statuses = [p.status for p in month_payments]
+        if any(s in (PaymentStatus.paid, PaymentStatus.report_pending) for s in statuses) or month_directs:
+            situation = "paid"
+        elif any(s == PaymentStatus.overdue for s in statuses):
+            situation = "overdue"
+        elif statuses:
+            situation = "pending"
+        else:
+            situation = "none"
+
+        history.append({
+            "month": label,
+            "ref": ref.isoformat(),
+            "received": received,
+            "situation": situation,
+            "has_report": any(p.report_received for p in month_payments) or any(d.report_file_url for d in month_directs),
+        })
+
+    return {"history": history}
