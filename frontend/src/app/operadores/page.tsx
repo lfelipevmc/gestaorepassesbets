@@ -241,7 +241,15 @@ export default function OperadoresPage() {
                   <span className="text-xs bg-surface px-2 py-1 rounded-full">{op.contacts?.length || 0} contatos</span>
                 </td>
                 <td className="table-td">
-                  <span className="text-xs bg-surface px-2 py-1 rounded-full">{op.brands?.length || 0} marca{op.brands?.length !== 1 ? "s" : ""}</span>
+                  {op.brands?.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {op.brands.map((b: any) => (
+                        <span key={b.id} className="text-xs bg-surface px-2 py-1 rounded-full text-slate-300">{b.name}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted">—</span>
+                  )}
                 </td>
                 <td className="table-td">{getEndrBadge(op)}</td>
                 <td className="table-td">
