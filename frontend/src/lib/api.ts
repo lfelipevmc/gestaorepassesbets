@@ -255,3 +255,6 @@ export const sendMonthlyToOffice = (params: { month: string; confederation_id?: 
 
 // ---- Transparência (portal do cliente) ----
 export const getTransparency = (params?: any) => api.get("/api/alerts/transparency", { params });
+
+// ---- Análise de GGR ----
+export const getGgrAnalysis = (id: number) => api.get(`/api/payments/${id}/ggr-analysis`);

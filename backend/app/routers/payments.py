@@ -75,6 +75,59 @@ def set_payment_status(id: int, data: PaymentSetStatus, db: Session = Depends(ge
     return payment
 
 
+@router.get("/{id}/ggr-analysis")
+def ggr_analysis(id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Compara o valor declarado/recebido do pagamento com o histórico do mesmo operador
+    na mesma confederação e sinaliza divergência relevante (possível inconsistência de GGR)."""
+    from ..models.collection import CollectionCycle
+    payment = db.query(Payment).get(id)
+    if not payment:
+        raise HTTPException(status_code=404, detail="Pagamento não encontrado")
+
+    # histórico de pagamentos do operador na mesma confederação (exceto o atual)
+    hist = db.query(Payment).filter(
+        Payment.operator_id == payment.operator_id,
+        Payment.confederation_id == payment.confederation_id,
+        Payment.id != payment.id,
+    ).all()
+
+    def _v(p):
+        return float(p.amount_due or p.amount_paid or 0)
+
+    valores = [_v(p) for p in hist if _v(p) > 0]
+    atual = _v(payment)
+    media = sum(valores) / len(valores) if valores else 0.0
+
+    desvio_pct = None
+    flag = "sem_referencia"
+    if media > 0 and atual > 0:
+        desvio_pct = round((atual - media) / media * 100)
+        if abs(desvio_pct) >= 40:
+            flag = "alto"
+        elif abs(desvio_pct) >= 20:
+            flag = "moderado"
+        else:
+            flag = "normal"
+
+    # série histórica (últimos valores, com mês de referência)
+    serie = []
+    for p in sorted(hist, key=lambda x: (db.query(CollectionCycle).get(x.cycle_id).reference_month if x.cycle_id else date.min)):
+        cyc = db.query(CollectionCycle).get(p.cycle_id) if p.cycle_id else None
+        serie.append({"month": cyc.reference_month.strftime("%m/%Y") if cyc else "—", "valor": _v(p)})
+
+    comentario = None
+    if flag in ("alto", "moderado"):
+        sinal = "abaixo" if (desvio_pct or 0) < 0 else "acima"
+        comentario = (f"O valor informado está {abs(desvio_pct)}% {sinal} da média histórica deste operador "
+                      f"({media:,.2f}). Recomenda-se solicitar o relatório de apuração detalhado para conferência.")
+        comentario = comentario.replace(",", "X").replace(".", ",").replace("X", ".")
+
+    return {
+        "atual": atual, "media_historica": round(media, 2), "desvio_pct": desvio_pct,
+        "flag": flag, "amostras": len(valores), "serie": serie[-12:], "comentario": comentario,
+    }
+
+
 @router.post("/{id}/declare-value", response_model=PaymentOut)
 def declare_value(id: int, data: PaymentDeclareValue, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
     """Registra o valor devido apurado pelo agente operador (informado no relatório).

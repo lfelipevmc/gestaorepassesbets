@@ -11,7 +11,7 @@ import {
   getNotificationPreview, sendNotificationConfirmed, generateSpaLetter, downloadSpaLetter,
   getTemplates, getOffice, setPaymentStatus, registerPaymentReport, uploadPaymentReport,
   getCycleEmails, syncCycleEmails, getEmailProof, downloadCycleActivityPdf,
-  suggestEmailOperator, linkEmailOperator,
+  suggestEmailOperator, linkEmailOperator, getGgrAnalysis,
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 
@@ -47,6 +47,7 @@ export default function CollectionDetailPage() {
   const [showReport, setShowReport] = useState<any>(null);
   const [showPhone, setShowPhone] = useState<any>(null);
   const [showContact, setShowContact] = useState<any>(null);
+  const [ggr, setGgr] = useState<any>(null);
   const [confirmForm, setConfirmForm] = useState({ amount_paid: "", payment_date: "", notes: "" });
   const [declareForm, setDeclareForm] = useState({ amount_due: "", base_calculo: "", notes: "" });
   const [reportForm, setReportForm] = useState({ report_reference_month: "", report_notes: "" });
@@ -175,6 +176,12 @@ export default function CollectionDetailPage() {
   async function openProof(emailId: number) {
     try { const r = await getEmailProof(numId, emailId); setProof(r.data); }
     catch { alert("Comprovante indisponível."); }
+  }
+
+  async function openGgr(p: any) {
+    setGgr({ loading: true, operator: opName(p.operator_id) });
+    try { const r = await getGgrAnalysis(p.id); setGgr({ ...r.data, operator: opName(p.operator_id) }); }
+    catch { setGgr(null); alert("Não foi possível analisar."); }
   }
 
   // ---------- Ofício SPA ----------
@@ -382,6 +389,7 @@ export default function CollectionDetailPage() {
                         <button onClick={() => { setShowConfirm(p); setConfirmForm({ amount_paid: "", payment_date: new Date().toISOString().slice(0, 10), notes: "" }); }} className="text-xs text-success hover:underline">Repasse recebido</button>
                         <button onClick={() => { setShowReport(p); setReportForm({ report_reference_month: (cycle?.reference_month || "").slice(0, 7), report_notes: "" }); setReportFile(null); }} className="text-xs text-amber-400 hover:underline">Relatório</button>
                         <button onClick={() => setShowContact(operators.find(o => o.id === p.operator_id))} className="text-xs text-purple-300 hover:underline">Contatar</button>
+                        {(p.amount_due || p.amount_paid) && <button onClick={() => openGgr(p)} className="text-xs text-cyan-300 hover:underline">GGR</button>}
                         <StatusMenu p={p} onChange={changeStatus} />
                       </div>
                     </td>
@@ -638,6 +646,39 @@ export default function CollectionDetailPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Análise de GGR */}
+      <Modal isOpen={!!ggr} onClose={() => setGgr(null)} title={`Análise de GGR — ${ggr?.operator || ""}`}>
+        {ggr && (ggr.loading ? <p className="text-muted text-sm">Analisando...</p> : (
+          <div className="space-y-4 text-sm">
+            {ggr.flag === "sem_referencia" ? (
+              <p className="text-muted">Ainda não há histórico suficiente deste operador nesta confederação para comparação.</p>
+            ) : (
+              <>
+                <div className={`rounded-lg p-4 border ${ggr.flag === "alto" ? "bg-danger/10 border-danger/30" : ggr.flag === "moderado" ? "bg-warning/10 border-warning/30" : "bg-success/10 border-success/30"}`}>
+                  <p className="font-semibold mb-1" style={{ color: ggr.flag === "alto" ? "#f87171" : ggr.flag === "moderado" ? "#fbbf24" : "#4ade80" }}>
+                    {ggr.flag === "alto" ? "Divergência alta" : ggr.flag === "moderado" ? "Divergência moderada" : "Dentro do padrão"}
+                    {ggr.desvio_pct !== null && ` · ${ggr.desvio_pct > 0 ? "+" : ""}${ggr.desvio_pct}%`}
+                  </p>
+                  <p className="text-slate-200 text-xs">Valor atual: {formatCurrency(ggr.atual)} · Média histórica: {formatCurrency(ggr.media_historica)} ({ggr.amostras} amostras)</p>
+                </div>
+                {ggr.comentario && <p className="text-slate-300 text-xs">{ggr.comentario}</p>}
+                {ggr.serie?.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted mb-1">Histórico recente</p>
+                    <div className="flex flex-wrap gap-2">
+                      {ggr.serie.map((s: any, i: number) => (
+                        <span key={i} className="text-xs bg-surface px-2 py-1 rounded">{s.month}: {formatCurrency(s.valor)}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            <div className="flex justify-end"><button onClick={() => setGgr(null)} className="btn-secondary">Fechar</button></div>
+          </div>
+        ))}
       </Modal>
 
       {/* Ofício à SPA */}
