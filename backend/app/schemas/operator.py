@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, date
-from ..models.operator import OperatorStatus, ContactType, SuggestionStatus
+from ..models.operator import OperatorStatus, ContactType, SuggestionStatus, ResponsibleRole
 
 
 class ContactCreate(BaseModel):
@@ -27,6 +27,7 @@ class ContactOut(BaseModel):
 
 class BrandCreate(BaseModel):
     name: str
+    domain: Optional[str] = None
     website: Optional[str] = None
     instagram: Optional[str] = None
     twitter: Optional[str] = None
@@ -36,6 +37,7 @@ class BrandCreate(BaseModel):
 
 class BrandUpdate(BaseModel):
     name: Optional[str] = None
+    domain: Optional[str] = None
     website: Optional[str] = None
     instagram: Optional[str] = None
     twitter: Optional[str] = None
@@ -46,12 +48,44 @@ class BrandUpdate(BaseModel):
 class BrandOut(BaseModel):
     id: int
     name: str
+    domain: Optional[str] = None
     website: Optional[str]
     instagram: Optional[str]
     twitter: Optional[str]
     facebook: Optional[str]
     other_social: Optional[str]
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ResponsibleCreate(BaseModel):
+    role: ResponsibleRole
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ResponsibleUpdate(BaseModel):
+    role: Optional[ResponsibleRole] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ResponsibleOut(BaseModel):
+    id: int
+    operator_id: int
+    role: ResponsibleRole
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -159,6 +193,7 @@ class OperatorOut(BaseModel):
     authorization_date: Optional[datetime] = None
     # Relations
     brands: List[BrandOut] = []
+    responsibles: List[ResponsibleOut] = []
     endr_associations: List[EndrAssociationOut] = []
 
     class Config:

@@ -10,12 +10,19 @@ import {
   addContact, deleteContact, findContactsAI,
   getPayments, getDocuments, getAuditLogs,
   addBrand, updateBrand, deleteBrand,
+  addResponsible, updateResponsible, deleteResponsible,
   addEndrAssociation, deleteEndrAssociation,
   researchContacts, getContactSuggestions, approveSuggestion, rejectSuggestion,
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 
-const TABS = ["Dados Cadastrais", "Marcas Vinculadas", "ENDR", "Contatos", "Pesquisa de Contatos", "Histórico de Pagamentos", "Documentos", "Auditoria"];
+const TABS = ["Dados Cadastrais", "Marcas Vinculadas", "Responsáveis", "ENDR", "Contatos", "Pesquisa de Contatos", "Histórico de Pagamentos", "Documentos", "Auditoria"];
+
+const ROLE_LABELS: Record<string, string> = {
+  legal: "Responsável Legal",
+  financeiro: "Responsável Financeiro",
+  juridico: "Responsável Jurídico",
+};
 
 const MONTHS_PT = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 
@@ -61,8 +68,14 @@ export default function OperatorDetailPage() {
   // Brands
   const [showBrandModal, setShowBrandModal] = useState(false);
   const [editingBrand, setEditingBrand] = useState<any>(null);
-  const [brandForm, setBrandForm] = useState({ name: "", website: "", instagram: "", twitter: "", facebook: "", other_social: "" });
+  const [brandForm, setBrandForm] = useState({ name: "", domain: "", website: "", instagram: "", twitter: "", facebook: "", other_social: "" });
   const [savingBrand, setSavingBrand] = useState(false);
+
+  // Responsáveis
+  const [showRespModal, setShowRespModal] = useState(false);
+  const [editingResp, setEditingResp] = useState<any>(null);
+  const [respForm, setRespForm] = useState({ role: "legal", name: "", email: "", phone: "", notes: "" });
+  const [savingResp, setSavingResp] = useState(false);
 
   // ENDR
   const [showEndrModal, setShowEndrModal] = useState(false);
@@ -114,7 +127,7 @@ export default function OperatorDetailPage() {
   useEffect(() => { fetchData(); }, [numId]);
 
   useEffect(() => {
-    if (tab === 4) fetchSuggestions();
+    if (tab === 5) fetchSuggestions();
   }, [tab]);
 
   async function handleSave(e: React.FormEvent) {
@@ -165,7 +178,7 @@ export default function OperatorDetailPage() {
 
   function openNewBrand() {
     setEditingBrand(null);
-    setBrandForm({ name: "", website: "", instagram: "", twitter: "", facebook: "", other_social: "" });
+    setBrandForm({ name: "", domain: "", website: "", instagram: "", twitter: "", facebook: "", other_social: "" });
     setShowBrandModal(true);
   }
 
@@ -173,6 +186,7 @@ export default function OperatorDetailPage() {
     setEditingBrand(brand);
     setBrandForm({
       name: brand.name || "",
+      domain: brand.domain || "",
       website: brand.website || "",
       instagram: brand.instagram || "",
       twitter: brand.twitter || "",
@@ -180,6 +194,37 @@ export default function OperatorDetailPage() {
       other_social: brand.other_social || "",
     });
     setShowBrandModal(true);
+  }
+
+  function openNewResp() {
+    setEditingResp(null);
+    setRespForm({ role: "legal", name: "", email: "", phone: "", notes: "" });
+    setShowRespModal(true);
+  }
+
+  function openEditResp(r: any) {
+    setEditingResp(r);
+    setRespForm({ role: r.role, name: r.name || "", email: r.email || "", phone: r.phone || "", notes: r.notes || "" });
+    setShowRespModal(true);
+  }
+
+  async function handleSaveResp(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingResp(true);
+    try {
+      if (editingResp) await updateResponsible(numId, editingResp.id, respForm);
+      else await addResponsible(numId, respForm);
+      setShowRespModal(false);
+      fetchData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao salvar responsável");
+    } finally { setSavingResp(false); }
+  }
+
+  async function handleDeleteResp(respId: number) {
+    if (!confirm("Remover este responsável?")) return;
+    await deleteResponsible(numId, respId);
+    fetchData();
   }
 
   async function handleSaveBrand(e: React.FormEvent) {
@@ -432,6 +477,7 @@ export default function OperatorDetailPage() {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
+                    {brand.domain && <div><span className="text-muted">Domínio: </span><span className="text-slate-300 font-mono text-xs">{brand.domain}</span></div>}
                     {brand.website && <div><span className="text-muted">Site: </span><a href={brand.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{brand.website}</a></div>}
                     {brand.instagram && <div><span className="text-muted">Instagram: </span><span className="text-slate-300">{brand.instagram}</span></div>}
                     {brand.twitter && <div><span className="text-muted">Twitter/X: </span><span className="text-slate-300">{brand.twitter}</span></div>}
@@ -450,7 +496,11 @@ export default function OperatorDetailPage() {
                 <input className="input" required value={brandForm.name} onChange={e => setBrandForm(f => ({ ...f, name: e.target.value }))} />
               </div>
               <div>
-                <label className="label">Site</label>
+                <label className="label">Domínio de apostas</label>
+                <input className="input" placeholder="Ex: betano.bet.br" value={brandForm.domain} onChange={e => setBrandForm(f => ({ ...f, domain: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Site institucional</label>
                 <input className="input" type="url" placeholder="https://..." value={brandForm.website} onChange={e => setBrandForm(f => ({ ...f, website: e.target.value }))} />
               </div>
               <div>
@@ -478,8 +528,79 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 2: ENDR */}
+      {/* Tab 2: Responsáveis */}
       {tab === 2 && (
+        <div className="max-w-3xl">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-muted">Responsável Legal, Financeiro e Jurídico da Bet com dados de contato.</p>
+            <button onClick={openNewResp} className="btn-primary">+ Adicionar Responsável</button>
+          </div>
+
+          {(operator.responsibles || []).length === 0 ? (
+            <div className="card text-center py-8 text-muted text-sm">Nenhum responsável cadastrado</div>
+          ) : (
+            <div className="space-y-4">
+              {(operator.responsibles || []).map((r: any) => (
+                <div key={r.id} className="card">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-primary">{ROLE_LABELS[r.role] || r.role}</span>
+                      <h4 className="font-semibold text-white mt-0.5">{r.name}</h4>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => openEditResp(r)} className="text-primary text-xs hover:underline">Editar</button>
+                      <button onClick={() => handleDeleteResp(r.id)} className="text-danger text-xs hover:underline">Remover</button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm mt-2">
+                    {r.email && <div><span className="text-muted">E-mail: </span><span className="text-slate-300">{r.email}</span></div>}
+                    {r.phone && <div><span className="text-muted">Telefone: </span><span className="text-slate-300">{r.phone}</span></div>}
+                    {r.notes && <div className="col-span-2"><span className="text-muted">Obs: </span><span className="text-slate-300">{r.notes}</span></div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <Modal isOpen={showRespModal} onClose={() => setShowRespModal(false)} title={editingResp ? "Editar Responsável" : "Novo Responsável"}>
+            <form onSubmit={handleSaveResp} className="space-y-4">
+              <div>
+                <label className="label">Função *</label>
+                <select className="input" value={respForm.role} onChange={e => setRespForm(f => ({ ...f, role: e.target.value }))}>
+                  <option value="legal">Responsável Legal</option>
+                  <option value="financeiro">Responsável Financeiro</option>
+                  <option value="juridico">Responsável Jurídico</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Nome *</label>
+                <input className="input" required value={respForm.name} onChange={e => setRespForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">E-mail</label>
+                  <input className="input" type="email" value={respForm.email} onChange={e => setRespForm(f => ({ ...f, email: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="label">Telefone</label>
+                  <input className="input" value={respForm.phone} onChange={e => setRespForm(f => ({ ...f, phone: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label className="label">Observações</label>
+                <textarea className="input h-20 resize-none" value={respForm.notes} onChange={e => setRespForm(f => ({ ...f, notes: e.target.value }))} />
+              </div>
+              <div className="flex gap-3 justify-end pt-2">
+                <button type="button" onClick={() => setShowRespModal(false)} className="btn-secondary">Cancelar</button>
+                <button type="submit" disabled={savingResp} className="btn-primary">{savingResp ? "Salvando..." : "Salvar"}</button>
+              </div>
+            </form>
+          </Modal>
+        </div>
+      )}
+
+      {/* Tab 3: ENDR */}
+      {tab === 3 && (
         <div className="max-w-3xl">
           <div className="mb-4 p-4 bg-blue-900/20 border border-blue-700/30 rounded-lg text-sm text-slate-300">
             <p className="font-medium text-white mb-1">Sobre o ENDR</p>
@@ -573,8 +694,8 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 3: Contacts */}
-      {tab === 3 && (
+      {/* Tab 4: Contacts */}
+      {tab === 4 && (
         <div>
           <div className="flex gap-3 mb-4">
             <button onClick={() => setShowAddContact(true)} className="btn-primary">+ Adicionar Contato</button>
@@ -688,8 +809,8 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 4: Contact Research */}
-      {tab === 4 && (
+      {/* Tab 5: Contact Research */}
+      {tab === 5 && (
         <div className="max-w-5xl">
           <div className="flex items-start justify-between mb-4 gap-4">
             <div className="text-sm text-muted max-w-xl">
@@ -792,8 +913,8 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 5: Payments */}
-      {tab === 5 && (
+      {/* Tab 6: Payments */}
+      {tab === 6 && (
         <div className="card p-0 overflow-hidden">
           <table className="w-full">
             <thead className="bg-surface">
@@ -826,8 +947,8 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 6: Documents */}
-      {tab === 6 && (
+      {/* Tab 7: Documents */}
+      {tab === 7 && (
         <div className="card p-0 overflow-hidden">
           <table className="w-full">
             <thead className="bg-surface">
@@ -856,8 +977,8 @@ export default function OperatorDetailPage() {
         </div>
       )}
 
-      {/* Tab 7: Audit */}
-      {tab === 7 && (
+      {/* Tab 8: Audit */}
+      {tab === 8 && (
         <div className="card p-0 overflow-hidden">
           <table className="w-full">
             <thead className="bg-surface">

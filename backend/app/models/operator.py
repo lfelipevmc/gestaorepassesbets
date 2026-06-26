@@ -26,6 +26,12 @@ class ContactType(str, enum.Enum):
     other = "other"
 
 
+class ResponsibleRole(str, enum.Enum):
+    legal = "legal"
+    financeiro = "financeiro"
+    juridico = "juridico"
+
+
 class BettingOperator(Base):
     __tablename__ = "betting_operators"
     id = Column(Integer, primary_key=True)
@@ -58,6 +64,7 @@ class BettingOperator(Base):
     collection_events = relationship("CollectionEvent", back_populates="operator")
     documents = relationship("Document", back_populates="operator")
     brands = relationship("OperatorBrand", back_populates="operator", cascade="all, delete-orphan")
+    responsibles = relationship("OperatorResponsible", back_populates="operator", cascade="all, delete-orphan")
     endr_associations = relationship("EndrAssociation", back_populates="operator", cascade="all, delete-orphan")
     contact_suggestions = relationship("ContactSuggestion", back_populates="operator", cascade="all, delete-orphan")
 
@@ -83,7 +90,8 @@ class OperatorBrand(Base):
     id = Column(Integer, primary_key=True)
     operator_id = Column(Integer, ForeignKey("betting_operators.id"), nullable=False)
     name = Column(String, nullable=False)           # nome da marca
-    website = Column(String, nullable=True)
+    domain = Column(String, nullable=True)          # domínio da aposta (ex: betano.bet.br)
+    website = Column(String, nullable=True)         # site institucional
     instagram = Column(String, nullable=True)
     twitter = Column(String, nullable=True)
     facebook = Column(String, nullable=True)
@@ -92,6 +100,22 @@ class OperatorBrand(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     operator = relationship("BettingOperator", back_populates="brands")
+
+
+class OperatorResponsible(Base):
+    """Responsável da Bet (Legal, Financeiro ou Jurídico) com dados de contato."""
+    __tablename__ = "operator_responsibles"
+    id = Column(Integer, primary_key=True)
+    operator_id = Column(Integer, ForeignKey("betting_operators.id"), nullable=False)
+    role = Column(Enum(ResponsibleRole), nullable=False)   # legal / financeiro / juridico
+    name = Column(String(300), nullable=False)
+    email = Column(String(300), nullable=True)
+    phone = Column(String(100), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    operator = relationship("BettingOperator", back_populates="responsibles")
 
 
 class ENDREntity(Base):

@@ -219,6 +219,11 @@ def _parse_excel_bytes(content: bytes, db: Session, category: str) -> dict:
                 emails_raw = _find_field(row_dict, ["e-mail", "email", "e mail", "emails", "contato"])
                 phones_raw = _find_field(row_dict, ["telefone", "fone", "celular", "whatsapp", "tel"])
                 brands_raw = _find_field(row_dict, ["marcas", "marca", "brands"])
+                domain_raw = _find_field(row_dict, ["domínio", "dominio", "domain", "url apostas"])
+                resp_legal = _find_field(row_dict, ["responsável legal", "responsavel legal", "resp. legal", "legal"])
+                resp_financeiro = _find_field(row_dict, ["responsável financeiro", "responsavel financeiro", "resp. financeiro", "financeiro"])
+                resp_juridico = _find_field(row_dict, ["responsável jurídico", "responsável juridico", "responsavel juridico", "resp. jurídico", "jurídico", "juridico"])
+                contato_max = _find_field(row_dict, ["contato máximo verificado", "contato maximo verificado", "contato máximo", "contato maximo"])
 
                 if not company_name:
                     continue
@@ -226,9 +231,10 @@ def _parse_excel_bytes(content: bytes, db: Session, category: str) -> dict:
                 cnpj = format_cnpj(cnpj_raw) if cnpj_raw else None
                 op_id, res = _upsert_operator_ex(db, company_name, fantasy_name, cnpj, website, license_num, category, city_raw)
 
-                # Importa contatos (e-mails e telefones) se presentes
+                # Importa contatos (e-mails e telefones), marcas, domínios e responsáveis
                 if op_id:
-                    _import_contacts(db, op_id, emails_raw, phones_raw, brands_raw)
+                    _import_contacts(db, op_id, emails_raw, phones_raw, brands_raw, domain_raw)
+                    _import_responsibles(db, op_id, resp_legal, resp_financeiro, resp_juridico, contato_max)
 
                 if res == "new":
                     new_count += 1
@@ -290,7 +296,39 @@ def _upsert_operator_ex(db, company_name, fantasy_name, cnpj, website, license_n
         return op.id, "new"
 
 
-def _import_contacts(db, operator_id: int, emails_raw: str, phones_raw: str, brands_raw: str):
+def _import_responsibles(db, operator_id: int, legal: str, financeiro: str, juridico: str, contato_max: str):
+    """Importa responsáveis (legal/financeiro/jurídico) evitando duplicatas por role."""
+    from ..models.operator import OperatorResponsible, ResponsibleRole
+    existing_roles = {r.role for r in db.query(OperatorResponsible).filter_by(operator_id=operator_id).all()}
+
+    mapping = [
+        (ResponsibleRole.legal, legal),
+        (ResponsibleRole.financeiro, financeiro),
+        (ResponsibleRole.juridico, juridico),
+    ]
+    # CONTATO MÁXIMO VERIFICADO pode ser "Nome\n(telefone)" — tenta extrair
+    if contato_max and not all(v for _, v in mapping):
+        # Associa ao primeiro role vazio
+        for role, val in mapping:
+            if not val and role not in existing_roles:
+                mapping_dict = dict(mapping)
+                mapping_dict[role] = contato_max
+                mapping = list(mapping_dict.items())
+                break
+
+    for role, name_raw in mapping:
+        if not name_raw or role in existing_roles:
+            continue
+        # Tenta separar nome e telefone quando estiverem na mesma célula (Nome\nTelefone)
+        parts = [p.strip() for p in name_raw.split("\n") if p.strip()]
+        name = parts[0] if parts else name_raw.strip()
+        phone = parts[1] if len(parts) > 1 and any(c.isdigit() for c in parts[1]) else None
+        if name:
+            db.add(OperatorResponsible(operator_id=operator_id, role=role, name=name[:300], phone=phone))
+            existing_roles.add(role)
+
+
+def _import_contacts(db, operator_id: int, emails_raw: str, phones_raw: str, brands_raw: str, domain_raw: str = ""):
     """Importa e-mails e telefones de campos multi-valor (separados por \n ou ,)."""
     from ..models.operator import OperatorContact, OperatorBrand, ContactType
 
@@ -311,9 +349,12 @@ def _import_contacts(db, operator_id: int, emails_raw: str, phones_raw: str, bra
                 existing_phones.add(phone)
 
     if brands_raw:
-        for brand in [b.strip() for b in brands_raw.replace("\n", ",").split(",") if b.strip()]:
+        brand_list = [b.strip() for b in brands_raw.replace("\n", ",").split(",") if b.strip()]
+        domain_list = [d.strip() for d in domain_raw.replace("\n", ",").split(",") if d.strip()] if domain_raw else []
+        for i, brand in enumerate(brand_list):
             if brand and brand not in existing_brands:
-                db.add(OperatorBrand(operator_id=operator_id, name=brand[:200]))
+                domain = domain_list[i] if i < len(domain_list) else (domain_list[0] if domain_list else None)
+                db.add(OperatorBrand(operator_id=operator_id, name=brand[:200], domain=domain))
                 existing_brands.add(brand)
 
 

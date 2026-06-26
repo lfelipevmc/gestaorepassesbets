@@ -67,6 +67,12 @@ export const addBrand = (id: number, data: any) => api.post(`/api/operators/${id
 export const updateBrand = (id: number, brandId: number, data: any) => api.patch(`/api/operators/${id}/brands/${brandId}`, data);
 export const deleteBrand = (id: number, brandId: number) => api.delete(`/api/operators/${id}/brands/${brandId}`);
 
+// Responsáveis (Legal / Financeiro / Jurídico)
+export const getResponsibles = (id: number) => api.get(`/api/operators/${id}/responsibles`);
+export const addResponsible = (id: number, data: any) => api.post(`/api/operators/${id}/responsibles`, data);
+export const updateResponsible = (id: number, respId: number, data: any) => api.patch(`/api/operators/${id}/responsibles/${respId}`, data);
+export const deleteResponsible = (id: number, respId: number) => api.delete(`/api/operators/${id}/responsibles/${respId}`);
+
 // ENDR (per-operator)
 export const getEndrAssociations = (id: number) => api.get(`/api/operators/${id}/endr`);
 export const addEndrAssociation = (id: number, data: any) => api.post(`/api/operators/${id}/endr`, data);

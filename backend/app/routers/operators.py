@@ -3,9 +3,9 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 from ..database import get_db
-from ..models.operator import BettingOperator, OperatorContact, OperatorStatus, OperatorBrand, EndrAssociation
+from ..models.operator import BettingOperator, OperatorContact, OperatorStatus, OperatorBrand, OperatorResponsible, ResponsibleRole, EndrAssociation
 from ..models.user import User
-from ..schemas.operator import OperatorCreate, OperatorUpdate, OperatorOut, ContactCreate, ContactOut, BrandCreate, BrandUpdate, BrandOut, EndrAssociationCreate, EndrAssociationOut, ContactSuggestionOut
+from ..schemas.operator import OperatorCreate, OperatorUpdate, OperatorOut, ContactCreate, ContactOut, BrandCreate, BrandUpdate, BrandOut, EndrAssociationCreate, EndrAssociationOut, ContactSuggestionOut, ResponsibleCreate, ResponsibleUpdate, ResponsibleOut
 from ..core.auth import get_current_user, require_office
 from ..services.audit_service import log_action
 from ..services.mf_scraper import scrape_mf_operators, import_from_file, get_last_sync_info
@@ -167,6 +167,52 @@ def delete_brand(id: int, brand_id: int, db: Session = Depends(get_db), current_
     db.delete(brand)
     db.commit()
     log_action(db=db, action="DELETE_BRAND", entity_type="BettingOperator", entity_id=id, user_id=current_user.id)
+    return {"ok": True}
+
+
+# --- Responsáveis (Legal / Financeiro / Jurídico) ---
+
+@router.get("/{id}/responsibles", response_model=List[ResponsibleOut])
+def list_responsibles(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    op = db.query(BettingOperator).get(id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operador não encontrado")
+    return op.responsibles
+
+
+@router.post("/{id}/responsibles", response_model=ResponsibleOut)
+def add_responsible(id: int, data: ResponsibleCreate, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    op = db.query(BettingOperator).get(id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operador não encontrado")
+    resp = OperatorResponsible(operator_id=id, **data.model_dump())
+    db.add(resp)
+    db.commit()
+    db.refresh(resp)
+    log_action(db=db, action="ADD_RESPONSIBLE", entity_type="BettingOperator", entity_id=id, new_values=data.model_dump(), user_id=current_user.id)
+    return resp
+
+
+@router.patch("/{id}/responsibles/{resp_id}", response_model=ResponsibleOut)
+def update_responsible(id: int, resp_id: int, data: ResponsibleUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    resp = db.query(OperatorResponsible).filter(OperatorResponsible.id == resp_id, OperatorResponsible.operator_id == id).first()
+    if not resp:
+        raise HTTPException(status_code=404, detail="Responsável não encontrado")
+    for k, v in data.model_dump(exclude_none=True).items():
+        setattr(resp, k, v)
+    db.commit()
+    db.refresh(resp)
+    return resp
+
+
+@router.delete("/{id}/responsibles/{resp_id}")
+def delete_responsible(id: int, resp_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    resp = db.query(OperatorResponsible).filter(OperatorResponsible.id == resp_id, OperatorResponsible.operator_id == id).first()
+    if not resp:
+        raise HTTPException(status_code=404, detail="Responsável não encontrado")
+    db.delete(resp)
+    db.commit()
+    log_action(db=db, action="DELETE_RESPONSIBLE", entity_type="BettingOperator", entity_id=id, user_id=current_user.id)
     return {"ok": True}
 
 
