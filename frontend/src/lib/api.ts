@@ -245,3 +245,6 @@ export const registerPaymentReport = (id: number, data: any) =>
   api.post(`/api/payments/${id}/register-report`, data);
 export const downloadCycleActivityPdf = (id: number) =>
   api.get(`/api/collections/${id}/activity-report/pdf`, { responseType: "blob" });
+
+// ---- A Fazer Hoje ----
+export const getTasksToday = () => api.get("/api/tasks/today");

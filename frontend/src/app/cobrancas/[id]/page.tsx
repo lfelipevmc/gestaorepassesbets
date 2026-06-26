@@ -46,6 +46,7 @@ export default function CollectionDetailPage() {
   const [showDeclare, setShowDeclare] = useState<any>(null);
   const [showReport, setShowReport] = useState<any>(null);
   const [showPhone, setShowPhone] = useState<any>(null);
+  const [showContact, setShowContact] = useState<any>(null);
   const [confirmForm, setConfirmForm] = useState({ amount_paid: "", payment_date: "", notes: "" });
   const [declareForm, setDeclareForm] = useState({ amount_due: "", base_calculo: "", notes: "" });
   const [reportForm, setReportForm] = useState({ report_reference_month: "", report_notes: "" });
@@ -380,7 +381,7 @@ export default function CollectionDetailPage() {
                         <button onClick={() => { setShowDeclare(p); setDeclareForm({ amount_due: "", base_calculo: "", notes: "" }); }} className="text-xs text-blue-400 hover:underline">Valor devido</button>
                         <button onClick={() => { setShowConfirm(p); setConfirmForm({ amount_paid: "", payment_date: new Date().toISOString().slice(0, 10), notes: "" }); }} className="text-xs text-success hover:underline">Repasse recebido</button>
                         <button onClick={() => { setShowReport(p); setReportForm({ report_reference_month: (cycle?.reference_month || "").slice(0, 7), report_notes: "" }); setReportFile(null); }} className="text-xs text-amber-400 hover:underline">Relatório</button>
-                        <button onClick={() => { setShowPhone(p); setPhoneNotes(""); }} className="text-xs text-purple-300 hover:underline">Telefone</button>
+                        <button onClick={() => setShowContact(operators.find(o => o.id === p.operator_id))} className="text-xs text-purple-300 hover:underline">Contatar</button>
                         <StatusMenu p={p} onChange={changeStatus} />
                       </div>
                     </td>
@@ -619,6 +620,7 @@ export default function CollectionDetailPage() {
         {proof && (
           <div className="space-y-3 text-sm">
             <div className="border border-surface-border rounded-lg p-4 bg-surface space-y-1">
+              {proof.protocol && <p><span className="text-muted">Protocolo:</span> <span className="text-primary font-mono font-semibold">{proof.protocol}</span></p>}
               <p><span className="text-muted">Agente Operador:</span> <span className="text-white">{proof.operator}</span></p>
               <p><span className="text-muted">Confederação:</span> <span className="text-white">{proof.confederation}</span></p>
               <p><span className="text-muted">Competência:</span> <span className="text-white">{proof.reference_month}</span></p>
@@ -706,7 +708,119 @@ export default function CollectionDetailPage() {
           <div className="flex gap-3 justify-end"><button type="button" onClick={() => setShowPhone(null)} className="btn-secondary">Cancelar</button><button type="submit" className="btn-primary">Registrar Contato</button></div>
         </form>
       </Modal>
+
+      {/* Contato multicanal */}
+      {showContact && (
+        <ContactModal
+          operator={showContact} conf={conf} office={office} cycleId={numId}
+          referenceMonth={monthShort(cycle?.reference_month)}
+          onClose={() => setShowContact(null)}
+          onLogged={() => fetchAll()}
+        />
+      )}
     </AppShell>
+  );
+}
+
+/* Contato multicanal: e-mail, WhatsApp, telefone e redes sociais, com registro automático */
+function ContactModal({ operator, conf, office, cycleId, referenceMonth, onClose, onLogged }: any) {
+  const [logged, setLogged] = useState<string[]>([]);
+  const sig = office?.signature_name || office?.name || "Escritório";
+  const [mes, ano] = (referenceMonth || "/").split("/");
+  const msg = `Prezados representantes de ${operator.fantasy_name || operator.company_name},\n\nReferente à contrapartida de direito de imagem (${conf?.acronym || ""}) da competência ${mes}/${ano}, solicitamos gentilmente a regularização do repasse e o envio do relatório de apuração.\n\nAtenciosamente,\n${sig}`;
+  const subject = `${conf?.acronym || ""} - Contrapartida Direito de Imagem ${mes}/${ano}`;
+
+  // Agrega canais disponíveis
+  const emails: string[] = [];
+  (operator.contacts || []).forEach((c: any) => { if (c.type === "email" && c.value) emails.push(c.value); });
+  (operator.responsibles || []).forEach((r: any) => { if (r.email) emails.push(r.email); });
+  const phones: { label: string; value: string }[] = [];
+  (operator.contacts || []).forEach((c: any) => { if ((c.type === "phone" || c.type === "whatsapp") && c.value) phones.push({ label: c.label || c.type, value: c.value }); });
+  (operator.responsibles || []).forEach((r: any) => { if (r.phone) phones.push({ label: r.role, value: r.phone }); });
+  const socials: { label: string; url: string }[] = [];
+  (operator.brands || []).forEach((b: any) => {
+    if (b.instagram) socials.push({ label: `Instagram (${b.name})`, url: b.instagram.startsWith("http") ? b.instagram : `https://instagram.com/${b.instagram.replace("@", "")}` });
+    if (b.facebook) socials.push({ label: `Facebook (${b.name})`, url: b.facebook });
+    if (b.twitter) socials.push({ label: `X/Twitter (${b.name})`, url: b.twitter });
+    if (b.website) socials.push({ label: `Site (${b.name})`, url: b.website.startsWith("http") ? b.website : `https://${b.website}` });
+  });
+
+  const onlyDigits = (s: string) => (s || "").replace(/\D/g, "");
+  function waLink(phone: string) {
+    let d = onlyDigits(phone);
+    if (d.length <= 11) d = "55" + d; // assume Brasil
+    return `https://wa.me/${d}?text=${encodeURIComponent(msg)}`;
+  }
+
+  async function log(channel: string, note: string) {
+    try {
+      const evMap: Record<string, { event_type: string; channel: string }> = {
+        email: { event_type: "manual_note", channel: "email" },
+        whatsapp: { event_type: "manual_note", channel: "whatsapp" },
+        phone: { event_type: "phone_contact", channel: "phone" },
+        social: { event_type: "manual_note", channel: "manual" },
+      };
+      const e = evMap[channel];
+      await addCollectionEvent(cycleId, { operator_id: operator.id, event_type: e.event_type, channel: e.channel, notes: note });
+      setLogged(l => [...l, channel + note]);
+      onLogged();
+    } catch { /* noop */ }
+  }
+
+  function copyMsg() { navigator.clipboard?.writeText(msg); }
+
+  return (
+    <Modal isOpen={true} onClose={onClose} title={`Contatar — ${operator.fantasy_name || operator.company_name}`}>
+      <div className="space-y-4">
+        <div className="bg-surface border border-surface-border rounded-lg p-3">
+          <div className="flex items-center justify-between mb-1"><p className="text-xs text-muted">Mensagem padrão (editável ao enviar)</p><button onClick={copyMsg} className="text-xs text-primary hover:underline">Copiar</button></div>
+          <p className="text-xs text-slate-300 whitespace-pre-line">{msg}</p>
+        </div>
+
+        {/* E-mail */}
+        <div>
+          <p className="text-sm font-semibold text-white mb-1">E-mail</p>
+          {emails.length === 0 ? <p className="text-xs text-muted">Nenhum e-mail cadastrado.</p> : (
+            <div className="flex flex-wrap gap-2">
+              {Array.from(new Set(emails)).map((em, i) => (
+                <a key={i} href={`mailto:${em}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(msg)}`} onClick={() => log("email", `E-mail aberto para ${em}`)} className="text-xs bg-blue-500/10 text-blue-300 px-3 py-1.5 rounded-lg hover:bg-blue-500/20">✉ {em}</a>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* WhatsApp / Telefone */}
+        <div>
+          <p className="text-sm font-semibold text-white mb-1">WhatsApp e Telefone</p>
+          {phones.length === 0 ? <p className="text-xs text-muted">Nenhum telefone cadastrado.</p> : (
+            <div className="space-y-2">
+              {phones.map((ph, i) => (
+                <div key={i} className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-muted w-28 truncate">{ph.label}: {ph.value}</span>
+                  <a href={waLink(ph.value)} target="_blank" rel="noreferrer" onClick={() => log("whatsapp", `WhatsApp acionado (${ph.value})`)} className="text-xs bg-green-500/10 text-green-300 px-3 py-1.5 rounded-lg hover:bg-green-500/20">WhatsApp</a>
+                  <a href={`tel:${onlyDigits(ph.value)}`} onClick={() => log("phone", `Ligação iniciada (${ph.value})`)} className="text-xs bg-purple-500/10 text-purple-300 px-3 py-1.5 rounded-lg hover:bg-purple-500/20">Ligar</a>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Redes sociais */}
+        <div>
+          <p className="text-sm font-semibold text-white mb-1">Redes sociais</p>
+          {socials.length === 0 ? <p className="text-xs text-muted">Nenhuma rede cadastrada.</p> : (
+            <div className="flex flex-wrap gap-2">
+              {socials.map((s, i) => (
+                <a key={i} href={s.url} target="_blank" rel="noreferrer" onClick={() => log("social", `Acesso a ${s.label}`)} className="text-xs bg-surface-border text-slate-200 px-3 py-1.5 rounded-lg hover:bg-surface">{s.label}</a>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {logged.length > 0 && <p className="text-xs text-success">✓ {logged.length} contato(s) registrado(s) na linha do tempo do ciclo.</p>}
+        <div className="flex justify-end"><button onClick={onClose} className="btn-secondary">Fechar</button></div>
+      </div>
+    </Modal>
   );
 }
 

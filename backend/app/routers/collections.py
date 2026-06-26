@@ -221,11 +221,13 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
             em = EmailMessage(
                 direction=EmailDirection.outbound, operator_id=op.id, confederation_id=conf.id,
                 cycle_id=cycle.id, subject=subject, body_preview=body[:1000],
-                to_addr=", ".join(to_addr), sent_at=datetime.utcnow(),
+                to_addr=", ".join(to_addr), sent_at=datetime.utcnow(), channel="email",
             )
             db.add(em)
             db.flush()
             email_id = em.id
+            # Protocolo único de envio: SIGLA-AAAAMM-Nº
+            em.protocol = f"{conf.acronym}-{cycle.reference_month.strftime('%Y%m')}-{em.id:05d}"
         except Exception:
             pass
         results.append({
@@ -371,6 +373,7 @@ def email_send_proof(id: int, email_id: int, db: Session = Depends(get_db), curr
         "body": em.body_preview,
         "sent_at": em.sent_at.isoformat() if em.sent_at else None,
         "reference_month": cycle.reference_month.strftime("%m/%Y") if cycle else None,
+        "protocol": em.protocol,
     }
 
 

@@ -54,6 +54,8 @@ class EmailMessage(Base):
     to_addr = Column(String(500), nullable=True)
     graph_message_id = Column(String(400), nullable=True)
     graph_conversation_id = Column(String(400), nullable=True, index=True)
+    protocol = Column(String(40), nullable=True)   # protocolo único de envio (comprovante)
+    channel = Column(String(20), nullable=True)    # email / whatsapp / phone / social (registro do contato)
     matched = Column(Boolean, default=False)   # resposta vinculada a um envio
     sent_at = Column(DateTime, nullable=True)
     received_at = Column(DateTime, nullable=True)

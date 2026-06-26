@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from .database import Base, engine
 from .routers import (auth, users, confederations, operators, collections, payments, reports,
-                      documents, ai, audit, endr, beneficiaries, redistributions, templates, finance, alerts, office)
+                      documents, ai, audit, endr, beneficiaries, redistributions, templates, finance, alerts, office, tasks)
 from .services.scheduler import start_scheduler
 import os
 import logging
@@ -250,6 +250,7 @@ app.include_router(templates.router)
 app.include_router(finance.router)
 app.include_router(alerts.router)
 app.include_router(office.router)
+app.include_router(tasks.router)
 
 
 @app.get("/health")
