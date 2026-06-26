@@ -7,11 +7,12 @@ import {
   getRedistributions, createRedistribution, payRedistributionItem, deleteRedistribution,
   getBeneficiaries, createBeneficiary, updateBeneficiary, deleteBeneficiary,
   getDistributionRules, getFinanceEmails, syncEmails,
+  getDirectPayments, createDirectPayment, deleteDirectPayment, getOperators,
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const TABS = ["Resumo", "Repasses (Fase 2)", "Beneficiários", "E-mails"];
+const TABS = ["Resumo", "Repasses (Fase 2)", "Lançamentos Avulsos", "Beneficiários", "E-mails"];
 const BTYPES: Record<string, string> = { confederacao: "Confederação", atleta: "Atleta", clube: "Clube/Entidade", federacao: "Federação", outro: "Outro" };
 
 function todayISO() { const d = new Date(); return d.toISOString().slice(0, 10); }
@@ -37,16 +38,29 @@ export default function FinanceiroPage() {
   const [benConf, setBenConf] = useState<string>("");
   const [editBen, setEditBen] = useState<any>(null);
 
+  // Lançamentos Avulsos
+  const [directPayments, setDirectPayments] = useState<any[]>([]);
+  const [directConfFilter, setDirectConfFilter] = useState("");
+  const [directOpFilter, setDirectOpFilter] = useState("");
+  const [operators, setOperators] = useState<any[]>([]);
+  const [showDirectForm, setShowDirectForm] = useState(false);
+  const [directForm, setDirectForm] = useState({ operator_id: "", confederation_id: "", reference_month: new Date().toISOString().slice(0, 7), amount_received: "", received_date: new Date().toISOString().slice(0, 10), notes: "" });
+  const [savingDirect, setSavingDirect] = useState(false);
+
   // E-mails
   const [emails, setEmails] = useState<any[]>([]);
   const [syncing, setSyncing] = useState(false);
 
-  useEffect(() => { getConfederations().then(r => setConfs(r.data)); }, []);
+  useEffect(() => {
+    getConfederations().then(r => setConfs(r.data));
+    getOperators({ limit: 300 }).then(r => setOperators(r.data));
+  }, []);
   useEffect(() => {
     if (tab === 0) { getFinanceSummary().then(r => setSummary(r.data)); getFinanceByConfederation().then(r => setByConf(r.data)); }
     if (tab === 1) loadRedis();
-    if (tab === 2) loadBen();
-    if (tab === 3) getFinanceEmails().then(r => setEmails(r.data));
+    if (tab === 2) loadDirectPayments();
+    if (tab === 3) loadBen();
+    if (tab === 4) getFinanceEmails().then(r => setEmails(r.data));
   }, [tab]);
 
   function loadRedis() {
@@ -57,12 +71,49 @@ export default function FinanceiroPage() {
   }
   useEffect(() => { if (tab === 1) loadRedis(); }, [redisConf, onlyOverdue]);
 
+  function loadDirectPayments() {
+    const params: any = {};
+    if (directConfFilter) params.confederation_id = Number(directConfFilter);
+    if (directOpFilter) params.operator_id = Number(directOpFilter);
+    getDirectPayments(params).then(r => setDirectPayments(r.data));
+  }
+  useEffect(() => { if (tab === 2) loadDirectPayments(); }, [directConfFilter, directOpFilter]);
+
+  async function handleSaveDirectPayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!directForm.operator_id) { alert("Selecione o agente operador."); return; }
+    setSavingDirect(true);
+    try {
+      await createDirectPayment(Number(directForm.operator_id), {
+        confederation_id: Number(directForm.confederation_id),
+        reference_month: directForm.reference_month + "-01",
+        amount_received: parseFloat(directForm.amount_received),
+        received_date: directForm.received_date,
+        notes: directForm.notes || undefined,
+      });
+      setShowDirectForm(false);
+      setDirectForm({ operator_id: "", confederation_id: confs[0]?.id?.toString() || "", reference_month: new Date().toISOString().slice(0, 7), amount_received: "", received_date: new Date().toISOString().slice(0, 10), notes: "" });
+      loadDirectPayments();
+      flash("Lançamento registrado.");
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao registrar lançamento.");
+    }
+    setSavingDirect(false);
+  }
+
+  async function handleDeleteDirect(opId: number, payId: number) {
+    if (!confirm("Excluir este lançamento?")) return;
+    await deleteDirectPayment(opId, payId);
+    loadDirectPayments();
+    flash("Lançamento excluído.");
+  }
+
   function loadBen() {
     const params: any = {};
     if (benConf) params.confederation_id = Number(benConf);
     getBeneficiaries(params).then(r => setBeneficiaries(r.data));
   }
-  useEffect(() => { if (tab === 2) loadBen(); }, [benConf]);
+  useEffect(() => { if (tab === 3) loadBen(); }, [benConf]);
 
   async function doSync() {
     setSyncing(true);
@@ -159,8 +210,114 @@ export default function FinanceiroPage() {
         </div>
       )}
 
-      {/* BENEFICIÁRIOS */}
+      {/* LANÇAMENTOS AVULSOS */}
       {tab === 2 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-3">
+              <select className="input w-48" value={directConfFilter} onChange={e => setDirectConfFilter(e.target.value)}>
+                <option value="">Todas as confederações</option>
+                {confs.map(c => <option key={c.id} value={c.id}>{c.acronym}</option>)}
+              </select>
+              <select className="input w-56" value={directOpFilter} onChange={e => setDirectOpFilter(e.target.value)}>
+                <option value="">Todos os agentes operadores</option>
+                {operators.map(o => <option key={o.id} value={o.id}>{o.fantasy_name || o.company_name}</option>)}
+              </select>
+            </div>
+            <button onClick={() => { setDirectForm(f => ({ ...f, confederation_id: confs[0]?.id?.toString() || "" })); setShowDirectForm(true); }} className="btn-primary">+ Novo Lançamento</button>
+          </div>
+
+          {showDirectForm && (
+            <div className="card border border-primary/20 bg-primary/5">
+              <h4 className="font-semibold text-white mb-3">Registrar Lançamento Avulso</h4>
+              <form onSubmit={handleSaveDirectPayment} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Agente Operador (Bet) *</label>
+                    <select className="input" required value={directForm.operator_id} onChange={e => setDirectForm(f => ({ ...f, operator_id: e.target.value }))}>
+                      <option value="">Selecione...</option>
+                      {operators.map(o => <option key={o.id} value={o.id}>{o.fantasy_name || o.company_name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Confederação *</label>
+                    <select className="input" required value={directForm.confederation_id} onChange={e => setDirectForm(f => ({ ...f, confederation_id: e.target.value }))}>
+                      <option value="">Selecione...</option>
+                      {confs.map(c => <option key={c.id} value={c.id}>{c.acronym} — {c.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Mês de Referência *</label>
+                    <input className="input" type="month" required value={directForm.reference_month} onChange={e => setDirectForm(f => ({ ...f, reference_month: e.target.value }))} />
+                    <p className="text-xs text-muted mt-1">Mês ao qual o repasse se refere (competência)</p>
+                  </div>
+                  <div>
+                    <label className="label">Data do Recebimento *</label>
+                    <input className="input" type="date" required value={directForm.received_date} onChange={e => setDirectForm(f => ({ ...f, received_date: e.target.value }))} />
+                    <p className="text-xs text-muted mt-1">Data em que o valor entrou no caixa</p>
+                  </div>
+                  <div>
+                    <label className="label">Valor Recebido (R$) *</label>
+                    <input className="input" type="number" step="0.01" min="0.01" required placeholder="0,00" value={directForm.amount_received} onChange={e => setDirectForm(f => ({ ...f, amount_received: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="label">Observações</label>
+                    <input className="input" placeholder="Ex: TED recebido referente a abril/2026" value={directForm.notes} onChange={e => setDirectForm(f => ({ ...f, notes: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button type="button" className="btn-secondary" onClick={() => setShowDirectForm(false)}>Cancelar</button>
+                  <button type="submit" className="btn-primary" disabled={savingDirect}>{savingDirect ? "Salvando..." : "Registrar Lançamento"}</button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          <div className="card p-0 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-surface">
+                <tr>
+                  <th className="table-th">Agente Operador</th>
+                  <th className="table-th">Confederação</th>
+                  <th className="table-th">Mês Referência</th>
+                  <th className="table-th">Valor Recebido</th>
+                  <th className="table-th">Data Recebimento</th>
+                  <th className="table-th">Observações</th>
+                  <th className="table-th"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {directPayments.length === 0 && (
+                  <tr><td colSpan={7} className="table-td text-center text-muted py-8">Nenhum lançamento avulso registrado.</td></tr>
+                )}
+                {directPayments.map((dp: any) => {
+                  const op = operators.find(o => o.id === dp.operator_id);
+                  const conf = confs.find(c => c.id === dp.confederation_id);
+                  const [yr, mo] = (dp.reference_month || "").split("-");
+                  const months = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+                  const monthStr = mo ? `${months[parseInt(mo)-1]}/${yr}` : "—";
+                  return (
+                    <tr key={dp.id} className="border-b border-surface-border/50 hover:bg-surface-border/20">
+                      <td className="table-td font-medium text-white">{op?.fantasy_name || op?.company_name || `#${dp.operator_id}`}</td>
+                      <td className="table-td">{conf?.acronym || `#${dp.confederation_id}`}</td>
+                      <td className="table-td">{monthStr}</td>
+                      <td className="table-td text-success font-medium">{formatCurrency(dp.amount_received)}</td>
+                      <td className="table-td text-muted">{formatDate(dp.received_date)}</td>
+                      <td className="table-td text-muted text-xs">{dp.notes || "—"}</td>
+                      <td className="table-td">
+                        <button className="text-danger text-xs hover:underline" onClick={() => handleDeleteDirect(dp.operator_id, dp.id)}>Excluir</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* BENEFICIÁRIOS */}
+      {tab === 3 && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <select className="input w-56" value={benConf} onChange={e => setBenConf(e.target.value)}>
@@ -198,7 +355,7 @@ export default function FinanceiroPage() {
       )}
 
       {/* E-MAILS */}
-      {tab === 3 && (
+      {tab === 4 && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted">Respostas das Bets importadas automaticamente da caixa de entrada (M365), casadas pelo remetente.</p>
@@ -246,6 +403,17 @@ function NewRedistribution({ confs, onClose, onSaved }: any) {
 
   function applyRuleSplit(rule: any) {
     const amt = parseFloat(form.amount_received || "0");
+    if (rule.is_equanime) {
+      // Rateio equânime: cria itens com categorias padrão sem valores pré-definidos
+      // (o usuário preenche manualmente conforme os participantes da competição)
+      const equanimeItems: any[] = [
+        { beneficiary_label: "Confederação", category: "confederacao", amount: "" },
+        { beneficiary_label: "Atleta", category: "atleta", amount: "" },
+        { beneficiary_label: "Entidade/Clube", category: "clube", amount: "" },
+      ];
+      setItems(equanimeItems);
+      return;
+    }
     if (!amt) return;
     const newItems: any[] = [];
     const map: [string, string][] = [["confederation_pct", "confederacao"], ["athlete_pct", "atleta"], ["entity_pct", "clube"], ["federation_pct", "federacao"]];
@@ -309,9 +477,9 @@ function NewRedistribution({ confs, onClose, onSaved }: any) {
             <label className="label">Aplicar rateio do regulamento (preenche os itens)</label>
             <div className="flex flex-wrap gap-2">
               {rules.map(ru => (
-                <button key={ru.id} type="button" onClick={() => applyRuleSplit(ru)} disabled={ru.is_equanime}
-                  title={ru.is_equanime ? "Rateio equânime: defina os itens manualmente conforme participantes" : ""}
-                  className={"px-2.5 py-1 text-xs rounded border " + (ru.is_equanime ? "border-surface-border text-muted cursor-not-allowed" : "border-primary/30 text-primary hover:bg-primary/10")}>
+                <button key={ru.id} type="button" onClick={() => applyRuleSplit(ru)}
+                  title={ru.is_equanime ? "Rateio equânime: cria os itens com categorias padrão — preencha os valores manualmente conforme participantes" : "Aplica percentuais fixos do regulamento"}
+                  className={"px-2.5 py-1 text-xs rounded border " + (ru.is_equanime ? "border-warning/30 text-warning hover:bg-warning/10" : "border-primary/30 text-primary hover:bg-primary/10")}>
                   {ru.scenario_label}{ru.is_equanime ? " (equânime)" : ""}
                 </button>
               ))}
@@ -341,7 +509,12 @@ function NewRedistribution({ confs, onClose, onSaved }: any) {
               </div>
             ))}
           </div>
-          <p className="text-xs text-muted mt-2">Soma dos itens: <strong>{formatCurrency(totalItems)}</strong> / Recebido: {formatCurrency(parseFloat(form.amount_received || "0"))}</p>
+          <p className="text-xs text-muted mt-2">
+            Soma dos itens: <strong>{formatCurrency(totalItems)}</strong> / Recebido: {formatCurrency(parseFloat(form.amount_received || "0"))}
+            {totalItems > 0 && Math.abs(totalItems - parseFloat(form.amount_received || "0")) > 0.01 && (
+              <span className="text-warning ml-2">⚠ A soma dos itens difere do valor recebido</span>
+            )}
+          </p>
         </div>
 
         <div className="flex gap-2 justify-end">
