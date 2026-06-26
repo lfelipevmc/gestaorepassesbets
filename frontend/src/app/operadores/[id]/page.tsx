@@ -1049,7 +1049,7 @@ export default function OperatorDetailPage() {
 
       {/* Modal: Novo Lançamento Avulso */}
       {showDirectModal && (
-        <Modal title="Registrar Lançamento Avulso" onClose={() => setShowDirectModal(false)}>
+        <Modal isOpen={showDirectModal} title="Registrar Lançamento Avulso" onClose={() => setShowDirectModal(false)}>
           <form onSubmit={handleSaveDirectPayment} className="space-y-4">
             <div>
               <label className="label">Confederação *</label>
