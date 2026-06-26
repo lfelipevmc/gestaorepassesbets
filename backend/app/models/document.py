@@ -36,7 +36,7 @@ class Document(Base):
     file_name = Column(String, nullable=False)
     file_size = Column(BigInteger, nullable=True)
     description = Column(Text, nullable=True)
-    uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     operator = relationship("BettingOperator", back_populates="documents")

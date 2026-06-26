@@ -66,6 +66,11 @@ class ConfederationCreate(BaseModel):
     contact_email: Optional[str] = None
     finance_email: Optional[str] = None
     payment_due_day: int = 10
+    first_notification_day: int = 12
+    first_notification_deadline_days: int = 10
+    second_notification_day: int = 22
+    second_notification_deadline_days: int = 8
+    closing_day: int = 1
     redistribution_deadline_days: Optional[int] = None
 
 
@@ -86,6 +91,11 @@ class ConfederationUpdate(BaseModel):
     finance_email: Optional[str] = None
     contact_email: Optional[str] = None
     payment_due_day: Optional[int] = None
+    first_notification_day: Optional[int] = None
+    first_notification_deadline_days: Optional[int] = None
+    second_notification_day: Optional[int] = None
+    second_notification_deadline_days: Optional[int] = None
+    closing_day: Optional[int] = None
     redistribution_deadline_days: Optional[int] = None
 
 
@@ -109,6 +119,11 @@ class ConfederationOut(BaseModel):
     contact_email: Optional[str]
     finance_email: Optional[str]
     payment_due_day: int
+    first_notification_day: Optional[int] = None
+    first_notification_deadline_days: Optional[int] = None
+    second_notification_day: Optional[int] = None
+    second_notification_deadline_days: Optional[int] = None
+    closing_day: Optional[int] = None
     redistribution_deadline_days: Optional[int]
     created_at: datetime
 

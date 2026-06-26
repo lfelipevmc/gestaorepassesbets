@@ -6,14 +6,50 @@ ciclo de cobrança aberto mais recente daquele operador, quando houver.
 """
 from sqlalchemy.orm import Session
 from datetime import datetime
+import os
+import re
+import uuid
 import logging
 from .email_service import read_inbox_emails
 from ..models.operator import BettingOperator, OperatorContact, ContactType
 from ..models.messaging import EmailMessage, EmailDirection
 from ..models.collection import CollectionCycle, CollectionEvent, EventType, EventChannel
+from ..models.document import Document, DocumentType, DocumentCategory
 from ..models.audit import AuditLog
 
 logger = logging.getLogger(__name__)
+
+REPLIES_DIR = "/app/uploads/email_replies"
+
+
+def _archive_reply_as_document(db: Session, operator_id, cycle_id, subject, from_addr, full_body, received):
+    """Salva a resposta como arquivo .html e registra um Documento para auditoria futura."""
+    try:
+        os.makedirs(REPLIES_DIR, exist_ok=True)
+        safe_subj = re.sub(r"[^\w\-]+", "_", (subject or "resposta"))[:60]
+        file_name = f"Resposta_{safe_subj}_{(received or datetime.utcnow()).strftime('%Y%m%d')}.html"
+        disk_name = f"{uuid.uuid4().hex}_{file_name}"
+        file_path = os.path.join(REPLIES_DIR, disk_name)
+        html = (
+            f"<html><body><p><strong>De:</strong> {from_addr or ''}</p>"
+            f"<p><strong>Assunto:</strong> {subject or ''}</p>"
+            f"<p><strong>Recebido em:</strong> {received or ''}</p><hr/>"
+            f"<div>{full_body or ''}</div></body></html>"
+        )
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(html)
+        doc = Document(
+            operator_id=operator_id, cycle_id=cycle_id,
+            title=f"Resposta de e-mail — {subject or from_addr}"[:255],
+            document_type=DocumentType.correspondence, category=DocumentCategory.documento_oficial,
+            file_path=file_path, file_name=file_name,
+            file_size=os.path.getsize(file_path) if os.path.exists(file_path) else None,
+            description=f"Resposta recebida de {from_addr} e arquivada automaticamente para auditoria.",
+            uploaded_by_id=None,
+        )
+        db.add(doc)
+    except Exception as e:
+        logger.warning(f"Falha ao arquivar resposta como documento: {e}")
 
 
 def _parse_dt(s):
@@ -48,7 +84,8 @@ def sync_inbox(db: Session, top: int = 50) -> dict:
             continue
         from_addr = (((m.get("from") or {}).get("emailAddress") or {}).get("address") or "").strip().lower()
         subject = m.get("subject")
-        body = ((m.get("body") or {}).get("content") or "")[:1000]
+        full_body = (m.get("body") or {}).get("content") or ""
+        body = full_body[:1000]
         received = _parse_dt(m.get("receivedDateTime"))
         conv = m.get("conversationId")
 
@@ -71,6 +108,8 @@ def sync_inbox(db: Session, top: int = 50) -> dict:
                     event_type=EventType.email_read, channel=EventChannel.email,
                     notes=f"Resposta recebida de {from_addr}: {subject}",
                 ))
+            # Arquiva a resposta como documento anexo para auditoria futura
+            _archive_reply_as_document(db, operator_id, cycle_id, subject, from_addr, full_body, received)
 
         db.add(EmailMessage(
             direction=EmailDirection.inbound,

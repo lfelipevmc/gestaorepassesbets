@@ -30,6 +30,12 @@ class Confederation(Base):
     contact_email = Column(String, nullable=True)
     finance_email = Column(String, nullable=True)
     payment_due_day = Column(Integer, default=10)
+    # Cronograma de cobrança configurável por confederação
+    first_notification_day = Column(Integer, default=12)          # dia do mês para a 1ª notificação
+    first_notification_deadline_days = Column(Integer, default=10) # prazo (dias) concedido na 1ª notificação
+    second_notification_day = Column(Integer, default=22)         # dia do mês para a 2ª notificação
+    second_notification_deadline_days = Column(Integer, default=8) # prazo (dias) concedido na 2ª notificação
+    closing_day = Column(Integer, default=1)                      # dia (mês seguinte) para fechamento/ofício SPA
     # Prazo (dias) para repasse aos beneficiários finais após o recebimento (ex: CBW 90 dias)
     redistribution_deadline_days = Column(Integer, nullable=True)
     created_at = Column(DateTime, server_default=func.now())

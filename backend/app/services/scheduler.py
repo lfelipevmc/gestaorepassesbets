@@ -69,8 +69,6 @@ def job_sync_operators():
 
 def job_send_first_notifications():
     today = date.today()
-    if today.day != 12:
-        return
 
     db = SessionLocal()
     try:
@@ -79,7 +77,8 @@ def job_send_first_notifications():
         else:
             ref_month = date(today.year, today.month - 1, 1)
 
-        confederations = db.query(Confederation).all()
+        # Cada confederação tem seu próprio dia configurável para a 1ª notificação (padrão dia 12)
+        confederations = [c for c in db.query(Confederation).all() if (c.first_notification_day or 12) == today.day]
 
         for conf in confederations:
             cycle = get_or_create_cycle(db, conf.id, ref_month)
@@ -129,8 +128,6 @@ def job_check_compliance_day20():
 
 def job_send_second_notifications():
     today = date.today()
-    if today.day != 22:
-        return
 
     db = SessionLocal()
     try:
@@ -139,7 +136,8 @@ def job_send_second_notifications():
         else:
             ref_month = date(today.year, today.month - 1, 1)
 
-        confederations = db.query(Confederation).all()
+        # Dia configurável da 2ª notificação por confederação (padrão dia 22)
+        confederations = [c for c in db.query(Confederation).all() if (c.second_notification_day or 22) == today.day]
         for conf in confederations:
             cycle = db.query(CollectionCycle).filter(
                 CollectionCycle.confederation_id == conf.id,

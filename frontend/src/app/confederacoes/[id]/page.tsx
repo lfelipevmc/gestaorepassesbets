@@ -22,6 +22,8 @@ type Conf = {
   president_term?: string; logo_url?: string; regulation_text?: string; regulation_file_url?: string;
   regulation_online_url?: string; rateio_rules?: string;
   contact_email?: string; finance_email?: string; payment_due_day: number; redistribution_deadline_days?: number;
+  first_notification_day?: number; first_notification_deadline_days?: number;
+  second_notification_day?: number; second_notification_deadline_days?: number; closing_day?: number;
 };
 type Payment = {
   id: number; cycle_id: number; operator_id: number; status: string;
@@ -358,6 +360,28 @@ export default function ConfederationDetailPage() {
                   className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
                   value={confForm.rateio_rules || ""} onChange={e => setConfForm(f => ({ ...f, rateio_rules: e.target.value }))} />
               </div>
+
+              <div className="col-span-2 mt-2">
+                <p className="text-sm font-semibold text-white mb-1">Cronograma de Cobrança</p>
+                <p className="text-xs text-muted mb-3">Dias do mês e prazos usados nas notificações automáticas e na tela de revisão.</p>
+                <div className="grid grid-cols-3 gap-4">
+                  {([
+                    ["Dia do Vencimento", "payment_due_day"],
+                    ["Dia da 1ª Notificação", "first_notification_day"],
+                    ["Prazo 1ª Notif. (dias)", "first_notification_deadline_days"],
+                    ["Dia da 2ª Notificação", "second_notification_day"],
+                    ["Prazo 2ª Notif. (dias)", "second_notification_deadline_days"],
+                    ["Dia do Fechamento (mês seguinte)", "closing_day"],
+                  ] as [string, string][]).map(([label, key]) => (
+                    <div key={key}>
+                      <label className="block text-xs text-muted mb-1">{label}</label>
+                      <input type="number" min={1} max={31}
+                        className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                        value={(confForm as any)[key] ?? ""} onChange={e => setConfForm(f => ({ ...f, [key]: e.target.value === "" ? undefined : Number(e.target.value) }))} />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-4">
@@ -374,6 +398,21 @@ export default function ConfederationDetailPage() {
               ))}
               {conf.regulation_text && <div className="col-span-3"><p className="text-xs text-muted mb-1">Regulamento</p><p className="text-sm text-slate-300 whitespace-pre-line">{conf.regulation_text}</p></div>}
               {conf.rateio_rules && <div className="col-span-3"><p className="text-xs text-muted mb-1">Regras de Rateio</p><p className="text-sm text-slate-300 whitespace-pre-line">{conf.rateio_rules}</p></div>}
+              <div className="col-span-3 mt-2 pt-3 border-t border-surface-border">
+                <p className="text-xs text-muted mb-2">Cronograma de Cobrança</p>
+                <div className="grid grid-cols-3 gap-4">
+                  {([
+                    ["Vencimento", conf.payment_due_day, "dia"],
+                    ["1ª Notificação", conf.first_notification_day ?? 12, "dia"],
+                    ["Prazo 1ª Notif.", conf.first_notification_deadline_days ?? 10, "dias"],
+                    ["2ª Notificação", conf.second_notification_day ?? 22, "dia"],
+                    ["Prazo 2ª Notif.", conf.second_notification_deadline_days ?? 8, "dias"],
+                    ["Fechamento", conf.closing_day ?? 1, "dia (mês seguinte)"],
+                  ] as [string, number, string][]).map(([label, val, unit]) => (
+                    <div key={label}><p className="text-xs text-muted">{label}</p><p className="text-sm text-white mt-0.5">{unit.startsWith("dia") && unit !== "dias" ? `Dia ${val}` : `${val} ${unit}`}</p></div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
         </div>

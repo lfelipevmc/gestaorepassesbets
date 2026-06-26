@@ -100,6 +100,14 @@ export const getCollectionEvents = (id: number) => api.get(`/api/collections/${i
 export const addCollectionEvent = (id: number, data: any) => api.post(`/api/collections/${id}/events`, data);
 export const sendNotifications = (id: number, notificationNumber: number) =>
   api.post(`/api/collections/${id}/send-notifications?notification_number=${notificationNumber}`);
+export const getNotificationPreview = (id: number, notificationNumber: number) =>
+  api.get(`/api/collections/${id}/notification-preview`, { params: { notification_number: notificationNumber } });
+export const sendNotificationConfirmed = (id: number, data: any) =>
+  api.post(`/api/collections/${id}/send-confirmed`, data);
+export const generateSpaLetter = (id: number, data: any) =>
+  api.post(`/api/collections/${id}/spa-letter`, data);
+export const downloadSpaLetterUrl = (id: number, documentId: number) =>
+  `/api/collections/${id}/spa-letter/${documentId}/download`;
 
 // Payments
 export const getPayments = (params?: any) => api.get("/api/payments/", { params });
