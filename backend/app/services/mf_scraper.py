@@ -183,25 +183,53 @@ def _parse_csv_content(text: str, db: Session, category: str) -> dict:
 
 def _parse_excel_bytes(content: bytes, db: Session, category: str) -> dict:
     import pandas as pd
+    import unicodedata
+
+    def norm(s: str) -> str:
+        """Normaliza unicode e strip — para comparação segura de cabeçalhos."""
+        return unicodedata.normalize("NFC", s).lower().strip()
+
     new_count = 0
     updated_count = 0
     errors = []
     try:
-        df = pd.read_excel(io.BytesIO(content), dtype=str)
-        df.columns = [str(c).lower().strip() for c in df.columns]
+        # Tenta ler a primeira aba com dados (sheet_name=None lê todas; usamos a primeira não-vazia)
+        all_sheets = pd.read_excel(io.BytesIO(content), dtype=str, sheet_name=None)
+        df = None
+        for name, sheet in all_sheets.items():
+            if sheet.dropna(how="all").shape[0] > 1:  # pelo menos 1 linha de dados além do header
+                df = sheet
+                logger.info(f"Importando aba '{name}' com {len(sheet)} linhas")
+                break
+        if df is None:
+            return {"new": 0, "updated": 0, "errors": ["Nenhuma aba com dados encontrada"]}
+
+        df.columns = [norm(str(c)) for c in df.columns]
         df = df.fillna("")
+
         for _, row in df.iterrows():
             try:
-                row_dict = row.to_dict()
+                row_dict = {norm(k): str(v) for k, v in row.items()}
                 company_name = _find_field(row_dict, ["razão social", "razao social", "empresa", "nome", "company_name", "nome empresarial"])
-                fantasy_name = _find_field(row_dict, ["nome fantasia", "fantasy_name", "marca", "nome comercial"])
+                fantasy_name = _find_field(row_dict, ["nome fantasia", "fantasy_name", "nome comercial"])
                 cnpj_raw = _find_field(row_dict, ["cnpj"])
                 website = _find_field(row_dict, ["site", "website", "url", "endereço eletrônico", "dominio", "domínio"])
                 license_num = _find_field(row_dict, ["licença", "licenca", "autorização", "autorizacao", "número", "numero", "portaria"])
+                city_raw = _find_field(row_dict, ["cidade", "município", "municipio", "localidade"])
+                emails_raw = _find_field(row_dict, ["e-mail", "email", "e mail", "emails", "contato"])
+                phones_raw = _find_field(row_dict, ["telefone", "fone", "celular", "whatsapp", "tel"])
+                brands_raw = _find_field(row_dict, ["marcas", "marca", "brands"])
+
                 if not company_name:
                     continue
+
                 cnpj = format_cnpj(cnpj_raw) if cnpj_raw else None
-                res = _upsert_operator(db, company_name, fantasy_name, cnpj, website, license_num, category)
+                op_id, res = _upsert_operator_ex(db, company_name, fantasy_name, cnpj, website, license_num, category, city_raw)
+
+                # Importa contatos (e-mails e telefones) se presentes
+                if op_id:
+                    _import_contacts(db, op_id, emails_raw, phones_raw, brands_raw)
+
                 if res == "new":
                     new_count += 1
                 elif res == "updated":
@@ -212,6 +240,81 @@ def _parse_excel_bytes(content: bytes, db: Session, category: str) -> dict:
     except Exception as e:
         errors.append(f"Erro ao ler arquivo: {str(e)}")
     return {"new": new_count, "updated": updated_count, "errors": errors}
+
+
+def _upsert_operator_ex(db, company_name, fantasy_name, cnpj, website, license_num, category, city_raw):
+    """Versão estendida que retorna (operator_id, 'new'/'updated'/'skip')."""
+    from ..models.operator import BettingOperator, OperatorStatus
+    existing = None
+    if cnpj:
+        existing = db.query(BettingOperator).filter(BettingOperator.cnpj == cnpj).first()
+    if not existing:
+        existing = db.query(BettingOperator).filter(
+            BettingOperator.company_name.ilike(company_name.strip()[:100])
+        ).first()
+
+    prefix = "[Decisão Judicial] " if category == "judicial" else ""
+
+    if existing:
+        if fantasy_name:
+            existing.fantasy_name = fantasy_name.strip()[:200]
+        if website:
+            existing.website = website.strip()[:500]
+        if license_num:
+            existing.mf_license_number = license_num.strip()
+        if city_raw:
+            parts = city_raw.split("/")
+            existing.address_city = parts[0].strip()
+            if len(parts) > 1:
+                existing.address_state = parts[1].strip()[:2]
+        return existing.id, "updated"
+    else:
+        city_field = state_field = None
+        if city_raw:
+            parts = city_raw.split("/")
+            city_field = parts[0].strip()
+            if len(parts) > 1:
+                state_field = parts[1].strip()[:2]
+        op = BettingOperator(
+            company_name=(prefix + company_name.strip())[:500],
+            fantasy_name=fantasy_name.strip()[:200] if fantasy_name else None,
+            cnpj=cnpj,
+            website=website.strip()[:500] if website else None,
+            mf_license_number=license_num.strip() if license_num else None,
+            status=OperatorStatus.active,
+            address_city=city_field,
+            address_state=state_field,
+        )
+        db.add(op)
+        db.flush()
+        return op.id, "new"
+
+
+def _import_contacts(db, operator_id: int, emails_raw: str, phones_raw: str, brands_raw: str):
+    """Importa e-mails e telefones de campos multi-valor (separados por \n ou ,)."""
+    from ..models.operator import OperatorContact, OperatorBrand, ContactType
+
+    existing_emails = {c.value for c in db.query(OperatorContact).filter_by(operator_id=operator_id, type=ContactType.email).all()}
+    existing_phones = {c.value for c in db.query(OperatorContact).filter_by(operator_id=operator_id, type=ContactType.phone).all()}
+    existing_brands = {b.name for b in db.query(OperatorBrand).filter_by(operator_id=operator_id).all()}
+
+    if emails_raw:
+        for email in [e.strip() for e in emails_raw.replace("\n", ",").split(",") if "@" in e]:
+            if email and email not in existing_emails:
+                db.add(OperatorContact(operator_id=operator_id, type=ContactType.email, value=email, source="planilha"))
+                existing_emails.add(email)
+
+    if phones_raw:
+        for phone in [p.strip() for p in phones_raw.replace("\n", ",").split(",") if p.strip()]:
+            if len(phone) >= 8 and phone not in existing_phones:
+                db.add(OperatorContact(operator_id=operator_id, type=ContactType.phone, value=phone, source="planilha"))
+                existing_phones.add(phone)
+
+    if brands_raw:
+        for brand in [b.strip() for b in brands_raw.replace("\n", ",").split(",") if b.strip()]:
+            if brand and brand not in existing_brands:
+                db.add(OperatorBrand(operator_id=operator_id, name=brand[:200]))
+                existing_brands.add(brand)
 
 
 def _parse_html_table(soup: BeautifulSoup, db: Session) -> dict:
@@ -239,37 +342,8 @@ def _parse_html_table(soup: BeautifulSoup, db: Session) -> dict:
 
 
 def _upsert_operator(db: Session, company_name: str, fantasy_name, cnpj, website, license_num, category: str) -> str:
-    existing = None
-    if cnpj:
-        existing = db.query(BettingOperator).filter(BettingOperator.cnpj == cnpj).first()
-    if not existing:
-        existing = db.query(BettingOperator).filter(
-            BettingOperator.company_name.ilike(company_name.strip()[:100])
-        ).first()
-
-    prefix = "[Decisão Judicial] " if category == "judicial" else ""
-
-    if existing:
-        if fantasy_name:
-            existing.fantasy_name = fantasy_name.strip()[:200]
-        if website:
-            existing.website = website.strip()[:300]
-        if license_num:
-            existing.mf_license_number = license_num.strip()[:100]
-        existing.updated_at = datetime.utcnow()
-        return "updated"
-    else:
-        op = BettingOperator(
-            company_name=(prefix + company_name.strip())[:300],
-            fantasy_name=fantasy_name.strip()[:200] if fantasy_name else None,
-            cnpj=cnpj,
-            website=website.strip()[:300] if website else None,
-            mf_license_number=license_num.strip()[:100] if license_num else None,
-            status=OperatorStatus.active,
-            notes=f"Categoria: {category}. Importado via sistema."
-        )
-        db.add(op)
-        return "new"
+    _, res = _upsert_operator_ex(db, company_name, fantasy_name, cnpj, website, license_num, category, None)
+    return res
 
 
 def _find_field(row: dict, possible_keys: list) -> str:

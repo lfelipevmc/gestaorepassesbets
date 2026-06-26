@@ -120,7 +120,7 @@ export default function OperadoresPage() {
       fd.append("file", importFile);
       fd.append("category", importCategory);
       const r = await importOperators(fd);
-      alert(`Importação concluída: ${r.data.created} criados, ${r.data.updated} atualizados, ${r.data.errors?.length || 0} erros`);
+      alert(`Importação concluída: ${r.data.new_operators ?? r.data.created ?? 0} criados, ${r.data.updated_operators ?? r.data.updated ?? 0} atualizados, ${r.data.errors?.length || 0} erros`);
       setShowImport(false);
       setImportFile(null);
       fetchOperators();
