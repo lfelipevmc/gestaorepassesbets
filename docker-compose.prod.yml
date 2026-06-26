@@ -17,8 +17,8 @@ services:
   backend:
     build: ./backend
     restart: always
-    expose:
-      - "8000"
+    ports:
+      - "127.0.0.1:8000:8000"   # acessível só pelo host (Nginx faz o proxy público)
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/gestaobets
     volumes:
@@ -35,8 +35,8 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${SITE_URL}
     restart: always
-    expose:
-      - "3000"
+    ports:
+      - "127.0.0.1:3000:3000"   # acessível só pelo host (Nginx faz o proxy público)
     depends_on:
       - backend
 
