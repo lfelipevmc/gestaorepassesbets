@@ -21,6 +21,7 @@ class EventType(str, enum.Enum):
     report_received = "report_received"
     manual_note = "manual_note"
     email_read = "email_read"
+    phone_contact = "phone_contact"
 
 
 class EventChannel(str, enum.Enum):

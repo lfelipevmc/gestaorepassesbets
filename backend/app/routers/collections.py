@@ -152,9 +152,9 @@ def notification_preview(id: int, notification_number: int = 1, db: Session = De
     if tmpl:
         subject, body = tmpl.subject, tmpl.body
     else:
-        subject = f"{notification_number}ª Notificação - Repasse Direito de Imagem {{mes}} - {conf.acronym}"
+        subject = "{confederacaosigla} - Contrapartida Direito de Imagem {mes}/{ano}"
         body = ("Prezados representantes de {bet},\n\nSolicitamos o repasse da contrapartida de direito de imagem "
-                "referente ao mês de {mes}, em favor da {confederacao}, no prazo de {prazo}.\n\nAtenciosamente,\n{escritorio}")
+                "referente ao mês de {mes}/{ano}, em favor da {confederacao}, no prazo de {prazo}.\n\nAtenciosamente,\n{escritorio}")
 
     deadline_days = (conf.first_notification_deadline_days if notification_number == 1 else conf.second_notification_deadline_days) or 10
     deadline = (date.today() + timedelta(days=deadline_days)).strftime("%d/%m/%Y")

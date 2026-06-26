@@ -11,6 +11,8 @@ class PaymentStatus(str, enum.Enum):
     paid = "paid"              # pago + relatório recebido
     report_pending = "report_pending"  # pago mas aguardando relatório (adimplente sem relatório)
     overdue = "overdue"
+    not_sports = "not_sports"      # não explora esporte (não deve contrapartida neste mês)
+    judicialized = "judicialized"  # questão judicializada — cobrança suspensa/sub judice
 
 
 class Payment(Base):

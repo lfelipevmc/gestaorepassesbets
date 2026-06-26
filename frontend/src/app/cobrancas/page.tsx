@@ -21,13 +21,23 @@ const OCCASIONS: Record<string, string> = {
   receipt_ack: "Confirmação de Recebimento",
   custom: "Personalizado",
 };
-const PLACEHOLDERS = ["{bet}", "{confederacao}", "{mes}", "{valor}", "{prazo}", "{escritorio}"];
+const PLACEHOLDERS = ["{bet}", "{confederacao}", "{confederacaosigla}", "{mes}", "{ano}", "{valor}", "{prazo}", "{escritorio}"];
+
+const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
 function monthLabel(d: string) {
   try {
     const dt = new Date(d);
     return dt.toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" });
   } catch { return d; }
+}
+
+// Lista de anos para o seletor (de 2024 ao ano atual + 1)
+function yearOptions() {
+  const now = new Date().getFullYear();
+  const years: number[] = [];
+  for (let y = now + 1; y >= 2024; y--) years.push(y);
+  return years;
 }
 
 export default function CobrancasPage() {
@@ -38,11 +48,12 @@ export default function CobrancasPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ confederation_id: "", reference_month: "", template_id: "" });
+  const now = new Date();
+  const [form, setForm] = useState({ confederation_id: "", month: String(now.getMonth() + 1), year: String(now.getFullYear()), template_id: "" });
 
   // Filtros de organização dos ciclos
   const [filterConf, setFilterConf] = useState("");
-  const [filterMonth, setFilterMonth] = useState("");
+  const [filterMonths, setFilterMonths] = useState<string[]>([]);  // múltipla escolha: "YYYY-MM"
 
   // Estado dos modelos
   const [editing, setEditing] = useState<any | null>(null);
@@ -59,13 +70,14 @@ export default function CobrancasPage() {
     e.preventDefault();
     setCreating(true);
     try {
+      const mm = String(form.month).padStart(2, "0");
       await createCollection({
         confederation_id: parseInt(form.confederation_id),
-        reference_month: form.reference_month + "-01",
+        reference_month: `${form.year}-${mm}-01`,
         template_id: form.template_id ? parseInt(form.template_id) : null,
       });
       setShowCreate(false);
-      setForm({ confederation_id: "", reference_month: "", template_id: "" });
+      setForm({ confederation_id: "", month: String(now.getMonth() + 1), year: String(now.getFullYear()), template_id: "" });
       fetchAll();
     } catch (err: any) {
       const detail = err.response?.data?.detail;
@@ -95,10 +107,21 @@ export default function CobrancasPage() {
     await deleteTemplate(id); fetchAll();
   }
 
+  // Meses disponíveis (para o filtro de múltipla escolha): "YYYY-MM" -> label
+  const availableMonths = Array.from(new Set(cycles.map(c => (c.reference_month || "").slice(0, 7)).filter(Boolean)))
+    .sort().reverse();
+  function toggleMonth(m: string) {
+    setFilterMonths(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m]);
+  }
+  function monthChipLabel(ym: string) {
+    const [y, m] = ym.split("-");
+    return `${MESES_PT[parseInt(m) - 1]?.slice(0, 3)}/${y}`;
+  }
+
   // ---- Agrupamento de ciclos: Confederação → Mês ----
   const filtered = cycles.filter(c =>
     (!filterConf || c.confederation_id.toString() === filterConf) &&
-    (!filterMonth || (c.reference_month || "").startsWith(filterMonth))
+    (filterMonths.length === 0 || filterMonths.includes((c.reference_month || "").slice(0, 7)))
   );
   const byConf: Record<string, any[]> = {};
   filtered.forEach(c => {
@@ -129,14 +152,32 @@ export default function CobrancasPage() {
       {loading ? <div className="text-muted">Carregando...</div> : tab === 0 ? (
         <>
           {/* Filtros */}
-          <div className="flex flex-wrap gap-3 mb-5">
-            <select className="input max-w-xs" value={filterConf} onChange={e => setFilterConf(e.target.value)}>
-              <option value="">Todas as confederações</option>
-              {confederations.map(c => <option key={c.id} value={c.id}>{c.acronym} — {c.name}</option>)}
-            </select>
-            <input type="month" className="input max-w-[200px]" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} placeholder="Mês" />
-            {(filterConf || filterMonth) && (
-              <button onClick={() => { setFilterConf(""); setFilterMonth(""); }} className="btn-secondary">Limpar filtros</button>
+          <div className="space-y-3 mb-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <select className="input max-w-xs" value={filterConf} onChange={e => setFilterConf(e.target.value)}>
+                <option value="">Todas as confederações</option>
+                {confederations.map(c => <option key={c.id} value={c.id}>{c.acronym} — {c.name}</option>)}
+              </select>
+              {(filterConf || filterMonths.length > 0) && (
+                <button onClick={() => { setFilterConf(""); setFilterMonths([]); }} className="btn-secondary">Limpar filtros</button>
+              )}
+            </div>
+            {availableMonths.length > 0 && (
+              <div>
+                <p className="text-xs text-muted mb-1.5">Filtrar por mês/ano (selecione um ou mais):</p>
+                <div className="flex flex-wrap gap-2">
+                  {availableMonths.map(ym => {
+                    const active = filterMonths.includes(ym);
+                    return (
+                      <button key={ym} onClick={() => toggleMonth(ym)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                          active ? "bg-primary/15 text-primary border-primary/30" : "border-surface-border text-muted hover:text-slate-200"}`}>
+                        {monthChipLabel(ym)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
 
@@ -230,7 +271,15 @@ export default function CobrancasPage() {
           </div>
           <div>
             <label className="label">Mês de Referência *</label>
-            <input type="month" className="input" required value={form.reference_month} onChange={e => setForm(f => ({ ...f, reference_month: e.target.value }))} />
+            <div className="grid grid-cols-2 gap-3">
+              <select className="input" required value={form.month} onChange={e => setForm(f => ({ ...f, month: e.target.value }))}>
+                {MESES_PT.map((nome, i) => <option key={i} value={i + 1}>{nome}</option>)}
+              </select>
+              <select className="input" required value={form.year} onChange={e => setForm(f => ({ ...f, year: e.target.value }))}>
+                {yearOptions().map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <p className="text-xs text-muted mt-1">Mês de competência a que se refere a cobrança.</p>
           </div>
           <div>
             <label className="label">Modelo de Cobrança <span className="text-muted font-normal">(opcional)</span></label>

@@ -71,11 +71,19 @@ def _run_light_migrations():
                     logger.warning(f"Migração: falha ao adicionar {table.name}.{col.name}: {e}")
 
         # Novo valor de enum em PaymentStatus (Postgres). PG16 suporta ADD VALUE IF NOT EXISTS.
+        for enum_val in ("report_pending", "not_sports", "judicialized"):
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TYPE paymentstatus ADD VALUE IF NOT EXISTS '{enum_val}'"))
+            except Exception as e:
+                logger.warning(f"Migração: enum paymentstatus '{enum_val}' indisponível: {e}")
+
+        # Novo valor de evento: contato telefônico
         try:
             with engine.begin() as conn:
-                conn.execute(text("ALTER TYPE paymentstatus ADD VALUE IF NOT EXISTS 'report_pending'"))
+                conn.execute(text("ALTER TYPE eventtype ADD VALUE IF NOT EXISTS 'phone_contact'"))
         except Exception as e:
-            logger.warning(f"Migração: enum paymentstatus já atualizado ou indisponível: {e}")
+            logger.warning(f"Migração: enum eventtype 'phone_contact' indisponível: {e}")
 
         try:
             with engine.begin() as conn:

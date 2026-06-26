@@ -8,7 +8,7 @@ import Modal from "@/components/ui/Modal";
 import {
   getCollection, getCollectionEvents, getPayments, getConfederation, getOperators,
   confirmPayment, declareValue,
-  getNotificationPreview, sendNotificationConfirmed, generateSpaLetter, downloadSpaLetterUrl,
+  getNotificationPreview, sendNotificationConfirmed, generateSpaLetter, downloadSpaLetter,
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 
@@ -109,6 +109,18 @@ export default function CollectionDetailPage() {
     } catch (err: any) {
       alert(err.response?.data?.detail || "Erro ao gerar minuta");
     } finally { setSpaBusy(false); }
+  }
+
+  async function handleDownloadSpa() {
+    try {
+      const r = await downloadSpaLetter(numId, spaResult.document_id);
+      const url = URL.createObjectURL(new Blob([r.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = spaResult.file_name || "oficio_spa.docx"; a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Erro ao baixar a minuta.");
+    }
   }
 
   async function handleConfirmPayment(e: React.FormEvent) {
@@ -381,7 +393,7 @@ export default function CollectionDetailPage() {
         ) : (
           <div className="space-y-4">
             <div className="bg-success/10 border border-success/30 text-success rounded-lg px-4 py-3 text-sm">Minuta gerada e arquivada como documento do ciclo.</div>
-            <a href={downloadSpaLetterUrl(numId, spaResult.document_id)} target="_blank" rel="noreferrer" className="btn-primary inline-block">⬇ Baixar minuta (.docx)</a>
+            <button onClick={handleDownloadSpa} className="btn-primary inline-block">⬇ Baixar minuta (.docx)</button>
             <div>
               <label className="label">Pré-visualização do texto</label>
               <textarea readOnly className="input h-80 resize-none text-xs font-mono" value={spaResult.text} />

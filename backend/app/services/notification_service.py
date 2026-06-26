@@ -29,17 +29,40 @@ def _find_template(db: Session, confederation_id: int, notification_number: int)
     ).first()
 
 
-def render_placeholders(text: str, operator, confederation, reference_month: str, amount=None) -> str:
-    """Substitui placeholders padronizados no texto do template."""
+class _SafeDict(dict):
+    """Mantém intactas as chaves desconhecidas em vez de lançar KeyError."""
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def render_placeholders(text: str, operator, confederation, reference_month: str, amount=None, prazo: str = None) -> str:
+    """Substitui placeholders padronizados no texto do template.
+
+    reference_month no formato "MM/AAAA". Chaves suportadas:
+    {bet} {confederacao} {confederacaosigla} {mes} {ano} {valor} {prazo} {escritorio}
+    Chaves desconhecidas são preservadas (não quebram o envio).
+    """
     valor = "R$ {:,.2f}".format(float(amount)).replace(",", "X").replace(".", ",").replace("X", ".") if amount else "valor a ser apurado pelo agente operador"
-    return (text or "").format(
+    mes = reference_month or ""
+    ano = ""
+    if reference_month and "/" in reference_month:
+        partes = reference_month.split("/")
+        mes = partes[0]
+        ano = partes[-1]
+    data = _SafeDict(
         bet=operator.fantasy_name or operator.company_name,
         confederacao=confederation.name,
-        mes=reference_month,
+        confederacaosigla=confederation.acronym,
+        mes=mes,
+        ano=ano,
         valor=valor,
-        prazo="10 (dez) dias",
+        prazo=prazo or "10 (dez) dias",
         escritorio="Escritório Jurídico - Gestão de Haveres de Bets",
     )
+    try:
+        return (text or "").format_map(data)
+    except Exception:
+        return text or ""
 
 
 def _render_template(tmpl, operator, confederation, reference_month: str, amount=None):

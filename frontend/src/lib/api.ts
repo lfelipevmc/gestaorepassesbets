@@ -108,6 +108,8 @@ export const generateSpaLetter = (id: number, data: any) =>
   api.post(`/api/collections/${id}/spa-letter`, data);
 export const downloadSpaLetterUrl = (id: number, documentId: number) =>
   `/api/collections/${id}/spa-letter/${documentId}/download`;
+export const downloadSpaLetter = (id: number, documentId: number) =>
+  api.get(`/api/collections/${id}/spa-letter/${documentId}/download`, { responseType: "blob" });
 
 // Payments
 export const getPayments = (params?: any) => api.get("/api/payments/", { params });

@@ -18,6 +18,7 @@ from ..models.messaging import EmailMessage, EmailDirection
 STATUS_PT = {
     "paid": "Adimplente", "report_pending": "Pago (aguarda relatório)",
     "pending": "Pendente", "overdue": "Inadimplente", "partial": "Parcial",
+    "not_sports": "Não explora esporte", "judicialized": "Judicializado",
 }
 
 
@@ -106,7 +107,7 @@ def generate_evidence_pdf(db: Session, month: date, confederation_id=None) -> by
         if cycle_ids:
             events = db.query(CollectionEvent).filter(
                 CollectionEvent.cycle_id.in_(cycle_ids)
-            ).order_by(CollectionEvent.created_at).all()
+            ).order_by(CollectionEvent.performed_at).all()
         notif_rows = [["Data", "Bet", "Tipo de evento", "Canal", "Observações"]]
         op_cache = {}
         def op_name(oid):
@@ -116,7 +117,7 @@ def generate_evidence_pdf(db: Session, month: date, confederation_id=None) -> by
             return op_cache[oid]
         for ev in events:
             notif_rows.append([
-                ev.created_at.strftime("%d/%m/%Y %H:%M") if ev.created_at else "—",
+                ev.performed_at.strftime("%d/%m/%Y %H:%M") if ev.performed_at else "—",
                 Paragraph(op_name(ev.operator_id)[:40], small),
                 getattr(ev.event_type, "value", str(ev.event_type or "—")),
                 getattr(ev.channel, "value", str(ev.channel or "—")),
