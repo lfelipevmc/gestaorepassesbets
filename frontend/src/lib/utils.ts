@@ -30,6 +30,8 @@ export const STATUS_LABELS: Record<string, string> = {
   report_pending: "Pend. de Relatório",
   overdue: "Em Atraso",
   partial: "Parcial",
+  not_sports: "Não explora esporte",
+  judicialized: "Judicializado",
   open: "Aberto",
   collecting: "Cobrando",
   checking: "Verificando",
@@ -49,4 +51,6 @@ export const STATUS_COLORS: Record<string, string> = {
   overdue: "text-danger bg-danger/10",
   pending: "text-muted bg-muted/10",
   closed: "text-muted bg-muted/10",
+  not_sports: "text-slate-300 bg-slate-500/10",
+  judicialized: "text-purple-300 bg-purple-500/10",
 };
