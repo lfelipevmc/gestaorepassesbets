@@ -149,6 +149,7 @@ export default function OperatorDetailPage() {
   }
 
   useEffect(() => { fetchData(); }, [numId]);
+  useEffect(() => { getOperatorComplianceScore(numId).then(r => setComplianceScore(r.data)).catch(() => {}); }, [numId]);
 
   useEffect(() => {
     if (tab === 5) fetchSuggestions();
@@ -373,7 +374,20 @@ export default function OperatorDetailPage() {
       <Header
         title={operator.fantasy_name || operator.company_name}
         subtitle={operator.company_name}
-        actions={<Badge status={operator.status} />}
+        actions={
+          <div className="flex items-center gap-2">
+            {complianceScore && complianceScore.score !== null && (
+              <span className={`text-xs px-3 py-1 rounded-full border font-medium ${
+                complianceScore.score >= 70 ? "bg-success/10 text-success border-success/30" :
+                complianceScore.score >= 40 ? "bg-warning/10 text-warning border-warning/30" :
+                "bg-danger/10 text-danger border-danger/30"}`}
+                title={`Adimplência ${complianceScore.score}% — ${complianceScore.paid}/${complianceScore.total} pagamentos`}>
+                {complianceScore.score >= 70 ? "★ Bom pagador" : complianceScore.label} · {complianceScore.score}%
+              </span>
+            )}
+            <Badge status={operator.status} />
+          </div>
+        }
       />
 
       {/* Tabs */}
