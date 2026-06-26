@@ -73,6 +73,27 @@ async def upload_logo(id: int, file: UploadFile = File(...), db: Session = Depen
     return {"logo_url": conf.logo_url}
 
 
+@router.post("/{id}/upload-regulation")
+async def upload_regulation(id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    conf = db.query(Confederation).get(id)
+    if not conf:
+        raise HTTPException(status_code=404, detail="Confederação não encontrada")
+    reg_dir = "/app/uploads/regulations"
+    os.makedirs(reg_dir, exist_ok=True)
+    ext = os.path.splitext(file.filename or "regulamento.pdf")[1].lower()
+    allowed = (".pdf", ".docx", ".doc", ".xlsx", ".xls", ".png", ".jpg", ".jpeg")
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail="Formato inválido.")
+    filename = f"reg_{id}_{uuid.uuid4().hex}{ext}"
+    path = os.path.join(reg_dir, filename)
+    with open(path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    conf.regulation_file_url = f"/uploads/regulations/{filename}"
+    db.commit()
+    log_action(db=db, action="UPLOAD_REGULATION", entity_type="Confederation", entity_id=id, user_id=current_user.id)
+    return {"regulation_file_url": conf.regulation_file_url}
+
+
 # --- Regras de rateio (matriz por cenário de competição, conforme regulamento) ---
 
 @router.get("/{id}/distribution-rules", response_model=List[DistributionRuleOut])

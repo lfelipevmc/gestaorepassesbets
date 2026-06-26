@@ -4,11 +4,12 @@ import { useParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import {
-  getConfederation, updateConfederation, uploadConfederationLogo,
+  getConfederation, updateConfederation, uploadConfederationLogo, uploadConfederationRegulation,
   getDistributionRules, deleteDistributionRule,
   getCollections, getPayments, getOperators,
   getEndrPayments, createEndrPayment, uploadEndrReport, deleteEndrPayment,
   registerReport, uploadPaymentReport,
+  getDocuments, uploadDocument, downloadDocument,
 } from "@/lib/api";
 import { formatDate, formatCurrency } from "@/lib/utils";
 
@@ -18,7 +19,8 @@ const TABS = ["Visão Geral", "Cadastro", "Receitas por Mês", "Repasses ENDR", 
 type Conf = {
   id: number; name: string; acronym: string; cnpj?: string; website?: string; phone?: string;
   address?: string; president_name?: string; president_email?: string; president_phone?: string;
-  president_term?: string; logo_url?: string; regulation_text?: string; rateio_rules?: string;
+  president_term?: string; logo_url?: string; regulation_text?: string; regulation_file_url?: string;
+  regulation_online_url?: string; rateio_rules?: string;
   contact_email?: string; finance_email?: string; payment_due_day: number; redistribution_deadline_days?: number;
 };
 type Payment = {
@@ -84,6 +86,18 @@ export default function ConfederationDetailPage() {
   const [reportForm, setReportForm] = useState({ report_reference_month: "", report_notes: "" });
   const reportFileRef = useRef<HTMLInputElement>(null);
 
+  // Regulamento
+  const regulationFileRef = useRef<HTMLInputElement>(null);
+  const [regulationOnlineUrl, setRegulationOnlineUrl] = useState("");
+  const [savingRegulationUrl, setSavingRegulationUrl] = useState(false);
+
+  // Documentos da confederação (cadastro)
+  const [confDocs, setConfDocs] = useState<any[]>([]);
+  const [showDocForm, setShowDocForm] = useState(false);
+  const [docForm, setDocForm] = useState({ title: "", document_type: "contract", category: "documento_oficial" });
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+
 
   useEffect(() => {
     Promise.all([
@@ -93,14 +107,17 @@ export default function ConfederationDetailPage() {
       getOperators({ limit: 300 }),
       getEndrPayments({ confederation_id: numId }),
       getDistributionRules(numId),
-    ]).then(([c, cols, pays, ops, endr, rls]) => {
+      getDocuments({ confederation_id: numId }),
+    ]).then(([c, cols, pays, ops, endr, rls, docs]) => {
       setConf(c.data);
       setConfForm(c.data);
+      setRegulationOnlineUrl(c.data.regulation_online_url || "");
       setCycles(cols.data);
       setPayments(pays.data);
       setOperators(ops.data);
       setEndrPayments(endr.data);
       setRules(rls.data);
+      setConfDocs(docs.data);
     }).finally(() => setLoading(false));
   }, [numId]);
 
@@ -175,6 +192,55 @@ export default function ConfederationDetailPage() {
     setRules(p => p.filter(x => x.id !== ruleId));
   }
 
+  async function handleRegulationUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return;
+    const fd = new FormData(); fd.append("file", file);
+    try {
+      const r = await uploadConfederationRegulation(numId, fd);
+      setConf(c => c ? { ...c, regulation_file_url: r.data.regulation_file_url } : c);
+      flash("Regulamento enviado com sucesso.");
+    } catch { flash("Erro ao enviar regulamento."); }
+  }
+
+  async function handleSaveRegulationUrl() {
+    setSavingRegulationUrl(true);
+    try {
+      const r = await updateConfederation(numId, { regulation_online_url: regulationOnlineUrl });
+      setConf(r.data);
+      flash("Link do regulamento salvo.");
+    } catch { flash("Erro ao salvar link."); }
+    setSavingRegulationUrl(false);
+  }
+
+  async function handleUploadDoc(e: React.FormEvent) {
+    e.preventDefault();
+    if (!docFile) return;
+    setUploadingDoc(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", docFile);
+      fd.append("title", docForm.title);
+      fd.append("document_type", docForm.document_type);
+      fd.append("category", docForm.category);
+      fd.append("confederation_id", String(numId));
+      await uploadDocument(fd);
+      const r = await getDocuments({ confederation_id: numId });
+      setConfDocs(r.data);
+      setShowDocForm(false);
+      setDocForm({ title: "", document_type: "contract", category: "documento_oficial" });
+      setDocFile(null);
+      flash("Documento enviado.");
+    } catch { flash("Erro ao enviar documento."); }
+    setUploadingDoc(false);
+  }
+
+  async function handleDownloadDoc(docId: number, fileName: string) {
+    const r = await downloadDocument(docId);
+    const url = window.URL.createObjectURL(new Blob([r.data]));
+    const a = document.createElement("a"); a.href = url; a.download = fileName; a.click();
+    window.URL.revokeObjectURL(url);
+  }
+
   if (loading) return <AppShell><div className="text-muted p-8">Carregando...</div></AppShell>;
   if (!conf) return <AppShell><div className="text-muted p-8">Não encontrado</div></AppShell>;
 
@@ -234,6 +300,7 @@ export default function ConfederationDetailPage() {
 
       {/* TAB 1: CADASTRO */}
       {tab === 1 && (
+        <div className="space-y-6">
         <div className="card">
           <div className="flex items-center justify-between mb-6">
             <h3 className="font-semibold text-white">Dados Cadastrais</h3>
@@ -309,6 +376,85 @@ export default function ConfederationDetailPage() {
               {conf.rateio_rules && <div className="col-span-3"><p className="text-xs text-muted mb-1">Regras de Rateio</p><p className="text-sm text-slate-300 whitespace-pre-line">{conf.rateio_rules}</p></div>}
             </div>
           )}
+        </div>
+
+        {/* Documentos da Confederação */}
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold text-white">Documentos</h3>
+              <p className="text-xs text-muted mt-0.5">Procuração, estatuto social, atas e outros documentos da confederação.</p>
+            </div>
+            <button className="px-4 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors" onClick={() => setShowDocForm(true)}>+ Enviar Documento</button>
+          </div>
+
+          {showDocForm && (
+            <form onSubmit={handleUploadDoc} className="border border-surface-border rounded-lg p-4 mb-4 space-y-3 bg-surface">
+              <h4 className="text-sm font-semibold text-white">Novo Documento</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-xs text-muted mb-1">Título *</label>
+                  <input required className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                    placeholder="Ex: Estatuto Social — CBTM 2023"
+                    value={docForm.title} onChange={e => setDocForm(f => ({ ...f, title: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">Tipo</label>
+                  <select className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                    value={docForm.document_type} onChange={e => setDocForm(f => ({ ...f, document_type: e.target.value }))}>
+                    <option value="contract">Contrato / Procuração</option>
+                    <option value="regulation">Regulamento / Estatuto</option>
+                    <option value="correspondence">Correspondência / Ata</option>
+                    <option value="other">Outro</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">Categoria</label>
+                  <select className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                    value={docForm.category} onChange={e => setDocForm(f => ({ ...f, category: e.target.value }))}>
+                    <option value="documento_oficial">Documento Oficial</option>
+                    <option value="minuta">Minuta</option>
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs text-muted mb-1">Arquivo *</label>
+                  <input required type="file" accept=".pdf,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg"
+                    className="text-sm text-slate-300"
+                    onChange={e => setDocFile(e.target.files?.[0] || null)} />
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button type="button" className="px-4 py-1.5 text-sm text-muted border border-surface-border rounded-lg hover:bg-surface-border" onClick={() => setShowDocForm(false)}>Cancelar</button>
+                <button type="submit" disabled={uploadingDoc || !docFile} className="px-4 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 disabled:opacity-50">{uploadingDoc ? "Enviando..." : "Enviar"}</button>
+              </div>
+            </form>
+          )}
+
+          {confDocs.length === 0 && !showDocForm ? (
+            <p className="text-muted text-sm text-center py-6">Nenhum documento cadastrado.</p>
+          ) : (
+            <div className="space-y-2">
+              {confDocs.map((doc: any) => (
+                <div key={doc.id} className="flex items-center justify-between p-3 bg-surface rounded-lg border border-surface-border">
+                  <div>
+                    <p className="text-sm text-white font-medium">{doc.title}</p>
+                    <div className="flex gap-2 mt-0.5">
+                      <span className="text-xs text-muted capitalize">{doc.document_type}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${doc.category === "minuta" ? "bg-warning/10 text-warning" : "bg-success/10 text-success"}`}>
+                        {doc.category === "minuta" ? "Minuta" : "Doc. Oficial"}
+                      </span>
+                      {doc.file_size && <span className="text-xs text-muted">{Math.round(doc.file_size / 1024)} KB</span>}
+                    </div>
+                  </div>
+                  <button onClick={() => handleDownloadDoc(doc.id, doc.file_name)}
+                    className="px-3 py-1.5 text-xs text-primary border border-primary/30 rounded-lg hover:bg-primary/10 transition-colors">
+                    Baixar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         </div>
       )}
 
@@ -469,6 +615,54 @@ export default function ConfederationDetailPage() {
             {conf.redistribution_deadline_days && (
               <p className="text-xs text-muted mt-2">Prazo para repasse aos beneficiários finais: <strong>{conf.redistribution_deadline_days} dias</strong> do recebimento.</p>
             )}
+          </div>
+
+          {/* Documento do Regulamento */}
+          <div className="card">
+            <h4 className="font-semibold text-white mb-3">Documento do Regulamento</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-muted mb-2">Arquivo do regulamento (upload)</p>
+                {conf.regulation_file_url ? (
+                  <div className="flex items-center gap-2">
+                    <a href={API_URL + conf.regulation_file_url} target="_blank" rel="noreferrer"
+                      className="px-3 py-1.5 text-xs text-primary border border-primary/30 rounded-lg hover:bg-primary/10 transition-colors">
+                      Ver regulamento
+                    </a>
+                    <button onClick={() => regulationFileRef.current?.click()}
+                      className="px-3 py-1.5 text-xs text-muted border border-surface-border rounded-lg hover:bg-surface-border transition-colors">
+                      Substituir
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => regulationFileRef.current?.click()}
+                    className="px-3 py-1.5 text-xs bg-surface-border border border-surface-border rounded-lg hover:bg-surface text-slate-300 transition-colors">
+                    Enviar arquivo (PDF, DOCX...)
+                  </button>
+                )}
+                <input ref={regulationFileRef} type="file" accept=".pdf,.docx,.doc,.xlsx,.xls,.png,.jpg" className="hidden" onChange={handleRegulationUpload} />
+              </div>
+              <div>
+                <p className="text-xs text-muted mb-2">Link do regulamento online (DOU, site oficial etc.)</p>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 bg-surface-border border border-surface-border rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary"
+                    placeholder="https://..."
+                    value={regulationOnlineUrl}
+                    onChange={e => setRegulationOnlineUrl(e.target.value)}
+                  />
+                  <button onClick={handleSaveRegulationUrl} disabled={savingRegulationUrl}
+                    className="px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/80 disabled:opacity-50 transition-colors">
+                    {savingRegulationUrl ? "..." : "Salvar"}
+                  </button>
+                </div>
+                {conf.regulation_online_url && (
+                  <a href={conf.regulation_online_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline mt-1 block truncate">
+                    {conf.regulation_online_url}
+                  </a>
+                )}
+              </div>
+            </div>
           </div>
 
           {rules.length === 0 ? (

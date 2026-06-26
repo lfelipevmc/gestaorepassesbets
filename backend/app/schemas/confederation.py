@@ -60,6 +60,8 @@ class ConfederationCreate(BaseModel):
     president_term: Optional[str] = None
     logo_url: Optional[str] = None
     regulation_text: Optional[str] = None
+    regulation_file_url: Optional[str] = None
+    regulation_online_url: Optional[str] = None
     rateio_rules: Optional[str] = None
     contact_email: Optional[str] = None
     finance_email: Optional[str] = None
@@ -79,6 +81,7 @@ class ConfederationUpdate(BaseModel):
     president_term: Optional[str] = None
     logo_url: Optional[str] = None
     regulation_text: Optional[str] = None
+    regulation_online_url: Optional[str] = None
     rateio_rules: Optional[str] = None
     finance_email: Optional[str] = None
     contact_email: Optional[str] = None
@@ -100,6 +103,8 @@ class ConfederationOut(BaseModel):
     president_term: Optional[str]
     logo_url: Optional[str]
     regulation_text: Optional[str]
+    regulation_file_url: Optional[str]
+    regulation_online_url: Optional[str]
     rateio_rules: Optional[str]
     contact_email: Optional[str]
     finance_email: Optional[str]

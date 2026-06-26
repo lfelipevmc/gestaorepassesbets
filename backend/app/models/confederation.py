@@ -23,6 +23,8 @@ class Confederation(Base):
     logo_url = Column(String(500), nullable=True)
     # Regulamento e rateio
     regulation_text = Column(Text, nullable=True)
+    regulation_file_url = Column(String(500), nullable=True)   # arquivo do regulamento (upload)
+    regulation_online_url = Column(String(500), nullable=True) # link do regulamento disponível online
     rateio_rules = Column(Text, nullable=True)
     # Contatos e cobrança
     contact_email = Column(String, nullable=True)

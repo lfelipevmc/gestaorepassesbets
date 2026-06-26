@@ -45,6 +45,8 @@ export const createConfederation = (data: any) => api.post("/api/confederations/
 export const updateConfederation = (id: number, data: any) => api.patch(`/api/confederations/${id}`, data);
 export const uploadConfederationLogo = (id: number, formData: FormData) =>
   api.post(`/api/confederations/${id}/upload-logo`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+export const uploadConfederationRegulation = (id: number, formData: FormData) =>
+  api.post(`/api/confederations/${id}/upload-regulation`, formData, { headers: { "Content-Type": "multipart/form-data" } });
 // Regras de rateio (matriz por cenário de competição)
 export const getDistributionRules = (id: number) => api.get(`/api/confederations/${id}/distribution-rules`);
 export const createDistributionRule = (id: number, data: any) => api.post(`/api/confederations/${id}/distribution-rules`, data);

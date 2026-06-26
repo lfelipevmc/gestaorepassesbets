@@ -25,7 +25,7 @@ app.add_middleware(
 def startup():
     Base.metadata.create_all(bind=engine)
     _run_light_migrations()
-    for d in ["/app/uploads", "/app/uploads/logos", "/app/uploads/reports", "/app/uploads/redistributions"]:
+    for d in ["/app/uploads", "/app/uploads/logos", "/app/uploads/reports", "/app/uploads/redistributions", "/app/uploads/regulations"]:
         os.makedirs(d, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
     _seed_initial_data()
