@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import AppShell from "@/components/AppShell";
 import {
   getEndrEntity, updateEndrEntity,
   getEndrMonthly, getEndrAvailableOperators,
@@ -85,7 +86,8 @@ export default function EndrPage() {
   const displayMonth = new Date(month + "T12:00:00").toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto">
+    <AppShell>
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">ENDR</h1>
@@ -274,5 +276,6 @@ export default function EndrPage() {
         )}
       </div>
     </div>
+    </AppShell>
   );
 }
