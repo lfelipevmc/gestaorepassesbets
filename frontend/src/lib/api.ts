@@ -174,6 +174,13 @@ export const uploadRedistributionProof = (id: number, itemId: number, formData: 
 export const deleteRedistributionItem = (id: number, itemId: number) => api.delete(`/api/redistributions/${id}/items/${itemId}`);
 export const deleteRedistribution = (id: number) => api.delete(`/api/redistributions/${id}`);
 
+// Direct Payments (Lançamentos Avulsos)
+export const getDirectPayments = (params?: any) => api.get("/api/payments/direct", { params });
+export const createDirectPayment = (operatorId: number, data: any) => api.post(`/api/payments/direct/${operatorId}`, data);
+export const uploadDirectReport = (operatorId: number, paymentId: number, formData: FormData) =>
+  api.post(`/api/payments/direct/${operatorId}/${paymentId}/upload-report`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+export const deleteDirectPayment = (operatorId: number, paymentId: number) => api.delete(`/api/payments/direct/${operatorId}/${paymentId}`);
+
 // ---- Templates de cobrança ----
 export const getTemplates = (params?: any) => api.get("/api/templates/", { params });
 export const createTemplate = (data: any) => api.post("/api/templates/", data);

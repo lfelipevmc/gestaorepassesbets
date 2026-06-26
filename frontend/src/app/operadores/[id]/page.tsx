@@ -13,6 +13,8 @@ import {
   addResponsible, updateResponsible, deleteResponsible,
   addEndrAssociation, deleteEndrAssociation,
   researchContacts, getContactSuggestions, approveSuggestion, rejectSuggestion,
+  getDirectPayments, createDirectPayment, deleteDirectPayment,
+  getConfederations,
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 
@@ -88,6 +90,19 @@ export default function OperatorDetailPage() {
   const [researching, setResearching] = useState(false);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
+  // Direct Payments (Lançamentos Avulsos)
+  const [directPayments, setDirectPayments] = useState<any[]>([]);
+  const [confederations, setConfederations] = useState<any[]>([]);
+  const [showDirectModal, setShowDirectModal] = useState(false);
+  const [directForm, setDirectForm] = useState({
+    confederation_id: "",
+    reference_month: new Date().toISOString().slice(0, 7),
+    amount_received: "",
+    received_date: new Date().toISOString().slice(0, 10),
+    notes: "",
+  });
+  const [savingDirect, setSavingDirect] = useState(false);
+
   const fetchData = () => {
     setLoading(true);
     Promise.all([
@@ -95,12 +110,16 @@ export default function OperatorDetailPage() {
       getPayments({ operator_id: numId }),
       getDocuments({ operator_id: numId }),
       getAuditLogs({ entity_type: "BettingOperator" }),
-    ]).then(([op, pays, docs, auditData]) => {
+      getDirectPayments({ operator_id: numId }),
+      getConfederations(),
+    ]).then(([op, pays, docs, auditData, direct, confs]) => {
       setOperator(op.data);
       initEditForm(op.data);
       setPayments(pays.data);
       setDocuments(docs.data);
       setAudit(auditData.data.filter((a: any) => a.entity_id === numId));
+      setDirectPayments(direct.data);
+      setConfederations(confs.data);
     }).finally(() => setLoading(false));
   };
 
@@ -273,6 +292,31 @@ export default function OperatorDetailPage() {
   async function handleDeleteEndr(assocId: number) {
     if (!confirm("Remover esta associação ENDR?")) return;
     await deleteEndrAssociation(numId, assocId);
+    fetchData();
+  }
+
+  async function handleSaveDirectPayment(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingDirect(true);
+    try {
+      await createDirectPayment(numId, {
+        confederation_id: Number(directForm.confederation_id),
+        reference_month: directForm.reference_month + "-01",
+        amount_received: parseFloat(directForm.amount_received),
+        received_date: directForm.received_date,
+        notes: directForm.notes || undefined,
+      });
+      setShowDirectModal(false);
+      setDirectForm({ confederation_id: "", reference_month: new Date().toISOString().slice(0, 7), amount_received: "", received_date: new Date().toISOString().slice(0, 10), notes: "" });
+      fetchData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao registrar lançamento");
+    } finally { setSavingDirect(false); }
+  }
+
+  async function handleDeleteDirect(paymentId: number) {
+    if (!confirm("Excluir este lançamento avulso?")) return;
+    await deleteDirectPayment(numId, paymentId);
     fetchData();
   }
 
@@ -915,36 +959,133 @@ export default function OperatorDetailPage() {
 
       {/* Tab 6: Payments */}
       {tab === 6 && (
-        <div className="card p-0 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-surface">
-              <tr>
-                <th className="table-th">Ciclo</th>
-                <th className="table-th">Confederação</th>
-                <th className="table-th">Valor Devido</th>
-                <th className="table-th">Valor Recebido</th>
-                <th className="table-th">Relatório</th>
-                <th className="table-th">Data Pagamento</th>
-                <th className="table-th">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.length === 0 ? (
-                <tr><td colSpan={7} className="table-td text-center text-muted py-8">Nenhum pagamento registrado</td></tr>
-              ) : payments.map(p => (
-                <tr key={p.id}>
-                  <td className="table-td text-muted">#{p.cycle_id}</td>
-                  <td className="table-td">#{p.confederation_id}</td>
-                  <td className="table-td">{formatCurrency(p.amount_due)}</td>
-                  <td className="table-td">{formatCurrency(p.amount_paid)}</td>
-                  <td className="table-td">{p.report_received ? <span className="text-success text-xs">✓</span> : <span className="text-muted text-xs">—</span>}</td>
-                  <td className="table-td">{formatDate(p.payment_date)}</td>
-                  <td className="table-td"><Badge status={p.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-6">
+          {/* Lançamentos Avulsos */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-semibold text-white">Lançamentos Avulsos</h3>
+                <p className="text-xs text-muted mt-0.5">Valores recebidos registrados manualmente, sem vínculo com ciclo de cobrança.</p>
+              </div>
+              <button className="btn-primary text-sm" onClick={() => {
+                setDirectForm({ confederation_id: confederations[0]?.id?.toString() || "", reference_month: new Date().toISOString().slice(0, 7), amount_received: "", received_date: new Date().toISOString().slice(0, 10), notes: "" });
+                setShowDirectModal(true);
+              }}>+ Novo Lançamento</button>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-surface-border">
+              <table className="w-full">
+                <thead className="bg-surface">
+                  <tr>
+                    <th className="table-th">Confederação</th>
+                    <th className="table-th">Mês Referência</th>
+                    <th className="table-th">Valor Recebido</th>
+                    <th className="table-th">Data Recebimento</th>
+                    <th className="table-th">Observações</th>
+                    <th className="table-th"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {directPayments.length === 0 ? (
+                    <tr><td colSpan={6} className="table-td text-center text-muted py-8">Nenhum lançamento avulso registrado</td></tr>
+                  ) : directPayments.map((dp: any) => {
+                    const conf = confederations.find((c: any) => c.id === dp.confederation_id);
+                    return (
+                      <tr key={dp.id}>
+                        <td className="table-td font-medium">{conf?.acronym || `#${dp.confederation_id}`}</td>
+                        <td className="table-td">{formatMonthBR(dp.reference_month)}</td>
+                        <td className="table-td text-success font-medium">{formatCurrency(dp.amount_received)}</td>
+                        <td className="table-td">{formatDate(dp.received_date)}</td>
+                        <td className="table-td text-muted text-xs">{dp.notes || "—"}</td>
+                        <td className="table-td">
+                          <button className="text-danger hover:text-red-400 text-xs" onClick={() => handleDeleteDirect(dp.id)}>Excluir</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Pagamentos via Ciclos de Cobrança */}
+          <div className="card">
+            <h3 className="font-semibold text-white mb-4">Pagamentos via Ciclos de Cobrança</h3>
+            <div className="overflow-hidden rounded-lg border border-surface-border">
+              <table className="w-full">
+                <thead className="bg-surface">
+                  <tr>
+                    <th className="table-th">Ciclo</th>
+                    <th className="table-th">Confederação</th>
+                    <th className="table-th">Valor Devido</th>
+                    <th className="table-th">Valor Recebido</th>
+                    <th className="table-th">Relatório</th>
+                    <th className="table-th">Data Pagamento</th>
+                    <th className="table-th">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.length === 0 ? (
+                    <tr><td colSpan={7} className="table-td text-center text-muted py-8">Nenhum pagamento via ciclo registrado</td></tr>
+                  ) : payments.map(p => {
+                    const conf = confederations.find((c: any) => c.id === p.confederation_id);
+                    return (
+                      <tr key={p.id}>
+                        <td className="table-td text-muted">#{p.cycle_id}</td>
+                        <td className="table-td">{conf?.acronym || `#${p.confederation_id}`}</td>
+                        <td className="table-td">{formatCurrency(p.amount_due)}</td>
+                        <td className="table-td">{formatCurrency(p.amount_paid)}</td>
+                        <td className="table-td">{p.report_received ? <span className="text-success text-xs">✓</span> : <span className="text-muted text-xs">—</span>}</td>
+                        <td className="table-td">{formatDate(p.payment_date)}</td>
+                        <td className="table-td"><Badge status={p.status} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* Modal: Novo Lançamento Avulso */}
+      {showDirectModal && (
+        <Modal title="Registrar Lançamento Avulso" onClose={() => setShowDirectModal(false)}>
+          <form onSubmit={handleSaveDirectPayment} className="space-y-4">
+            <div>
+              <label className="label">Confederação *</label>
+              <select className="input" required value={directForm.confederation_id} onChange={e => setDirectForm(f => ({ ...f, confederation_id: e.target.value }))}>
+                <option value="">Selecione...</option>
+                {confederations.map((c: any) => (
+                  <option key={c.id} value={c.id}>{c.acronym} — {c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="label">Mês de Referência *</label>
+                <input className="input" type="month" required value={directForm.reference_month} onChange={e => setDirectForm(f => ({ ...f, reference_month: e.target.value }))} />
+                <p className="text-xs text-muted mt-1">Mês ao qual o repasse se refere (competência)</p>
+              </div>
+              <div>
+                <label className="label">Data do Recebimento *</label>
+                <input className="input" type="date" required value={directForm.received_date} onChange={e => setDirectForm(f => ({ ...f, received_date: e.target.value }))} />
+                <p className="text-xs text-muted mt-1">Data em que o valor entrou no caixa</p>
+              </div>
+            </div>
+            <div>
+              <label className="label">Valor Recebido (R$) *</label>
+              <input className="input" type="number" step="0.01" min="0.01" required placeholder="0,00" value={directForm.amount_received} onChange={e => setDirectForm(f => ({ ...f, amount_received: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">Observações</label>
+              <textarea className="input" rows={3} placeholder="Ex: Repasse referente a abril/2026 – TED recebido em 15/05" value={directForm.notes} onChange={e => setDirectForm(f => ({ ...f, notes: e.target.value }))} />
+            </div>
+            <div className="flex gap-3 pt-2 justify-end">
+              <button type="button" className="btn-ghost" onClick={() => setShowDirectModal(false)}>Cancelar</button>
+              <button type="submit" className="btn-primary" disabled={savingDirect}>{savingDirect ? "Salvando..." : "Registrar Lançamento"}</button>
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* Tab 7: Documents */}

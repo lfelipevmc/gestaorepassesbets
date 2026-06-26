@@ -96,5 +96,25 @@ class ENDRPaymentCreate(BaseModel):
     operator_ids: List[int] = []
 
 
-class ConfederationOut(BaseModel):
-    pass
+class DirectPaymentCreate(BaseModel):
+    confederation_id: int
+    reference_month: date
+    amount_received: Decimal
+    received_date: date
+    notes: Optional[str] = None
+
+
+class DirectPaymentOut(BaseModel):
+    id: int
+    operator_id: int
+    confederation_id: int
+    reference_month: date
+    amount_received: Decimal
+    received_date: date
+    notes: Optional[str]
+    report_file_url: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

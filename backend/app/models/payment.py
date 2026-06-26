@@ -94,3 +94,23 @@ class ENDRPaymentBetLink(Base):
 
     endr_payment = relationship("ENDRPayment", back_populates="bet_links")
     operator = relationship("BettingOperator")
+
+
+class DirectPayment(Base):
+    """Lançamento avulso de valor recebido de uma Bet, sem vínculo com ciclo de cobrança."""
+    __tablename__ = "direct_payments"
+    id = Column(Integer, primary_key=True)
+    operator_id = Column(Integer, ForeignKey("betting_operators.id"), nullable=False)
+    confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=False)
+    reference_month = Column(Date, nullable=False)   # mês de competência (a que se refere o repasse)
+    amount_received = Column(Numeric(15, 2), nullable=False)
+    received_date = Column(Date, nullable=False)     # data em que o valor foi recebido (regime de caixa)
+    notes = Column(Text, nullable=True)
+    report_file_url = Column(String(500), nullable=True)
+    registered_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    operator = relationship("BettingOperator")
+    confederation = relationship("Confederation")
+    registered_by = relationship("User")

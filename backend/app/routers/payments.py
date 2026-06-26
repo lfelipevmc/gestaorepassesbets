@@ -4,9 +4,9 @@ from typing import List, Optional
 from datetime import datetime, date
 import os, shutil, uuid
 from ..database import get_db
-from ..models.payment import Payment, PaymentStatus, ENDRPayment, ENDRPaymentBetLink
+from ..models.payment import Payment, PaymentStatus, ENDRPayment, ENDRPaymentBetLink, DirectPayment
 from ..models.user import User
-from ..schemas.payment import PaymentOut, PaymentDeclareValue, PaymentConfirm, PaymentRegisterReport, ENDRPaymentOut, ENDRPaymentCreate
+from ..schemas.payment import PaymentOut, PaymentDeclareValue, PaymentConfirm, PaymentRegisterReport, ENDRPaymentOut, ENDRPaymentCreate, DirectPaymentCreate, DirectPaymentOut
 from ..core.auth import get_current_user, require_office
 from ..services.audit_service import log_action
 from decimal import Decimal
@@ -225,4 +225,92 @@ def delete_endr_payment(id: int, db: Session = Depends(get_db), current_user: Us
         raise HTTPException(status_code=404, detail="Pagamento ENDR não encontrado")
     db.delete(payment)
     db.commit()
+    return {"ok": True}
+
+
+# --- Lançamentos Avulsos ---
+
+@router.get("/direct", response_model=List[DirectPaymentOut])
+def list_direct_payments(
+    operator_id: Optional[int] = None,
+    confederation_id: Optional[int] = None,
+    month: Optional[date] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    q = db.query(DirectPayment)
+    if current_user.role == "confederation_viewer":
+        q = q.filter(DirectPayment.confederation_id == current_user.confederation_id)
+    if operator_id:
+        q = q.filter(DirectPayment.operator_id == operator_id)
+    if confederation_id:
+        q = q.filter(DirectPayment.confederation_id == confederation_id)
+    if month:
+        q = q.filter(DirectPayment.reference_month == month)
+    return q.order_by(DirectPayment.received_date.desc()).all()
+
+
+@router.post("/direct/{operator_id}", response_model=DirectPaymentOut)
+def create_direct_payment(
+    operator_id: int,
+    data: DirectPaymentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_office)
+):
+    payment = DirectPayment(
+        operator_id=operator_id,
+        confederation_id=data.confederation_id,
+        reference_month=data.reference_month,
+        amount_received=data.amount_received,
+        received_date=data.received_date,
+        notes=data.notes,
+        registered_by_id=current_user.id,
+    )
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    log_action(db=db, action="DIRECT_PAYMENT", entity_type="DirectPayment", entity_id=payment.id,
+               new_values={"amount": str(data.amount_received), "confederation_id": data.confederation_id,
+                           "reference_month": str(data.reference_month)},
+               user_id=current_user.id)
+    return payment
+
+
+@router.post("/direct/{operator_id}/{payment_id}/upload-report")
+async def upload_direct_report(
+    operator_id: int, payment_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_office)
+):
+    payment = db.query(DirectPayment).filter(DirectPayment.id == payment_id, DirectPayment.operator_id == operator_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+    os.makedirs(REPORT_UPLOAD_DIR, exist_ok=True)
+    ext = os.path.splitext(file.filename or "relatorio.pdf")[1].lower()
+    allowed = (".pdf", ".xlsx", ".xls", ".csv", ".docx", ".doc", ".png", ".jpg", ".jpeg")
+    if ext not in allowed:
+        raise HTTPException(status_code=400, detail="Formato inválido.")
+    filename = f"direct_{payment_id}_{uuid.uuid4().hex}{ext}"
+    path = os.path.join(REPORT_UPLOAD_DIR, filename)
+    with open(path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    payment.report_file_url = f"/uploads/reports/{filename}"
+    db.commit()
+    return {"report_file_url": payment.report_file_url}
+
+
+@router.delete("/direct/{operator_id}/{payment_id}")
+def delete_direct_payment(
+    operator_id: int, payment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_office)
+):
+    payment = db.query(DirectPayment).filter(DirectPayment.id == payment_id, DirectPayment.operator_id == operator_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+    db.delete(payment)
+    db.commit()
+    log_action(db=db, action="DELETE_DIRECT_PAYMENT", entity_type="DirectPayment", entity_id=payment_id,
+               user_id=current_user.id)
     return {"ok": True}
