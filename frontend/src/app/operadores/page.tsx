@@ -238,7 +238,16 @@ export default function OperadoresPage() {
                   )}
                 </td>
                 <td className="table-td">
-                  <span className="text-xs bg-surface px-2 py-1 rounded-full">{op.contacts?.length || 0} contatos</span>
+                  {(() => {
+                    const hasPrimaryEmail = op.contacts?.some((c: any) => c.type === "email" && c.is_primary);
+                    return hasPrimaryEmail ? (
+                      <span className="text-xs bg-surface px-2 py-1 rounded-full">{op.contacts.length} contatos</span>
+                    ) : op.contacts?.length > 0 ? (
+                      <span className="text-xs bg-warning/10 text-warning px-2 py-1 rounded-full" title="Sem e-mail primário">⚠ sem e-mail</span>
+                    ) : (
+                      <span className="text-xs bg-danger/10 text-danger px-2 py-1 rounded-full">sem contato</span>
+                    );
+                  })()}
                 </td>
                 <td className="table-td">
                   {op.brands?.length > 0 ? (

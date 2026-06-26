@@ -1,106 +1,183 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
-import Badge from "@/components/ui/Badge";
-import { getOperators, getCollections, getPayments, getConfederations } from "@/lib/api";
-import { formatCurrency, formatDate } from "@/lib/utils";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+import { getFinanceSummary, getFinanceByConfederation, getOperators } from "@/lib/api";
+import { api } from "@/lib/api";
+import { formatCurrency } from "@/lib/utils";
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from "recharts";
+
+type Alert = {
+  level: "critical" | "warning" | "info";
+  type: string;
+  title: string;
+  message: string;
+  count: number;
+  link: string;
+};
 
 export default function DashboardPage() {
-  const [operators, setOperators] = useState<any[]>([]);
-  const [collections, setCollections] = useState<any[]>([]);
-  const [payments, setPayments] = useState<any[]>([]);
-  const [confederations, setConfederations] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [summary, setSummary] = useState<any>(null);
+  const [byConf, setByConf] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
-      getOperators({ limit: 200 }),
-      getCollections(),
-      getPayments({ limit: 500 }),
-      getConfederations(),
-    ]).then(([ops, cols, pays, confs]) => {
-      setOperators(ops.data);
-      setCollections(cols.data);
-      setPayments(pays.data);
-      setConfederations(confs.data);
+      api.get("/api/alerts/"),
+      api.get("/api/alerts/compliance-history"),
+      getFinanceSummary(),
+      getFinanceByConfederation(),
+    ]).then(([al, hist, sum, byc]) => {
+      setAlerts(al.data.alerts || []);
+      setHistory(hist.data.history || []);
+      setSummary(sum.data);
+      setByConf(byc.data || []);
     }).finally(() => setLoading(false));
   }, []);
 
-  const activeOps = operators.filter(o => o.status === "active").length;
-  const paidPayments = payments.filter(p => p.status === "paid").length;
-  const totalPayments = payments.length;
-  const complianceRate = totalPayments > 0 ? Math.round((paidPayments / totalPayments) * 100) : 0;
-  const totalReceived = payments.reduce((s, p) => s + (parseFloat(p.amount_paid || 0)), 0);
+  const criticalAlerts = alerts.filter(a => a.level === "critical");
+  const warningAlerts = alerts.filter(a => a.level === "warning");
+  const infoAlerts = alerts.filter(a => a.level === "info");
 
-  const pieData = [
-    { name: "Adimplentes", value: paidPayments, color: "#22c55e" },
-    { name: "Inadimplentes", value: payments.filter(p => p.status === "overdue").length, color: "#ef4444" },
-    { name: "Parciais", value: payments.filter(p => p.status === "partial").length, color: "#f59e0b" },
-    { name: "Pendentes", value: payments.filter(p => p.status === "pending").length, color: "#94a3b8" },
-  ].filter(d => d.value > 0);
-
-  const recentCollections = collections.slice(0, 8);
+  const totalReceived = summary?.receita?.total || 0;
+  const totalRepassado = summary?.repasses?.total_repassado || 0;
+  const pendente = summary?.repasses?.pendente_repasse || 0;
+  const complianceRate = summary?.adimplencia
+    ? Math.round(
+        (summary.adimplencia.adimplentes /
+          Math.max(1, summary.adimplencia.adimplentes + summary.adimplencia.inadimplentes + summary.adimplencia.pendente_relatorio)) *
+          100
+      )
+    : 0;
 
   return (
     <AppShell>
       <Header
-        title="Dashboard"
-        subtitle="Visão geral do sistema de gestão de repasses"
+        title="Central de Controle"
+        subtitle={`${new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}`}
       />
 
       {loading ? (
-        <div className="text-muted text-sm">Carregando dados...</div>
+        <div className="text-muted text-sm">Carregando...</div>
       ) : (
         <>
-          {/* Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <StatCard label="Agentes Operadores Ativos" value={activeOps.toString()} icon="building" color="blue" />
-            <StatCard label="Taxa de Adimplência" value={`${complianceRate}%`} icon="check" color={complianceRate >= 70 ? "green" : "red"} />
-            <StatCard label="Total Recebido" value={formatCurrency(totalReceived)} icon="money" color="green" />
-            <StatCard label="Confederações" value={confederations.length.toString()} icon="flag" color="purple" />
+          {/* Alertas */}
+          {alerts.length > 0 && (
+            <div className="mb-6 space-y-2">
+              {criticalAlerts.map((a, i) => (
+                <AlertBanner key={i} alert={a} />
+              ))}
+              {warningAlerts.map((a, i) => (
+                <AlertBanner key={i} alert={a} />
+              ))}
+              {infoAlerts.map((a, i) => (
+                <AlertBanner key={i} alert={a} />
+              ))}
+            </div>
+          )}
+
+          {alerts.length === 0 && (
+            <div className="mb-6 bg-success/10 border border-success/30 rounded-lg px-4 py-3 flex items-center gap-3">
+              <svg className="w-5 h-5 text-success flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p className="text-sm text-success">Tudo em ordem — nenhuma ação urgente pendente no momento.</p>
+            </div>
+          )}
+
+          {/* KPIs */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <KpiCard
+              label="Total Recebido"
+              value={formatCurrency(totalReceived)}
+              sub="(Fase 1 — regime de caixa)"
+              color="blue"
+              icon="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+            <KpiCard
+              label="Total Repassado"
+              value={formatCurrency(totalRepassado)}
+              sub="(Fase 2 — beneficiários)"
+              color="green"
+              icon="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+            <KpiCard
+              label="A Repassar"
+              value={formatCurrency(pendente)}
+              sub="pendente para beneficiários"
+              color={pendente > 0 ? "yellow" : "green"}
+              icon="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+            <KpiCard
+              label="Adimplência Geral"
+              value={`${complianceRate}%`}
+              sub="pagamentos confirmados"
+              color={complianceRate >= 70 ? "green" : complianceRate >= 40 ? "yellow" : "red"}
+              icon="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+            />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            {/* Compliance chart */}
-            <div className="card">
-              <h2 className="font-semibold text-white mb-4">Status de Pagamentos</h2>
-              {pieData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}>
-                      {pieData.map((entry, i) => (
-                        <Cell key={i} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v: any) => [v, "Pagamentos"]} />
-                    <Legend />
-                  </PieChart>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            {/* Evolução mensal */}
+            <div className="card lg:col-span-2">
+              <h2 className="font-semibold text-white mb-4 text-sm">Evolução da Adimplência — Últimos 6 Meses</h2>
+              {history.some(h => h.rate !== null) ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={history}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2d3748" />
+                    <XAxis dataKey="month" tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                    <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8", fontSize: 11 }} unit="%" />
+                    <Tooltip
+                      formatter={(v: any) => [`${v}%`, "Adimplência"]}
+                      contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }}
+                      labelStyle={{ color: "#e2e8f0" }}
+                    />
+                    <Line
+                      type="monotone" dataKey="rate" stroke="#6366f1" strokeWidth={2}
+                      dot={{ fill: "#6366f1", r: 4 }} connectNulls={false}
+                    />
+                  </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-[220px] flex items-center justify-center text-muted text-sm">
-                  Nenhum pagamento registrado
+                <div className="h-[200px] flex items-center justify-center text-muted text-sm">
+                  Dados insuficientes — registre ciclos de cobrança para visualizar a evolução.
                 </div>
               )}
             </div>
 
-            {/* Confederations */}
+            {/* Por confederação */}
             <div className="card">
-              <h2 className="font-semibold text-white mb-4">Confederações</h2>
+              <h2 className="font-semibold text-white mb-4 text-sm">Por Confederação</h2>
               <div className="space-y-3">
-                {confederations.map(conf => {
-                  const confPayments = payments.filter(p => p.confederation_id === conf.id);
-                  const confPaid = confPayments.filter(p => p.status === "paid").length;
-                  const rate = confPayments.length > 0 ? Math.round((confPaid / confPayments.length) * 100) : 0;
+                {byConf.length === 0 && <p className="text-muted text-sm">Sem dados.</p>}
+                {byConf.map(c => {
+                  const total = c.receita_total || 0;
+                  const repassado = c.total_repassado || 0;
+                  const pct = total > 0 ? Math.round((repassado / total) * 100) : 0;
                   return (
-                    <div key={conf.id} className="flex items-center justify-between p-3 bg-surface rounded-lg">
-                      <div>
-                        <p className="font-medium text-white text-sm">{conf.acronym}</p>
-                        <p className="text-muted text-xs">{confPaid}/{confPayments.length} adimplentes</p>
+                    <div key={c.confederation_id} className="p-3 bg-surface rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-semibold text-white text-sm">{c.acronym}</span>
+                        {c.redistribuicoes_vencidas > 0 && (
+                          <span className="text-xs bg-danger/20 text-danger px-2 py-0.5 rounded-full">
+                            {c.redistribuicoes_vencidas} vencida(s)
+                          </span>
+                        )}
                       </div>
-                      <div className="text-right">
-                        <p className={`text-lg font-bold ${rate >= 70 ? "text-success" : rate >= 40 ? "text-warning" : "text-danger"}`}>{rate}%</p>
+                      <div className="flex items-center justify-between text-xs text-muted mb-1">
+                        <span>Recebido: {formatCurrency(total)}</span>
+                        <span>{pct}% repassado</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-surface-border rounded-full">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{ width: `${Math.min(100, pct)}%` }}
+                        />
                       </div>
                     </div>
                   );
@@ -109,37 +186,22 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Recent collections */}
-          <div className="card">
-            <h2 className="font-semibold text-white mb-4">Ciclos de Cobrança Recentes</h2>
-            {recentCollections.length === 0 ? (
-              <p className="text-muted text-sm">Nenhum ciclo criado ainda.</p>
-            ) : (
-              <table className="w-full">
-                <thead>
-                  <tr>
-                    <th className="table-th">ID</th>
-                    <th className="table-th">Confederação</th>
-                    <th className="table-th">Mês Referência</th>
-                    <th className="table-th">Status</th>
-                    <th className="table-th">Criado em</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentCollections.map(c => (
-                    <tr key={c.id}>
-                      <td className="table-td text-muted">#{c.id}</td>
-                      <td className="table-td">
-                        {confederations.find(cf => cf.id === c.confederation_id)?.acronym || c.confederation_id}
-                      </td>
-                      <td className="table-td">{formatDate(c.reference_month)}</td>
-                      <td className="table-td"><Badge status={c.status} /></td>
-                      <td className="table-td text-muted">{formatDate(c.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+          {/* Atalhos rápidos */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { href: "/cobrancas", label: "Nova Cobrança", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01", desc: "Abrir ciclo ou lançar avulso" },
+              { href: "/financeiro", label: "Registrar Recebimento", icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z", desc: "Fase 1 — regime de caixa" },
+              { href: "/relatorios", label: "Exportar Relatório", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z", desc: "Relatório consolidado em PDF/Excel" },
+              { href: "/auditoria", label: "Trilha de Auditoria", icon: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2", desc: "Exportar log completo" },
+            ].map(item => (
+              <Link key={item.href} href={item.href} className="card hover:border-primary/40 border border-surface-border transition-colors group">
+                <svg className="w-5 h-5 text-muted group-hover:text-primary mb-2 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
+                </svg>
+                <p className="text-sm font-medium text-white">{item.label}</p>
+                <p className="text-xs text-muted mt-0.5">{item.desc}</p>
+              </Link>
+            ))}
           </div>
         </>
       )}
@@ -147,34 +209,46 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({ label, value, icon, color }: { label: string; value: string; icon: string; color: string }) {
+function AlertBanner({ alert }: { alert: Alert }) {
+  const styles = {
+    critical: { wrap: "bg-danger/10 border-danger/40 text-danger", icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" },
+    warning: { wrap: "bg-warning/10 border-warning/40 text-warning", icon: "M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" },
+    info: { wrap: "bg-blue-500/10 border-blue-500/30 text-blue-300", icon: "M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
+  };
+  const s = styles[alert.level];
+  return (
+    <Link href={alert.link} className={`flex items-start gap-3 rounded-lg border px-4 py-3 hover:opacity-80 transition-opacity ${s.wrap}`}>
+      <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={s.icon} />
+      </svg>
+      <div>
+        <p className="text-sm font-semibold">{alert.title}</p>
+        <p className="text-xs opacity-80 mt-0.5">{alert.message}</p>
+      </div>
+      <svg className="w-4 h-4 ml-auto flex-shrink-0 mt-0.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+      </svg>
+    </Link>
+  );
+}
+
+function KpiCard({ label, value, sub, color, icon }: { label: string; value: string; sub: string; color: string; icon: string }) {
   const colors: Record<string, string> = {
     blue: "text-blue-400 bg-blue-400/10",
     green: "text-success bg-success/10",
+    yellow: "text-warning bg-warning/10",
     red: "text-danger bg-danger/10",
-    purple: "text-purple-400 bg-purple-400/10",
   };
-
-  const icons: Record<string, string> = {
-    building: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4",
-    check: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
-    money: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
-    flag: "M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9",
-  };
-
   return (
     <div className="card">
-      <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${colors[color]}`}>
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={icons[icon]} />
-          </svg>
-        </div>
-        <div>
-          <p className="text-2xl font-bold text-white">{value}</p>
-          <p className="text-xs text-muted">{label}</p>
-        </div>
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 ${colors[color]}`}>
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={icon} />
+        </svg>
       </div>
+      <p className="text-xl font-bold text-white">{value}</p>
+      <p className="text-xs font-medium text-slate-300 mt-0.5">{label}</p>
+      <p className="text-xs text-muted mt-0.5">{sub}</p>
     </div>
   );
 }

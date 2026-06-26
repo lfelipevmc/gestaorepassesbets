@@ -205,3 +205,7 @@ export const getTemplates = (params?: any) => api.get("/api/templates/", { param
 export const createTemplate = (data: any) => api.post("/api/templates/", data);
 export const updateTemplate = (id: number, data: any) => api.patch(`/api/templates/${id}`, data);
 export const deleteTemplate = (id: number) => api.delete(`/api/templates/${id}`);
+
+// ---- Alertas e compliance ----
+export const getAlerts = () => api.get('/api/alerts/');
+export const getComplianceHistory = (params?: any) => api.get('/api/alerts/compliance-history', { params });

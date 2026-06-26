@@ -382,3 +382,39 @@ def reject_suggestion(
     log_action(db=db, action="REJECT_SUGGESTION", entity_type="BettingOperator", entity_id=id,
                new_values={"value": suggestion.value}, user_id=current_user.id)
     return {"ok": True}
+
+
+@router.get("/{id}/compliance-score")
+def operator_compliance_score(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Score de adimplência histórica do operador (0-100) baseado nos últimos 12 meses."""
+    from ..models.payment import Payment, PaymentStatus
+    from ..models.collection import CollectionCycle
+    from datetime import date
+
+    op = db.query(BettingOperator).get(id)
+    if not op:
+        raise HTTPException(404, "Operador não encontrado")
+
+    payments = db.query(Payment).filter(Payment.operator_id == id).all()
+    if not payments:
+        return {"score": None, "label": "Sem histórico", "paid": 0, "total": 0, "breakdown": []}
+
+    total = len(payments)
+    paid = len([p for p in payments if p.status in (PaymentStatus.paid, PaymentStatus.report_pending)])
+    overdue = len([p for p in payments if p.status == PaymentStatus.overdue])
+
+    score = round((paid / total) * 100) if total else 0
+    label = "Excelente" if score >= 90 else "Bom" if score >= 70 else "Regular" if score >= 40 else "Crítico"
+
+    return {
+        "score": score,
+        "label": label,
+        "paid": paid,
+        "total": total,
+        "overdue": overdue,
+        "pending": total - paid - overdue,
+    }
