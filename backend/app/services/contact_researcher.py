@@ -48,7 +48,10 @@ def research_operator(db: Session, operator_id: int, user_id: int = None) -> dic
         if result.get("error"):
             errors.append(f"DuckDuckGo '{term}': {result['error']}")
 
-    # 3. Claude AI — análise inteligente e sugestões adicionais
+    # 3. Dedução determinística de e-mails pelo domínio (sem depender de IA/web)
+    suggestions_found.extend(_deduce_domain_emails(op, suggestions_found))
+
+    # 4. Claude AI — análise inteligente e sugestões adicionais
     result = _search_with_claude(db, op, suggestions_found)
     suggestions_found.extend(result.get("new_suggestions", []))
 
@@ -164,6 +167,49 @@ def _search_cnpj_brasilapi(db: Session, op: BettingOperator) -> dict:
     except Exception as e:
         logger.error(f"BrasilAPI error for {op.cnpj}: {e}")
         return {"suggestions": [], "error": str(e)}
+
+
+def _domain_from(op: BettingOperator):
+    """Extrai um domínio a partir do site ou de marcas/e-mails cadastrados."""
+    src = op.website or ""
+    if not src:
+        for b in (op.brands or []):
+            if b.domain or b.website:
+                src = b.website or b.domain
+                break
+    if not src:
+        for c in op.contacts:
+            if c.type == ContactType.email and c.value and "@" in c.value:
+                return c.value.split("@")[-1].strip().lower()
+    if not src:
+        return None
+    dom = re.sub(r'https?://(www\.)?', '', src).strip().rstrip('/')
+    dom = dom.split('/')[0]
+    return dom.lower() or None
+
+
+def _deduce_domain_emails(op: BettingOperator, found_so_far: list) -> list:
+    """Gera e-mails corporativos prováveis a partir do domínio (revisão humana obrigatória)."""
+    dom = _domain_from(op)
+    if not dom or "." not in dom:
+        return []
+    prefixes = ["contato", "juridico", "financeiro", "compliance", "atendimento", "legal"]
+    existing = {s.get("value", "").lower() for s in found_so_far}
+    out = []
+    for p in prefixes:
+        val = f"{p}@{dom}"
+        if val in existing:
+            continue
+        out.append({
+            "type": ContactType.email,
+            "value": val,
+            "source": "Dedução por domínio",
+            "source_url": f"https://{dom}",
+            "relationship": "E-mail corporativo provável",
+            "confidence": "low",
+            "notes": f"Padrão comum de e-mail no domínio {dom}. Confirmar antes de usar.",
+        })
+    return out
 
 
 def _build_search_terms(op: BettingOperator) -> list:
@@ -319,6 +365,16 @@ Responda em JSON com esta estrutura:
     except Exception as e:
         logger.error(f"Claude contact search error: {e}")
         return {"new_suggestions": []}
+
+
+def research_all_operators_bg() -> dict:
+    """Wrapper para tarefa em segundo plano: abre a própria sessão (a da requisição já foi fechada)."""
+    from ..database import SessionLocal
+    db = SessionLocal()
+    try:
+        return research_all_operators(db)
+    finally:
+        db.close()
 
 
 def research_all_operators(db: Session) -> dict:

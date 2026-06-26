@@ -344,10 +344,15 @@ export default function OperatorDetailPage() {
   async function handleResearchContacts() {
     setResearching(true);
     try {
-      await researchContacts(numId);
-      alert("Pesquisa iniciada! Os resultados aparecerão em instantes. Clique em 'Pendentes' para atualizar.");
+      const r = await researchContacts(numId);
+      const novas = r.data?.new_suggestions ?? 0;
+      const erros = r.data?.errors || [];
+      setSuggestionsFilter("pending");
+      await fetchSuggestions("pending");
+      if (novas > 0) alert(`Pesquisa concluída: ${novas} nova(s) sugestão(ões) encontrada(s). Revise abaixo.`);
+      else alert("Pesquisa concluída, mas nenhuma sugestão nova foi encontrada." + (erros.length ? `\n\nObservações: ${erros.join("; ")}` : "\n\nVerifique se o CNPJ/site estão preenchidos e se a chave de IA está configurada."));
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao iniciar pesquisa");
+      alert(err.response?.data?.detail || "Erro ao pesquisar contatos");
     } finally {
       setResearching(false);
     }

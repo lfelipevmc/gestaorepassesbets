@@ -282,27 +282,31 @@ def research_all(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_office)
 ):
-    """Inicia pesquisa de contatos para todos os operadores ativos."""
-    from ..services.contact_researcher import research_all_operators
-    background_tasks.add_task(research_all_operators, db)
+    """Inicia pesquisa de contatos para todos os operadores ativos (em segundo plano,
+    com sessão de banco própria — a da requisição é encerrada ao responder)."""
+    from ..services.contact_researcher import research_all_operators_bg
+    background_tasks.add_task(research_all_operators_bg)
     return {"message": "Pesquisa de contatos iniciada para todos os operadores ativos"}
 
 
 @router.post("/{id}/research-contacts")
 def research_contacts(
     id: int,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_office)
 ):
-    """Inicia pesquisa automática de contatos para o operador."""
+    """Pesquisa contatos do operador de forma síncrona (BrasilAPI/CNPJ, dedução por domínio,
+    busca web e IA) e retorna quantas sugestões novas foram criadas."""
     op = db.query(BettingOperator).get(id)
     if not op:
         raise HTTPException(status_code=404, detail="Operador não encontrado")
 
     from ..services.contact_researcher import research_operator
-    background_tasks.add_task(research_operator, db, id, current_user.id)
-    return {"message": f"Pesquisa de contatos iniciada para {op.company_name}"}
+    try:
+        result = research_operator(db, id, current_user.id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro na pesquisa de contatos: {e}")
+    return result
 
 
 @router.get("/{id}/suggestions", response_model=List[ContactSuggestionOut])
