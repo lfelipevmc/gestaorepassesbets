@@ -124,6 +124,55 @@ def get_alerts(
     return {"alerts": alerts, "total": len(alerts)}
 
 
+@router.get("/transparency")
+def transparency(
+    confederation_id: int = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Linha do tempo de transparência — 'o que o escritório fez este mês' para o cliente."""
+    from ..models.collection import CollectionEvent, EventType
+    from ..models.messaging import EmailMessage, EmailDirection
+    from ..models.payment import Payment
+    if current_user.role == "confederation_viewer":
+        confederation_id = current_user.confederation_id
+
+    today = date.today()
+    ref = date(today.year, today.month, 1)
+
+    cyc_q = db.query(CollectionCycle).filter(CollectionCycle.reference_month == ref)
+    if confederation_id:
+        cyc_q = cyc_q.filter(CollectionCycle.confederation_id == confederation_id)
+    cycle_ids = [c.id for c in cyc_q.all()]
+
+    notifs = contatos = respostas = 0
+    recuperado = 0.0
+    if cycle_ids:
+        events = db.query(CollectionEvent).filter(CollectionEvent.cycle_id.in_(cycle_ids)).all()
+        notifs = len([e for e in events if e.event_type == EventType.notification_sent])
+        contatos = len([e for e in events if e.event_type == EventType.phone_contact]) + \
+            len([e for e in events if e.event_type == EventType.manual_note])
+        respostas = db.query(EmailMessage).filter(
+            EmailMessage.direction == EmailDirection.inbound,
+            EmailMessage.cycle_id.in_(cycle_ids),
+        ).count()
+        pays = db.query(Payment).filter(Payment.cycle_id.in_(cycle_ids)).all()
+        recuperado = sum(float(p.amount_paid or 0) for p in pays)
+
+    return {
+        "month": ref.strftime("%m/%Y"),
+        "notificacoes": notifs,
+        "contatos": contatos,
+        "respostas": respostas,
+        "recuperado": recuperado,
+        "highlights": [
+            f"{notifs} notificação(ões) formal(is) enviada(s)",
+            f"{contatos} contato(s) ativo(s) realizado(s)",
+            f"{respostas} resposta(s) recebida(s) e conciliada(s)",
+        ],
+    }
+
+
 @router.get("/compliance-history")
 def compliance_history(
     confederation_id: int = None,

@@ -252,3 +252,6 @@ export const getTasksToday = () => api.get("/api/tasks/today");
 // ---- Relatório mensal ao escritório ----
 export const sendMonthlyToOffice = (params: { month: string; confederation_id?: number }) =>
   api.post("/api/reports/monthly/send-to-office", null, { params });
+
+// ---- Transparência (portal do cliente) ----
+export const getTransparency = (params?: any) => api.get("/api/alerts/transparency", { params });

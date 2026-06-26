@@ -24,6 +24,7 @@ export default function DashboardPage() {
   const [history, setHistory] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [byConf, setByConf] = useState<any[]>([]);
+  const [transparency, setTransparency] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -32,11 +33,13 @@ export default function DashboardPage() {
       api.get("/api/alerts/compliance-history"),
       getFinanceSummary(),
       getFinanceByConfederation(),
-    ]).then(([al, hist, sum, byc]) => {
+      api.get("/api/alerts/transparency"),
+    ]).then(([al, hist, sum, byc, tr]) => {
       setAlerts(al.data.alerts || []);
       setHistory(hist.data.history || []);
       setSummary(sum.data);
       setByConf(byc.data || []);
+      setTransparency(tr.data);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -87,6 +90,19 @@ export default function DashboardPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <p className="text-sm text-success">Tudo em ordem — nenhuma ação urgente pendente no momento.</p>
+            </div>
+          )}
+
+          {/* Transparência — o que fizemos este mês */}
+          {transparency && (transparency.notificacoes > 0 || transparency.contatos > 0 || transparency.respostas > 0 || transparency.recuperado > 0) && (
+            <div className="card mb-6 border border-primary/20 bg-primary/5">
+              <h2 className="font-semibold text-white text-sm mb-3">O que realizamos em {transparency.month}</h2>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="text-center"><p className="text-2xl font-bold text-primary">{transparency.notificacoes}</p><p className="text-xs text-muted">Notificações enviadas</p></div>
+                <div className="text-center"><p className="text-2xl font-bold text-primary">{transparency.contatos}</p><p className="text-xs text-muted">Contatos ativos</p></div>
+                <div className="text-center"><p className="text-2xl font-bold text-primary">{transparency.respostas}</p><p className="text-xs text-muted">Respostas conciliadas</p></div>
+                <div className="text-center"><p className="text-2xl font-bold text-success">{formatCurrency(transparency.recuperado)}</p><p className="text-xs text-muted">Recebido no mês</p></div>
+              </div>
             </div>
           )}
 
