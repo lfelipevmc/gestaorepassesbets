@@ -233,3 +233,15 @@ export const getOffice = () => api.get("/api/office/");
 export const updateOffice = (data: any) => api.patch("/api/office/", data);
 export const uploadOfficeLogo = (formData: FormData) =>
   api.post("/api/office/upload-logo", formData, { headers: { "Content-Type": "multipart/form-data" } });
+
+// ---- Cobrança: status, e-mails, comprovante, relatório de atividades ----
+export const setPaymentStatus = (id: number, data: { status: string; notes?: string }) =>
+  api.post(`/api/payments/${id}/set-status`, data);
+export const getCycleEmails = (id: number) => api.get(`/api/collections/${id}/emails`);
+export const syncCycleEmails = (id: number) => api.post(`/api/collections/${id}/sync-emails`);
+export const getEmailProof = (id: number, emailId: number) =>
+  api.get(`/api/collections/${id}/email/${emailId}/proof`);
+export const registerPaymentReport = (id: number, data: any) =>
+  api.post(`/api/payments/${id}/register-report`, data);
+export const downloadCycleActivityPdf = (id: number) =>
+  api.get(`/api/collections/${id}/activity-report/pdf`, { responseType: "blob" });

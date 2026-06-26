@@ -30,6 +30,7 @@ class SendConfirmedRequest(BaseModel):
     notification_number: int = 1
     subject: str
     body: str
+    deadline: Optional[str] = None   # prazo textual para a chave {prazo}
     recipients: List[NotificationRecipient]
 
 
@@ -109,7 +110,12 @@ def _has_paid(db: Session, cycle: CollectionCycle, operator_id: int) -> bool:
 
 def _find_occasion_template(db: Session, confederation_id: int, notification_number: int):
     from ..models.messaging import MessageTemplate, TemplateOccasion
-    occasion = TemplateOccasion.first_notification if notification_number == 1 else TemplateOccasion.second_notification
+    if notification_number == 1:
+        occasion = TemplateOccasion.first_notification
+    elif notification_number == 2:
+        occasion = TemplateOccasion.second_notification
+    else:
+        occasion = TemplateOccasion.final_notice
     tmpl = db.query(MessageTemplate).filter(
         MessageTemplate.occasion == occasion, MessageTemplate.active == True,
         MessageTemplate.confederation_id == confederation_id,
@@ -188,14 +194,16 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
     office_name = (office.signature_name or office.name) if office else None
 
     sent, failed = 0, 0
+    results = []
     for rec in data.recipients:
         op = db.query(BettingOperator).get(rec.operator_id)
         if not op:
             failed += 1
+            results.append({"operator_id": rec.operator_id, "label": "—", "email": rec.email, "ok": False, "reason": "operador inexistente"})
             continue
         to_addr = [rec.email] if rec.email else _operator_emails(op)[:3]
-        subject = render_placeholders(data.subject, op, conf, ref, escritorio=office_name)
-        body = render_placeholders(data.body, op, conf, ref, escritorio=office_name)
+        subject = render_placeholders(data.subject, op, conf, ref, prazo=data.deadline, escritorio=office_name)
+        body = render_placeholders(data.body, op, conf, ref, prazo=data.deadline, escritorio=office_name)
         ok = bool(to_addr) and send_email(to=to_addr, subject=subject, body=body)
         ev = CollectionEvent(
             cycle_id=cycle.id, operator_id=op.id,
@@ -205,17 +213,27 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
             performed_by_id=current_user.id,
         )
         db.add(ev)
-        # Registra e-mail enviado para conciliação posterior
+        # Registra e-mail enviado para conciliação posterior e comprovante
+        email_id = None
         try:
             from ..models.messaging import EmailMessage, EmailDirection
             from datetime import datetime
-            db.add(EmailMessage(
+            em = EmailMessage(
                 direction=EmailDirection.outbound, operator_id=op.id, confederation_id=conf.id,
                 cycle_id=cycle.id, subject=subject, body_preview=body[:1000],
                 to_addr=", ".join(to_addr), sent_at=datetime.utcnow(),
-            ))
+            )
+            db.add(em)
+            db.flush()
+            email_id = em.id
         except Exception:
             pass
+        results.append({
+            "operator_id": op.id, "label": _operator_label(op),
+            "email": ", ".join(to_addr) if to_addr else None,
+            "ok": ok, "email_id": email_id,
+            "reason": None if ok else "sem e-mail cadastrado ou serviço de e-mail não configurado",
+        })
         if ok:
             sent += 1
         else:
@@ -227,7 +245,7 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
     log_action(db=db, action=f"SEND_NOTIFICATION_{data.notification_number}", entity_type="CollectionCycle",
                entity_id=cycle.id, user_id=current_user.id, confederation_id=conf.id,
                description=f"{data.notification_number}ª notificação: {sent} enviados, {failed} falhas")
-    return {"sent": sent, "failed": failed, "total": len(data.recipients)}
+    return {"sent": sent, "failed": failed, "total": len(data.recipients), "results": results}
 
 
 @router.post("/{id}/spa-letter")
@@ -290,6 +308,86 @@ def download_spa_letter(id: int, document_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     return FileResponse(doc.file_path, filename=doc.file_name,
                         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+@router.get("/{id}/emails")
+def cycle_emails(id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """E-mails (enviados e recebidos) vinculados a este ciclo, agrupados por operador."""
+    from ..models.messaging import EmailMessage, EmailDirection
+    cycle = db.query(CollectionCycle).get(id)
+    if not cycle:
+        raise HTTPException(status_code=404, detail="Ciclo não encontrado")
+
+    msgs = db.query(EmailMessage).filter(EmailMessage.cycle_id == id).order_by(EmailMessage.created_at.desc()).all()
+    # também respostas não casadas a um ciclo mas do mesmo operador no mês podem ser úteis; mantemos só do ciclo
+    op_ids = list({m.operator_id for m in msgs if m.operator_id})
+    op_map = {o.id: _operator_label(o) for o in db.query(BettingOperator).filter(BettingOperator.id.in_(op_ids)).all()} if op_ids else {}
+
+    out = []
+    for m in msgs:
+        out.append({
+            "id": m.id,
+            "direction": m.direction.value if hasattr(m.direction, "value") else m.direction,
+            "operator_id": m.operator_id,
+            "operator_label": op_map.get(m.operator_id, "—"),
+            "subject": m.subject,
+            "body_preview": m.body_preview,
+            "from_addr": m.from_addr,
+            "to_addr": m.to_addr,
+            "matched": m.matched,
+            "sent_at": m.sent_at.isoformat() if m.sent_at else None,
+            "received_at": m.received_at.isoformat() if m.received_at else None,
+        })
+    sent = sum(1 for m in msgs if (m.direction == EmailDirection.outbound or m.direction == "outbound"))
+    received = sum(1 for m in msgs if (m.direction == EmailDirection.inbound or m.direction == "inbound"))
+    return {"emails": out, "sent": sent, "received": received}
+
+
+@router.post("/{id}/sync-emails")
+def cycle_sync_emails(id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Lê a caixa de entrada (M365) e concilia respostas das Bets — mesma rotina do Financeiro,
+    porém acionada a partir do ciclo de cobrança."""
+    from ..services.email_matcher import sync_inbox
+    return sync_inbox(db)
+
+
+@router.get("/{id}/email/{email_id}/proof")
+def email_send_proof(id: int, email_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Comprovante de envio de uma notificação a uma Bet (texto estruturado para impressão/arquivo)."""
+    from ..models.messaging import EmailMessage
+    em = db.query(EmailMessage).filter(EmailMessage.id == email_id, EmailMessage.cycle_id == id).first()
+    if not em:
+        raise HTTPException(status_code=404, detail="Registro de e-mail não encontrado")
+    op = db.query(BettingOperator).get(em.operator_id) if em.operator_id else None
+    conf = None
+    cycle = db.query(CollectionCycle).get(id)
+    if cycle:
+        conf = db.query(Confederation).get(cycle.confederation_id)
+    return {
+        "operator": _operator_label(op) if op else "—",
+        "confederation": conf.acronym if conf else "—",
+        "to_addr": em.to_addr,
+        "subject": em.subject,
+        "body": em.body_preview,
+        "sent_at": em.sent_at.isoformat() if em.sent_at else None,
+        "reference_month": cycle.reference_month.strftime("%m/%Y") if cycle else None,
+    }
+
+
+@router.get("/{id}/activity-report/pdf")
+def cycle_activity_report(id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Relatório de atividades do ciclo (PDF) — panorama do trabalho do mês."""
+    from fastapi.responses import StreamingResponse
+    from ..services.cycle_activity import generate_cycle_activity_pdf
+    import io
+    cycle = db.query(CollectionCycle).get(id)
+    if not cycle:
+        raise HTTPException(status_code=404, detail="Ciclo não encontrado")
+    data = generate_cycle_activity_pdf(db, id)
+    conf = db.query(Confederation).get(cycle.confederation_id)
+    fname = f"atividades_{conf.acronym if conf else 'ciclo'}_{cycle.reference_month.strftime('%Y_%m')}.pdf"
+    return StreamingResponse(io.BytesIO(data), media_type="application/pdf",
+                             headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
 @router.get("/{id}/events", response_model=List[EventOut])

@@ -48,6 +48,33 @@ def list_payments(
     return q.offset(skip).limit(limit).all()
 
 
+from pydantic import BaseModel as _BaseModel
+
+
+class PaymentSetStatus(_BaseModel):
+    status: PaymentStatus
+    notes: Optional[str] = None
+
+
+@router.post("/{id}/set-status", response_model=PaymentOut)
+def set_payment_status(id: int, data: PaymentSetStatus, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Define manualmente a situação de um pagamento — útil para categorizar a Bet como
+    'não explora esporte' ou 'judicializado', ou reverter para pendente."""
+    payment = db.query(Payment).get(id)
+    if not payment:
+        raise HTTPException(status_code=404, detail="Pagamento não encontrado")
+    old = payment.status
+    payment.status = data.status
+    if data.notes:
+        payment.notes = (payment.notes or "") + f"\n[{data.status.value}] {data.notes}"
+    db.commit()
+    db.refresh(payment)
+    log_action(db=db, action="SET_PAYMENT_STATUS", entity_type="Payment", entity_id=id,
+               old_values={"status": str(old)}, new_values={"status": data.status.value},
+               user_id=current_user.id, confederation_id=payment.confederation_id)
+    return payment
+
+
 @router.post("/{id}/declare-value", response_model=PaymentOut)
 def declare_value(id: int, data: PaymentDeclareValue, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
     """Registra o valor devido apurado pelo agente operador (informado no relatório).
