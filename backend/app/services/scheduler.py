@@ -300,6 +300,50 @@ def job_redistribution_deadline_alerts():
         db.close()
 
 
+def job_monthly_office_report():
+    """Dia 1º: gera o dossiê de evidências do mês anterior por confederação e envia ao e-mail
+    do escritório para revisão antes do encaminhamento à confederação."""
+    db = SessionLocal()
+    try:
+        import base64
+        from ..services.evidence_report import generate_evidence_pdf
+        from ..services.email_service import send_email
+        from ..models.office import OfficeSettings
+        from ..models.confederation import Confederation as _Conf
+        office = db.query(OfficeSettings).first()
+        if not office or not office.email:
+            logger.info("Monthly office report: e-mail do escritório não cadastrado, pulando")
+            return
+        today = date.today()
+        m = today.month - 1
+        y = today.year
+        if m <= 0:
+            m += 12
+            y -= 1
+        ref = date(y, m, 1)
+        sent = 0
+        for conf in db.query(_Conf).all():
+            try:
+                pdf = generate_evidence_pdf(db, ref, conf.id)
+                fname = f"evidencias_{conf.acronym}_{ref.strftime('%Y_%m')}.pdf"
+                ok = send_email(
+                    to=[office.email],
+                    subject=f"[Revisão] Relatório de Evidências {ref.strftime('%m/%Y')} — {conf.acronym}",
+                    body=f"Segue o relatório de evidências de {ref.strftime('%m/%Y')} ({conf.acronym}) para revisão interna antes do encaminhamento à confederação.",
+                    attachments=[{"filename": fname, "content_bytes": base64.b64encode(pdf).decode(), "content_type": "application/pdf"}],
+                )
+                if ok:
+                    sent += 1
+            except Exception as e:
+                logger.error(f"Monthly report for {conf.acronym} failed: {e}")
+        log_action(db=db, action="MONTHLY_REPORT_JOB", description=f"Relatórios de {ref.strftime('%m/%Y')} enviados ao escritório: {sent}")
+        logger.info(f"Monthly office report: {sent} enviados")
+    except Exception as e:
+        logger.error(f"Monthly office report job error: {e}")
+    finally:
+        db.close()
+
+
 def start_scheduler():
     scheduler.add_job(job_sync_operators, CronTrigger(hour=7, minute=0), id="sync_mf", replace_existing=True)
     scheduler.add_job(job_send_first_notifications, CronTrigger(hour=8, minute=0), id="notify_1", replace_existing=True)
@@ -316,5 +360,7 @@ def start_scheduler():
     scheduler.add_job(job_sync_inbox, CronTrigger(hour="8,13,18", minute=15), id="sync_inbox", replace_existing=True)
     # Alerta de prazo de repasse aos beneficiários
     scheduler.add_job(job_redistribution_deadline_alerts, CronTrigger(hour=7, minute=30), id="redis_deadline", replace_existing=True)
+    # Relatório mensal ao escritório (dia 1º às 6h)
+    scheduler.add_job(job_monthly_office_report, CronTrigger(day=1, hour=6, minute=0), id="monthly_report", replace_existing=True)
     scheduler.start()
     logger.info("Scheduler started")

@@ -6,6 +6,7 @@ import Badge from "@/components/ui/Badge";
 import {
   getConfederations, getCollections, getOperators, getComplianceReport, downloadExcelReport,
   getCrossReport, downloadCrossExcel, downloadCrossPdf, downloadEvidencePdf, downloadCycleActivityPdf,
+  sendMonthlyToOffice,
 } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
@@ -418,6 +419,8 @@ function Evidencias({ confederations }: { confederations: any[] }) {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [confId, setConfId] = useState("");
   const [downloading, setDownloading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [msg, setMsg] = useState("");
 
   async function download() {
     if (!month) { alert("Selecione o mês de competência."); return; }
@@ -433,6 +436,19 @@ function Evidencias({ confederations }: { confederations: any[] }) {
     } catch (e: any) {
       alert(e.response?.data?.detail || "Erro ao gerar o relatório de evidências.");
     } finally { setDownloading(false); }
+  }
+
+  async function sendToOffice() {
+    if (!month) { alert("Selecione o mês de competência."); return; }
+    setSending(true); setMsg("");
+    try {
+      const params: any = { month: `${month}-01` };
+      if (confId) params.confederation_id = Number(confId);
+      const r = await sendMonthlyToOffice(params);
+      setMsg(`Relatório enviado para ${r.data.sent_to} para revisão.`);
+    } catch (e: any) {
+      setMsg(e.response?.data?.detail || "Erro ao enviar o relatório.");
+    } finally { setSending(false); }
   }
 
   return (
@@ -462,10 +478,17 @@ function Evidencias({ confederations }: { confederations: any[] }) {
             </select>
             <p className="text-xs text-muted mt-1">Deixe em branco para um dossiê completo.</p>
           </div>
-          <button onClick={download} disabled={downloading} className="btn-primary">
-            {downloading ? "Gerando dossiê..." : "⬇ Gerar Dossiê em PDF"}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={download} disabled={downloading} className="btn-primary">
+              {downloading ? "Gerando..." : "⬇ Gerar PDF"}
+            </button>
+            <button onClick={sendToOffice} disabled={sending} className="btn-secondary">
+              {sending ? "Enviando..." : "✉ Enviar ao escritório"}
+            </button>
+          </div>
         </div>
+        {msg && <p className="text-xs text-primary mt-3">{msg}</p>}
+        <p className="text-xs text-muted mt-3">"Enviar ao escritório" remete o dossiê ao e-mail cadastrado na aba Escritório, para revisão interna antes do encaminhamento à confederação.</p>
       </div>
     </div>
   );

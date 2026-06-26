@@ -20,21 +20,30 @@ def get_access_token() -> Optional[str]:
     return result.get("access_token")
 
 
-def send_email(to: List[str], subject: str, body: str, cc: Optional[List[str]] = None) -> bool:
+def send_email(to: List[str], subject: str, body: str, cc: Optional[List[str]] = None,
+               attachments: Optional[List[dict]] = None) -> bool:
+    """Envia e-mail via Graph. attachments: lista de {filename, content_bytes(base64 str), content_type}."""
     token = get_access_token()
     if not token or not settings.OFFICE_EMAIL:
         logger.warning("Email service not configured")
         return False
 
-    payload = {
-        "message": {
-            "subject": subject,
-            "body": {"contentType": "HTML", "content": body.replace("\n", "<br>")},
-            "toRecipients": [{"emailAddress": {"address": addr}} for addr in to],
-            "ccRecipients": [{"emailAddress": {"address": addr}} for addr in (cc or [])],
-        },
-        "saveToSentItems": True
+    message = {
+        "subject": subject,
+        "body": {"contentType": "HTML", "content": body.replace("\n", "<br>")},
+        "toRecipients": [{"emailAddress": {"address": addr}} for addr in to],
+        "ccRecipients": [{"emailAddress": {"address": addr}} for addr in (cc or [])],
     }
+    if attachments:
+        message["attachments"] = [
+            {
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": a["filename"],
+                "contentType": a.get("content_type", "application/octet-stream"),
+                "contentBytes": a["content_bytes"],
+            } for a in attachments
+        ]
+    payload = {"message": message, "saveToSentItems": True}
 
     resp = httpx.post(
         f"https://graph.microsoft.com/v1.0/users/{settings.OFFICE_EMAIL}/sendMail",

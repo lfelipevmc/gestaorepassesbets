@@ -248,3 +248,7 @@ export const downloadCycleActivityPdf = (id: number) =>
 
 // ---- A Fazer Hoje ----
 export const getTasksToday = () => api.get("/api/tasks/today");
+
+// ---- Relatório mensal ao escritório ----
+export const sendMonthlyToOffice = (params: { month: string; confederation_id?: number }) =>
+  api.post("/api/reports/monthly/send-to-office", null, { params });
