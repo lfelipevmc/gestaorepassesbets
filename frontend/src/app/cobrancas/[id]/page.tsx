@@ -182,7 +182,8 @@ export default function CollectionDetailPage() {
             <tr>
               <th className="table-th">Operador</th>
               <th className="table-th">Valor Devido (operador)</th>
-              <th className="table-th">Valor Recebido</th>
+              <th className="table-th">Total Recebido</th>
+              <th className="table-th">Repasses</th>
               <th className="table-th">Relatório</th>
               <th className="table-th">Status</th>
               <th className="table-th">Ações</th>
@@ -191,19 +192,27 @@ export default function CollectionDetailPage() {
           <tbody>
             {payments.map(p => {
               const op = operators.find(o => o.id === p.operator_id);
+              const receipts = p.receipts || [];
               return (
-                <tr key={p.id} className="hover:bg-surface-light/20">
+                <tr key={p.id} className="hover:bg-surface-light/20 align-top">
                   <td className="table-td">{op?.fantasy_name || op?.company_name || `#${p.operator_id}`}</td>
                   <td className="table-td">{formatCurrency(p.amount_due)}</td>
                   <td className="table-td">{formatCurrency(p.amount_paid)}</td>
+                  <td className="table-td">
+                    {receipts.length === 0 ? <span className="text-xs text-muted">—</span> : (
+                      <div className="space-y-0.5">
+                        {receipts.map((r: any) => (
+                          <div key={r.id} className="text-xs text-slate-400">{formatCurrency(r.amount)} <span className="text-muted">em {formatDate(r.received_date)}</span></div>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                   <td className="table-td">{p.report_received ? <span className="text-xs text-success">✓</span> : <span className="text-xs text-muted">—</span>}</td>
                   <td className="table-td"><Badge status={p.status} /></td>
                   <td className="table-td">
                     <div className="flex gap-2">
                       <button onClick={() => { setShowDeclare(p); setDeclareForm({ amount_due: "", base_calculo: "", notes: "" }); }} className="text-xs text-blue-400 hover:underline">Registrar Valor</button>
-                      {p.status !== "paid" && (
-                        <button onClick={() => { setShowConfirm(p); setConfirmForm({ amount_paid: "", payment_date: "", notes: "" }); }} className="text-xs text-success hover:underline">Confirmar</button>
-                      )}
+                      <button onClick={() => { setShowConfirm(p); setConfirmForm({ amount_paid: "", payment_date: "", notes: "" }); }} className="text-xs text-success hover:underline">+ Repasse</button>
                     </div>
                   </td>
                 </tr>
@@ -243,10 +252,11 @@ export default function CollectionDetailPage() {
       </div>
 
       {/* Confirm Payment Modal */}
-      <Modal isOpen={!!showConfirm} onClose={() => setShowConfirm(null)} title="Confirmar Pagamento">
+      <Modal isOpen={!!showConfirm} onClose={() => setShowConfirm(null)} title="Registrar Repasse Recebido">
         <form onSubmit={handleConfirmPayment} className="space-y-4">
+          <p className="text-sm text-muted">Cada repasse recebido é registrado individualmente. Uma Bet pode repassar em mais de uma oportunidade no mesmo mês.</p>
           <div>
-            <label className="label">Valor Pago (R$) *</label>
+            <label className="label">Valor do Repasse (R$) *</label>
             <input type="number" step="0.01" className="input" required value={confirmForm.amount_paid} onChange={e => setConfirmForm(f => ({ ...f, amount_paid: e.target.value }))} />
           </div>
           <div>

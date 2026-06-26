@@ -268,6 +268,40 @@ def job_weekly_contact_research():
         db.close()
 
 
+def job_sync_inbox():
+    """Diário: lê a caixa de entrada e importa respostas das Bets, casando por remetente."""
+    db = SessionLocal()
+    try:
+        from .email_matcher import sync_inbox
+        result = sync_inbox(db)
+        logger.info(f"Inbox sync: {result}")
+    except Exception as e:
+        logger.error(f"Inbox sync job error: {e}")
+    finally:
+        db.close()
+
+
+def job_redistribution_deadline_alerts():
+    """Diário: registra alerta para redistribuições com prazo vencido e não concluídas."""
+    db = SessionLocal()
+    try:
+        from ..models.redistribution import Redistribution, RedistributionStatus
+        today = date.today()
+        overdue = db.query(Redistribution).filter(
+            Redistribution.deadline_date < today,
+            Redistribution.status != RedistributionStatus.completed,
+        ).all()
+        if overdue:
+            log_action(db=db, action="REDISTRIBUTION_DEADLINE_ALERT",
+                       description=f"{len(overdue)} redistribuição(ões) com prazo de repasse vencido",
+                       new_values={"ids": [r.id for r in overdue]})
+        logger.info(f"Redistribution deadline alerts: {len(overdue)} vencidas")
+    except Exception as e:
+        logger.error(f"Redistribution deadline job error: {e}")
+    finally:
+        db.close()
+
+
 def start_scheduler():
     scheduler.add_job(job_sync_operators, CronTrigger(hour=7, minute=0), id="sync_mf", replace_existing=True)
     scheduler.add_job(job_send_first_notifications, CronTrigger(hour=8, minute=0), id="notify_1", replace_existing=True)
@@ -280,5 +314,9 @@ def start_scheduler():
         id="weekly_research",
         replace_existing=True,
     )
+    # Conciliação de respostas de e-mail: 3x ao dia
+    scheduler.add_job(job_sync_inbox, CronTrigger(hour="8,13,18", minute=15), id="sync_inbox", replace_existing=True)
+    # Alerta de prazo de repasse aos beneficiários
+    scheduler.add_job(job_redistribution_deadline_alerts, CronTrigger(hour=7, minute=30), id="redis_deadline", replace_existing=True)
     scheduler.start()
     logger.info("Scheduler started")

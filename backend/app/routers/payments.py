@@ -9,6 +9,7 @@ from ..models.user import User
 from ..schemas.payment import PaymentOut, PaymentDeclareValue, PaymentConfirm, PaymentRegisterReport, ENDRPaymentOut, ENDRPaymentCreate
 from ..core.auth import get_current_user, require_office
 from ..services.audit_service import log_action
+from decimal import Decimal
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
@@ -71,16 +72,33 @@ def declare_value(id: int, data: PaymentDeclareValue, db: Session = Depends(get_
 
 @router.post("/{id}/confirm", response_model=PaymentOut)
 def confirm_payment(id: int, data: PaymentConfirm, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Registra um repasse recebido. Uma Bet pode repassar em mais de uma oportunidade no mesmo
+    mês — cada chamada cria um receipt e o amount_paid passa a ser a soma dos receipts."""
+    from ..models.payment import PaymentReceipt
     payment = db.query(Payment).get(id)
     if not payment:
         raise HTTPException(status_code=404, detail="Pagamento não encontrado")
 
     old_status = payment.status
-    payment.amount_paid = data.amount_paid
-    payment.payment_date = data.payment_date
+    receipt = PaymentReceipt(
+        payment_id=payment.id,
+        amount=data.amount_paid,
+        received_date=data.payment_date,
+        notes=data.notes,
+        confirmed_by_id=current_user.id,
+    )
+    db.add(receipt)
+    db.flush()
+
+    # amount_paid = soma de todos os repasses recebidos
+    from sqlalchemy import func as _func
+    total = db.query(_func.coalesce(_func.sum(PaymentReceipt.amount), 0)).filter(
+        PaymentReceipt.payment_id == payment.id
+    ).scalar() or Decimal("0")
+    payment.amount_paid = total
+    payment.payment_date = data.payment_date  # data do último repasse
     payment.payment_confirmed_at = datetime.utcnow()
     payment.confirmed_by_id = current_user.id
-    # Se ainda não tem relatório, entra em report_pending (adimplente sem relatório)
     payment.status = PaymentStatus.report_pending if not payment.report_received else PaymentStatus.paid
     if data.notes:
         payment.notes = (payment.notes or "") + f"\n{data.notes}"
@@ -88,7 +106,7 @@ def confirm_payment(id: int, data: PaymentConfirm, db: Session = Depends(get_db)
     db.refresh(payment)
     log_action(db=db, action="CONFIRM_PAYMENT", entity_type="Payment", entity_id=id,
                old_values={"status": str(old_status)},
-               new_values={"status": payment.status, "amount_paid": str(data.amount_paid)},
+               new_values={"status": payment.status, "receipt_amount": str(data.amount_paid), "total_paid": str(total)},
                user_id=current_user.id)
     return payment
 

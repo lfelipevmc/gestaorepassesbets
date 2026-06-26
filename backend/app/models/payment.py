@@ -43,6 +43,27 @@ class Payment(Base):
     operator = relationship("BettingOperator", back_populates="payments")
     confederation = relationship("Confederation", back_populates="payments")
     confirmed_by = relationship("User")
+    receipts = relationship("PaymentReceipt", back_populates="payment", cascade="all, delete-orphan")
+
+
+class PaymentReceipt(Base):
+    """Repasse individual recebido. Uma Bet pode repassar em mais de uma oportunidade no mesmo
+    mês/confederação — cada repasse é um receipt. Payment.amount_paid = soma dos receipts."""
+    __tablename__ = "payment_receipts"
+    id = Column(Integer, primary_key=True)
+    payment_id = Column(Integer, ForeignKey("payments.id"), nullable=False)
+    amount = Column(Numeric(15, 2), nullable=False)
+    received_date = Column(Date, nullable=False)
+    report_received = Column(Boolean, default=False)
+    report_reference_month = Column(Date, nullable=True)
+    report_notes = Column(Text, nullable=True)
+    report_file_url = Column(String(500), nullable=True)
+    notes = Column(Text, nullable=True)
+    confirmed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    payment = relationship("Payment", back_populates="receipts")
+    confirmed_by = relationship("User")
 
 
 class ENDRPayment(Base):

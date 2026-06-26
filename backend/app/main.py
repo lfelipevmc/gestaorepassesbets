@@ -2,7 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from .database import Base, engine
-from .routers import auth, users, confederations, operators, collections, payments, reports, documents, ai, audit, endr
+from .routers import (auth, users, confederations, operators, collections, payments, reports,
+                      documents, ai, audit, endr, beneficiaries, redistributions, templates, finance)
 from .services.scheduler import start_scheduler
 import os
 import logging
@@ -24,7 +25,7 @@ app.add_middleware(
 def startup():
     Base.metadata.create_all(bind=engine)
     _run_light_migrations()
-    for d in ["/app/uploads", "/app/uploads/logos", "/app/uploads/reports"]:
+    for d in ["/app/uploads", "/app/uploads/logos", "/app/uploads/reports", "/app/uploads/redistributions"]:
         os.makedirs(d, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
     _seed_initial_data()
@@ -166,6 +167,43 @@ def _seed_distribution_rules(db):
     for r in rules:
         db.add(r)
     db.commit()
+    _seed_templates(db)
+
+
+def _seed_templates(db):
+    """Semeia textos padrão de cobrança (globais) para cada ocasião."""
+    from .models.messaging import MessageTemplate, TemplateOccasion
+    if db.query(MessageTemplate).count() > 0:
+        return
+    base = (
+        "Prezados representantes de {bet},\n\n"
+        "{corpo}\n\n"
+        "Trata-se da contrapartida pelo uso de direito de imagem prevista no art. 30, §1º-A, III, "
+        "alínea 'a', da Lei nº 13.756/2018 e na Portaria SPA/MF nº 41/2025, referente ao mês de {mes}, "
+        "em favor da {confederacao}.\n\n"
+        "Atenciosamente,\n{escritorio}"
+    )
+    seeds = [
+        ("1ª Notificação de Cobrança", TemplateOccasion.first_notification,
+         "Cobrança – Direito de Imagem ({confederacao}) – {mes}",
+         base.format(bet="{bet}", confederacao="{confederacao}", mes="{mes}", escritorio="{escritorio}",
+                     corpo="Solicitamos o repasse da contrapartida e o envio do relatório detalhado de individualização dos valores.")),
+        ("2ª Notificação de Cobrança", TemplateOccasion.second_notification,
+         "Reiteração de Cobrança – Direito de Imagem ({confederacao}) – {mes}",
+         base.format(bet="{bet}", confederacao="{confederacao}", mes="{mes}", escritorio="{escritorio}",
+                     corpo="Reiteramos a cobrança em aberto. Até o momento não identificamos o repasse referente ao período. Solicitamos regularização no prazo de {prazo}.")),
+        ("Notificação Final", TemplateOccasion.final_notice,
+         "Notificação Final – Direito de Imagem ({confederacao}) – {mes}",
+         base.format(bet="{bet}", confederacao="{confederacao}", mes="{mes}", escritorio="{escritorio}",
+                     corpo="Esta é a notificação final referente ao período. A ausência de regularização ensejará as medidas cabíveis perante a SPA/MF.")),
+        ("Solicitação de Relatório", TemplateOccasion.report_request,
+         "Solicitação de Relatório – {confederacao} – {mes}",
+         base.format(bet="{bet}", confederacao="{confederacao}", mes="{mes}", escritorio="{escritorio}",
+                     corpo="Identificamos o repasse, mas pendente o relatório de individualização. Solicitamos o envio do relatório com a base de cálculo por competição e os beneficiários.")),
+    ]
+    for name, occ, subject, body in seeds:
+        db.add(MessageTemplate(name=name, occasion=occ, subject=subject, body=body, confederation_id=None))
+    db.commit()
 
 
 app.include_router(auth.router)
@@ -179,6 +217,10 @@ app.include_router(documents.router)
 app.include_router(ai.router)
 app.include_router(audit.router)
 app.include_router(endr.router)
+app.include_router(beneficiaries.router)
+app.include_router(redistributions.router)
+app.include_router(templates.router)
+app.include_router(finance.router)
 
 
 @app.get("/health")

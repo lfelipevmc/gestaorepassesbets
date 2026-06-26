@@ -18,6 +18,21 @@ class PaymentConfirm(BaseModel):
     notes: Optional[str] = None
 
 
+class PaymentReceiptOut(BaseModel):
+    id: int
+    amount: Decimal
+    received_date: date
+    report_received: bool
+    report_reference_month: Optional[date]
+    report_notes: Optional[str]
+    report_file_url: Optional[str]
+    notes: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class PaymentRegisterReport(BaseModel):
     report_reference_month: Optional[date] = None  # mês de competência do relatório
     report_notes: Optional[str] = None
@@ -42,6 +57,7 @@ class PaymentOut(BaseModel):
     report_received_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
+    receipts: List[PaymentReceiptOut] = []
 
     class Config:
         from_attributes = True

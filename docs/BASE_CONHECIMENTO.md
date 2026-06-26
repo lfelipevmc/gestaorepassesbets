@@ -19,6 +19,29 @@
 
 ## 2. O MODELO CORRETO (o ponto mais importante)
 
+### 2.0 As DUAS FASES do repasse (Manual de Destinações SPA/MF + Regulamento)
+
+O repasse da destinação de imagem (art. 30, §1º-A, III, "a") ocorre em **duas fases**:
+
+**FASE 1 — Cálculo da receita por competição (Manual de Destinações SPA/MF).**
+- O agente operador calcula, **por competição esportiva** objeto de aposta, o valor da contrapartida.
+- **Base de Cálculo** = Arrecadação Total com Apostas − prêmios pagos − IR incidente.
+- A destinação de imagem às entidades do Sinesp é **7,30% das Destinações Totais (12%)**, o que
+  equivale a **0,876% da Base de Cálculo** (0,073 × 0,12 = 0,00876). É a "1ª fase de rateios".
+- Resultado: o operador sabe o valor a repassar **a cada competição** → é a **receita** que a
+  confederação recebe. **Quem calcula é o operador, não o escritório.**
+
+**FASE 2 — Reversão aos beneficiários finais (Regulamento da Confederação).**
+- O valor recebido por competição é **revertido aos beneficiários**: confederação, organizações de
+  prática esportiva (clubes) e atletas, conforme a **matriz de rateio do regulamento** (ver §3).
+- A confederação executa essa repartição (é o "motor de redistribuição" do sistema — ver §3.3).
+- Portaria SPA/MF 41/2025, art. 3º: o rateio segue o regulamento da competição; §4º trata de
+  competição internacional (rateio equânime por partida entre confederação e entidades de prática).
+
+> Resumindo: **Fase 1 = receita** (operador calcula e paga a confederação). **Fase 2 = repartição**
+> (confederação distribui aos beneficiários finais). O escritório controla as duas, mas **não
+> calcula** a Fase 1.
+
 ### 2.1 Quem calcula o valor? O AGENTE OPERADOR — nunca o escritório.
 
 Os três regulamentos são unânimes:
@@ -132,12 +155,39 @@ partida. Por isso `DistributionRule.is_equanime = true` (sem percentuais fixos).
 - `GET/POST /api/payments/endr` — repasses consolidados do ENDR.
 - `GET/POST/PATCH/DELETE /api/confederations/{id}/distribution-rules` — matriz de rateio.
 
+## 6.1 Cobranças, Financeiro e Motor de Redistribuição (IMPLEMENTADO)
+
+### Cobranças
+- **Múltiplos repasses por Bet/mês/confederação:** `PaymentReceipt` (filho de `Payment`). Cada
+  repasse recebido é um receipt; `Payment.amount_paid` = soma dos receipts. Uma Bet pode repassar
+  para uma confederação e não para outra (cada `Payment` é por confederação).
+- **Modelos de cobrança (`MessageTemplate`):** textos padrão por ocasião (1ª/2ª notificação, final,
+  solicitação de relatório). Placeholders `{bet} {confederacao} {mes} {valor} {prazo} {escritorio}`
+  substituídos no envio (`notification_service.render_placeholders`). Template específico da
+  confederação tem prioridade sobre o global. Página `/modelos`.
+- **Conciliação de respostas (`EmailMessage`):** e-mails enviados são registrados (outbound) e a
+  caixa de entrada é lida via Graph (`email_matcher.sync_inbox`, job 3x/dia), casando respostas ao
+  operador pelo endereço do remetente. Endpoint `POST /api/finance/sync-emails`. Aba E-mails no
+  Financeiro.
+
+### Financeiro (`/financeiro`) e Redistribuição (Fase 2)
+- **`Beneficiary`** — atleta/clube/federação/confederação, com dados bancários (CBW Art. 12).
+- **`Redistribution`** — um valor recebido (Fase 1) a redistribuir; `deadline_date` = received_date +
+  `Confederation.redistribution_deadline_days` (CBW Art. 13 = 90 dias). Status pending/partial/completed.
+- **`RedistributionItem`** — parcela por beneficiário; marcar como repassado (paid) + comprovante.
+- Frontend pode pré-preencher itens a partir da matriz `DistributionRule` (percentuais fixos);
+  cenários equânimes são preenchidos manualmente (nº de participantes varia).
+- Endpoints: `/api/beneficiaries`, `/api/redistributions` (+ items/pay/proof),
+  `/api/finance/summary`, `/api/finance/by-confederation`.
+- Job diário `job_redistribution_deadline_alerts` registra alerta de prazos vencidos.
+
 ## 7. Trabalho futuro recomendado (ainda NÃO implementado)
-- **Motor de redistribuição:** a partir do relatório individualizado, controlar os repasses da
-  confederação a cada beneficiário (atleta/clube/federação) e o prazo (§3.1, CBW 90 dias).
-- **Cadastro de beneficiários** (atletas, clubes, federações) com dados bancários (CBW Art. 12).
-- **Parser de relatórios** das operadoras (nome do evento, base de cálculo por partida,
-  beneficiários) — hoje o relatório é anexado como arquivo e os campos preenchidos à mão.
+- **Parser automático de relatórios** das operadoras (nome do evento, base de cálculo por partida,
+  beneficiários) — hoje o relatório é anexado como arquivo e os campos preenchidos à mão; a
+  redistribuição (Fase 2) é criada manualmente a partir do valor recebido.
+- **Geração de redistribuição direto do recebimento:** botão "criar redistribuição" a partir de um
+  `Payment`/`ENDRPayment` já conciliado (hoje cria-se manualmente no Financeiro).
+- **Threading completo de e-mail** por `conversationId` (hoje casa-se por remetente).
 
 ## 8. Princípios para futuras alterações
 1. **O escritório registra e concilia; nunca calcula a contrapartida.** Qualquer fórmula de GGR

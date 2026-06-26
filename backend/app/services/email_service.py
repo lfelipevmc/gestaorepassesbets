@@ -57,7 +57,7 @@ def read_inbox_emails(folder: str = "inbox", top: int = 50) -> List[dict]:
     resp = httpx.get(
         f"https://graph.microsoft.com/v1.0/users/{settings.OFFICE_EMAIL}/mailFolders/{folder}/messages",
         headers={"Authorization": f"Bearer {token}"},
-        params={"$top": top, "$orderby": "receivedDateTime desc", "$select": "subject,from,receivedDateTime,body,isRead"},
+        params={"$top": top, "$orderby": "receivedDateTime desc", "$select": "id,subject,from,receivedDateTime,body,isRead,conversationId"},
         timeout=30
     )
 

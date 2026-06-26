@@ -139,3 +139,34 @@ export const approveSuggestion = (operatorId: number, suggestionId: number) =>
 export const rejectSuggestion = (operatorId: number, suggestionId: number) =>
   api.post(`/api/operators/${operatorId}/suggestions/${suggestionId}/reject`);
 export const researchAllOperators = () => api.post('/api/operators/research-all');
+
+// ---- Financeiro ----
+export const getFinanceSummary = (params?: any) => api.get("/api/finance/summary", { params });
+export const getFinanceByConfederation = () => api.get("/api/finance/by-confederation");
+export const getFinanceEmails = (params?: any) => api.get("/api/finance/emails", { params });
+export const syncEmails = () => api.post("/api/finance/sync-emails");
+
+// ---- Beneficiários ----
+export const getBeneficiaries = (params?: any) => api.get("/api/beneficiaries/", { params });
+export const createBeneficiary = (confederationId: number, data: any) =>
+  api.post(`/api/beneficiaries/?confederation_id=${confederationId}`, data);
+export const updateBeneficiary = (id: number, data: any) => api.patch(`/api/beneficiaries/${id}`, data);
+export const deleteBeneficiary = (id: number) => api.delete(`/api/beneficiaries/${id}`);
+
+// ---- Redistribuição (motor de repasse Fase 2) ----
+export const getRedistributions = (params?: any) => api.get("/api/redistributions/", { params });
+export const getRedistribution = (id: number) => api.get(`/api/redistributions/${id}`);
+export const createRedistribution = (data: any) => api.post("/api/redistributions/", data);
+export const addRedistributionItem = (id: number, data: any) => api.post(`/api/redistributions/${id}/items`, data);
+export const payRedistributionItem = (id: number, itemId: number, data: any) =>
+  api.post(`/api/redistributions/${id}/items/${itemId}/pay`, data);
+export const uploadRedistributionProof = (id: number, itemId: number, formData: FormData) =>
+  api.post(`/api/redistributions/${id}/items/${itemId}/proof`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+export const deleteRedistributionItem = (id: number, itemId: number) => api.delete(`/api/redistributions/${id}/items/${itemId}`);
+export const deleteRedistribution = (id: number) => api.delete(`/api/redistributions/${id}`);
+
+// ---- Templates de cobrança ----
+export const getTemplates = (params?: any) => api.get("/api/templates/", { params });
+export const createTemplate = (data: any) => api.post("/api/templates/", data);
+export const updateTemplate = (id: number, data: any) => api.patch(`/api/templates/${id}`, data);
+export const deleteTemplate = (id: number) => api.delete(`/api/templates/${id}`);
