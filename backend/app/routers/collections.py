@@ -33,7 +33,7 @@ def create_cycle(data: CycleCreate, db: Session = Depends(get_db), current_user:
     if existing:
         raise HTTPException(status_code=400, detail="Ciclo já existe para esse mês e confederação")
 
-    cycle = CollectionCycle(confederation_id=data.confederation_id, reference_month=data.reference_month)
+    cycle = CollectionCycle(confederation_id=data.confederation_id, reference_month=data.reference_month, template_id=data.template_id)
     db.add(cycle)
     db.flush()
 

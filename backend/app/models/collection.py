@@ -37,12 +37,14 @@ class CollectionCycle(Base):
     confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=False)
     reference_month = Column(Date, nullable=False)
     status = Column(Enum(CycleStatus), default=CycleStatus.open)
+    template_id = Column(Integer, ForeignKey("message_templates.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     confederation = relationship("Confederation", back_populates="collection_cycles")
     events = relationship("CollectionEvent", back_populates="cycle")
     payments = relationship("Payment", back_populates="cycle")
+    template = relationship("MessageTemplate")
 
 
 class CollectionEvent(Base):

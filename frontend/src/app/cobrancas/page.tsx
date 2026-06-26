@@ -5,20 +5,21 @@ import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import Badge from "@/components/ui/Badge";
 import Modal from "@/components/ui/Modal";
-import { getCollections, createCollection, getConfederations } from "@/lib/api";
+import { getCollections, createCollection, getConfederations, getTemplates } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 
 export default function CobrancasPage() {
   const [cycles, setCycles] = useState<any[]>([]);
   const [confederations, setConfederations] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ confederation_id: "", reference_month: "" });
+  const [form, setForm] = useState({ confederation_id: "", reference_month: "", template_id: "" });
 
   const fetchAll = () => {
-    Promise.all([getCollections(), getConfederations()])
-      .then(([c, confs]) => { setCycles(c.data); setConfederations(confs.data); })
+    Promise.all([getCollections(), getConfederations(), getTemplates()])
+      .then(([c, confs, tmpls]) => { setCycles(c.data); setConfederations(confs.data); setTemplates(tmpls.data); })
       .finally(() => setLoading(false));
   };
 
@@ -28,11 +29,22 @@ export default function CobrancasPage() {
     e.preventDefault();
     setCreating(true);
     try {
-      await createCollection({ confederation_id: parseInt(form.confederation_id), reference_month: form.reference_month + "-01" });
+      await createCollection({
+        confederation_id: parseInt(form.confederation_id),
+        reference_month: form.reference_month + "-01",
+        template_id: form.template_id ? parseInt(form.template_id) : null,
+      });
       setShowCreate(false);
+      setForm({ confederation_id: "", reference_month: "", template_id: "" });
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao criar ciclo");
+      const detail = err.response?.data?.detail;
+      const msg = typeof detail === "string"
+        ? detail
+        : Array.isArray(detail)
+          ? detail.map((e: any) => e.msg || JSON.stringify(e)).join(" | ")
+          : "Erro ao criar ciclo de cobrança";
+      alert(msg);
     } finally {
       setCreating(false);
     }
@@ -106,6 +118,16 @@ export default function CobrancasPage() {
           <div>
             <label className="label">Mês de Referência *</label>
             <input type="month" className="input" required value={form.reference_month} onChange={e => setForm(f => ({ ...f, reference_month: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Modelo de Cobrança <span className="text-muted font-normal">(opcional)</span></label>
+            <select className="input" value={form.template_id} onChange={e => setForm(f => ({ ...f, template_id: e.target.value }))}>
+              <option value="">— Nenhum —</option>
+              {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            {templates.length === 0 && (
+              <p className="text-xs text-muted mt-1">Nenhum modelo cadastrado ainda. Crie modelos em <strong>Modelos de Cobrança</strong>.</p>
+            )}
           </div>
           <div className="flex gap-3 justify-end pt-2">
             <button type="button" onClick={() => setShowCreate(false)} className="btn-secondary">Cancelar</button>

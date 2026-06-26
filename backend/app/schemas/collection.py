@@ -7,6 +7,7 @@ from ..models.collection import CycleStatus, EventType, EventChannel
 class CycleCreate(BaseModel):
     confederation_id: int
     reference_month: date
+    template_id: Optional[int] = None
 
 
 class EventCreate(BaseModel):
@@ -35,6 +36,7 @@ class CycleOut(BaseModel):
     confederation_id: int
     reference_month: date
     status: CycleStatus
+    template_id: Optional[int] = None
     created_at: datetime
 
     class Config:
