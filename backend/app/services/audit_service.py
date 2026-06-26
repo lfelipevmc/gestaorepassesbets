@@ -13,12 +13,14 @@ def log_action(
     description: Optional[str] = None,
     user_id: Optional[int] = None,
     ip_address: Optional[str] = None,
+    confederation_id: Optional[int] = None,
 ):
     entry = AuditLog(
         user_id=user_id,
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
+        confederation_id=confederation_id,
         old_values=old_values,
         new_values=new_values,
         description=description,

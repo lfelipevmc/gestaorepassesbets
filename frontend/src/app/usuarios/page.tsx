@@ -22,7 +22,7 @@ export default function UsuariosPage() {
   const [msg, setMsg] = useState("");
 
   const load = () => {
-    Promise.all([getUsers(), getConfederations()])
+    Promise.all([getUsers({ include_inactive: true }), getConfederations()])
       .then(([u, c]) => { setUsers(u.data); setConfs(c.data); })
       .finally(() => setLoading(false));
   };

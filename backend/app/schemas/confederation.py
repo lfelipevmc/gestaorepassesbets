@@ -76,6 +76,7 @@ class ConfederationCreate(BaseModel):
 
 class ConfederationUpdate(BaseModel):
     name: Optional[str] = None
+    acronym: Optional[str] = None
     cnpj: Optional[str] = None
     website: Optional[str] = None
     phone: Optional[str] = None

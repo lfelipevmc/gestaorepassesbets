@@ -39,7 +39,7 @@ export default function RelatoriosPage() {
         <button onClick={() => setTab("evidencias")} className={tab === "evidencias" ? "btn-primary" : "btn-secondary"}>Evidências (ISO 9001)</button>
       </div>
 
-      {tab === "consolidado" && <Consolidado confederations={confederations} operators={operators} />}
+      {tab === "consolidado" && <Consolidado confederations={confederations} operators={operators} cycles={cycles} />}
       {tab === "ciclo" && <PorCiclo confederations={confederations} cycles={cycles} />}
       {tab === "evidencias" && <Evidencias confederations={confederations} />}
     </AppShell>
@@ -47,8 +47,11 @@ export default function RelatoriosPage() {
 }
 
 /* ------------------------- Consolidado / Cruzado ------------------------- */
-function Consolidado({ confederations, operators }: { confederations: any[]; operators: any[] }) {
+function Consolidado({ confederations, operators, cycles }: { confederations: any[]; operators: any[]; cycles: any[] }) {
   const [filters, setFilters] = useState({ confederation_id: "", month: "", operator_id: "", status: "" });
+  const MESES_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  const availableMonths = Array.from(new Set((cycles || []).map((c: any) => (c.reference_month || "").slice(0, 7)).filter(Boolean))).sort().reverse() as string[];
+  const monthBtnLabel = (ym: string) => { const [y, m] = ym.split("-"); return `${MESES_PT[parseInt(m) - 1]}/${y}`; };
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -110,7 +113,18 @@ function Consolidado({ confederations, operators }: { confederations: any[]; ope
           </div>
           <div>
             <label className="label">Mês de Referência</label>
-            <input type="month" className="input" value={filters.month} onChange={e => setFilters(f => ({ ...f, month: e.target.value }))} />
+            {availableMonths.length === 0 ? (
+              <p className="text-xs text-muted mt-2">Nenhum ciclo cadastrado.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                <button type="button" onClick={() => setFilters(f => ({ ...f, month: "" }))}
+                  className={`px-2.5 py-1 rounded-full text-xs border ${!filters.month ? "bg-primary/15 text-primary border-primary/30" : "border-surface-border text-muted hover:text-slate-200"}`}>Todos</button>
+                {availableMonths.map(ym => (
+                  <button key={ym} type="button" onClick={() => setFilters(f => ({ ...f, month: ym }))}
+                    className={`px-2.5 py-1 rounded-full text-xs border ${filters.month === ym ? "bg-primary/15 text-primary border-primary/30" : "border-surface-border text-muted hover:text-slate-200"}`}>{monthBtnLabel(ym)}</button>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className="label">Bet (Agente Operador)</label>

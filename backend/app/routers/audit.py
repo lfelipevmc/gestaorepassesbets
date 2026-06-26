@@ -19,6 +19,7 @@ class AuditOut(BaseModel):
     action: str
     entity_type: Optional[str]
     entity_id: Optional[int]
+    confederation_id: Optional[int] = None
     old_values: Optional[dict]
     new_values: Optional[dict]
     description: Optional[str]
@@ -29,7 +30,7 @@ class AuditOut(BaseModel):
         from_attributes = True
 
 
-def _apply_filters(q, action, entity_type, entity_id, user_id, date_from, date_to):
+def _apply_filters(q, action, entity_type, entity_id, user_id, date_from, date_to, confederation_id=None):
     if action:
         q = q.filter(AuditLog.action.ilike(f"%{action}%"))
     if entity_type:
@@ -38,6 +39,12 @@ def _apply_filters(q, action, entity_type, entity_id, user_id, date_from, date_t
         q = q.filter(AuditLog.entity_id == entity_id)
     if user_id:
         q = q.filter(AuditLog.user_id == user_id)
+    if confederation_id:
+        # ação vinculada ao cliente OU ação registrada diretamente sobre o registro da confederação
+        q = q.filter(
+            (AuditLog.confederation_id == confederation_id)
+            | ((AuditLog.entity_type == "Confederation") & (AuditLog.entity_id == confederation_id))
+        )
     if date_from:
         q = q.filter(AuditLog.created_at >= datetime.combine(date_from, datetime.min.time()))
     if date_to:
@@ -51,6 +58,7 @@ def list_audit_logs(
     entity_type: Optional[str] = None,
     entity_id: Optional[int] = None,
     user_id: Optional[int] = None,
+    confederation_id: Optional[int] = None,
     date_from: Optional[date] = Query(None, description="Data inicial (YYYY-MM-DD)"),
     date_to: Optional[date] = Query(None, description="Data final (YYYY-MM-DD)"),
     skip: int = 0,
@@ -58,7 +66,7 @@ def list_audit_logs(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_office)
 ):
-    q = _apply_filters(db.query(AuditLog), action, entity_type, entity_id, user_id, date_from, date_to)
+    q = _apply_filters(db.query(AuditLog), action, entity_type, entity_id, user_id, date_from, date_to, confederation_id)
     return q.order_by(AuditLog.created_at.desc()).offset(skip).limit(limit).all()
 
 
@@ -75,6 +83,7 @@ def export_audit_pdf(
     entity_type: Optional[str] = None,
     entity_id: Optional[int] = None,
     user_id: Optional[int] = None,
+    confederation_id: Optional[int] = None,
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     db: Session = Depends(get_db),
@@ -87,7 +96,7 @@ def export_audit_pdf(
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     from reportlab.lib.styles import getSampleStyleSheet
 
-    q = _apply_filters(db.query(AuditLog), action, entity_type, entity_id, user_id, date_from, date_to)
+    q = _apply_filters(db.query(AuditLog), action, entity_type, entity_id, user_id, date_from, date_to, confederation_id)
     logs = q.order_by(AuditLog.created_at.desc()).limit(2000).all()
     users = {u.id: u.name for u in db.query(User).all()}
 

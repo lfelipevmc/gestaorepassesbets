@@ -11,6 +11,7 @@ class AuditLog(Base):
     action = Column(String, nullable=False)
     entity_type = Column(String, nullable=True)
     entity_id = Column(Integer, nullable=True)
+    confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=True)  # cliente vinculado à ação
     old_values = Column(JSON, nullable=True)
     new_values = Column(JSON, nullable=True)
     description = Column(Text, nullable=True)

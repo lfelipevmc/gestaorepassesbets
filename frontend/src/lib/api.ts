@@ -149,7 +149,7 @@ export const downloadAuditPdf = (params?: any) =>
   api.get("/api/audit/pdf", { params, responseType: "blob" });
 
 // Users
-export const getUsers = () => api.get("/api/users/");
+export const getUsers = (params?: any) => api.get("/api/users/", { params });
 export const createUser = (data: any) => api.post("/api/users/", data);
 export const updateUser = (id: number, data: any) => api.patch(`/api/users/${id}`, data);
 export const deleteUser = (id: number) => api.delete(`/api/users/${id}`);
@@ -227,3 +227,9 @@ export const linkEmailOperator = (emailId: number, data: { operator_id: number; 
 // ---- Relatório de evidências ISO 9001 ----
 export const downloadEvidencePdf = (params: { month: string; confederation_id?: number }) =>
   api.get("/api/reports/evidence/pdf", { params, responseType: "blob" });
+
+// ---- Escritório ----
+export const getOffice = () => api.get("/api/office/");
+export const updateOffice = (data: any) => api.patch("/api/office/", data);
+export const uploadOfficeLogo = (formData: FormData) =>
+  api.post("/api/office/upload-logo", formData, { headers: { "Content-Type": "multipart/form-data" } });

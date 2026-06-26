@@ -71,7 +71,8 @@ def create_cycle(data: CycleCreate, db: Session = Depends(get_db), current_user:
 
     db.commit()
     db.refresh(cycle)
-    log_action(db=db, action="CREATE", entity_type="CollectionCycle", entity_id=cycle.id, user_id=current_user.id)
+    log_action(db=db, action="CREATE", entity_type="CollectionCycle", entity_id=cycle.id, user_id=current_user.id,
+               confederation_id=data.confederation_id)
     return cycle
 
 
@@ -182,6 +183,10 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
     conf = db.query(Confederation).get(cycle.confederation_id)
     ref = cycle.reference_month.strftime("%m/%Y")
 
+    from ..models.office import OfficeSettings
+    office = db.query(OfficeSettings).first()
+    office_name = (office.signature_name or office.name) if office else None
+
     sent, failed = 0, 0
     for rec in data.recipients:
         op = db.query(BettingOperator).get(rec.operator_id)
@@ -189,8 +194,8 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
             failed += 1
             continue
         to_addr = [rec.email] if rec.email else _operator_emails(op)[:3]
-        subject = render_placeholders(data.subject, op, conf, ref)
-        body = render_placeholders(data.body, op, conf, ref)
+        subject = render_placeholders(data.subject, op, conf, ref, escritorio=office_name)
+        body = render_placeholders(data.body, op, conf, ref, escritorio=office_name)
         ok = bool(to_addr) and send_email(to=to_addr, subject=subject, body=body)
         ev = CollectionEvent(
             cycle_id=cycle.id, operator_id=op.id,
@@ -220,7 +225,7 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
         cycle.status = CycleStatus.collecting
     db.commit()
     log_action(db=db, action=f"SEND_NOTIFICATION_{data.notification_number}", entity_type="CollectionCycle",
-               entity_id=cycle.id, user_id=current_user.id,
+               entity_id=cycle.id, user_id=current_user.id, confederation_id=conf.id,
                description=f"{data.notification_number}ª notificação: {sent} enviados, {failed} falhas")
     return {"sent": sent, "failed": failed, "total": len(data.recipients)}
 
@@ -273,7 +278,8 @@ def generate_spa_letter(id: int, data: SpaLetterRequest, db: Session = Depends(g
     db.commit()
     db.refresh(doc)
     log_action(db=db, action="GENERATE_SPA_LETTER", entity_type="CollectionCycle", entity_id=cycle.id,
-               user_id=current_user.id, description=f"Minuta de ofício à SPA gerada ({len(inadimplentes)} inadimplentes)")
+               user_id=current_user.id, confederation_id=conf.id,
+               description=f"Minuta de ofício à SPA gerada ({len(inadimplentes)} inadimplentes)")
     return {"document_id": doc.id, "file_name": result["file_name"], "text": result["text"]}
 
 

@@ -35,7 +35,7 @@ class _SafeDict(dict):
         return "{" + key + "}"
 
 
-def render_placeholders(text: str, operator, confederation, reference_month: str, amount=None, prazo: str = None) -> str:
+def render_placeholders(text: str, operator, confederation, reference_month: str, amount=None, prazo: str = None, escritorio: str = None) -> str:
     """Substitui placeholders padronizados no texto do template.
 
     reference_month no formato "MM/AAAA". Chaves suportadas:
@@ -57,7 +57,7 @@ def render_placeholders(text: str, operator, confederation, reference_month: str
         ano=ano,
         valor=valor,
         prazo=prazo or "10 (dez) dias",
-        escritorio="Escritório Jurídico - Gestão de Haveres de Bets",
+        escritorio=escritorio or "Escritório Jurídico - Gestão de Haveres de Bets",
     )
     try:
         return (text or "").format_map(data)

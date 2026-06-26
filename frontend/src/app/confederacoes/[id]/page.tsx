@@ -333,7 +333,8 @@ export default function ConfederationDetailPage() {
           {editConf ? (
             <div className="grid grid-cols-2 gap-4">
               {([
-                ["Nome Completo", "name"], ["CNPJ", "cnpj"], ["Website", "website"], ["Telefone", "phone"],
+                ["Nome Completo", "name"], ["Sigla — chave {confederacaosigla}", "acronym"],
+                ["CNPJ", "cnpj"], ["Website", "website"], ["Telefone", "phone"],
                 ["E-mail Contato", "contact_email"], ["E-mail Financeiro", "finance_email"],
                 ["Presidente", "president_name"], ["E-mail Presidente", "president_email"],
                 ["Telefone Presidente", "president_phone"], ["Mandato", "president_term"],

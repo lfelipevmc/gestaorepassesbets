@@ -25,20 +25,21 @@ export default function AuditoriaPage() {
   const [ops, setOps] = useState<any[]>([]);
   const [exporting, setExporting] = useState(false);
 
-  const [f, setF] = useState({ action: "", entity_type: "", entity_id: "", user_id: "", date_from: "", date_to: "" });
+  const [f, setF] = useState({ action: "", entity_type: "", entity_id: "", user_id: "", confederation_id: "", date_from: "", date_to: "" });
 
   const params = () => ({
     action: f.action || undefined,
     entity_type: f.entity_type || undefined,
     entity_id: f.entity_id || undefined,
     user_id: f.user_id || undefined,
+    confederation_id: f.confederation_id || undefined,
     date_from: f.date_from || undefined,
     date_to: f.date_to || undefined,
   });
 
   useEffect(() => {
     getAuditActions().then(r => setActions(r.data)).catch(() => {});
-    getUsers().then(r => setUsers(r.data)).catch(() => {});
+    getUsers({ include_inactive: true }).then(r => setUsers(r.data)).catch(() => {});
     getConfederations().then(r => setConfs(r.data)).catch(() => {});
     getOperators({ limit: 300 }).then(r => setOps(r.data)).catch(() => {});
   }, []);
@@ -67,7 +68,7 @@ export default function AuditoriaPage() {
     : f.entity_type === "BettingOperator"
     ? ops.map(o => ({ id: o.id, label: o.fantasy_name || o.company_name }))
     : f.entity_type === "User"
-    ? users.map(u => ({ id: u.id, label: u.name }))
+    ? users.filter(u => u.is_active).map(u => ({ id: u.id, label: u.name }))
     : [];
 
   return (
@@ -79,6 +80,13 @@ export default function AuditoriaPage() {
         <p className="text-xs text-muted mb-3">Os filtros podem ser usados simultaneamente. Datas no formato dia/mês/ano.</p>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           <div>
+            <label className="label">Cliente (Confederação)</label>
+            <select className="input" value={f.confederation_id} onChange={e => setF(s => ({ ...s, confederation_id: e.target.value }))}>
+              <option value="">Todos os clientes</option>
+              {confs.map(c => <option key={c.id} value={c.id}>{c.acronym} — {c.name}</option>)}
+            </select>
+          </div>
+          <div>
             <label className="label">Ação</label>
             <select className="input" value={f.action} onChange={e => setF(s => ({ ...s, action: e.target.value }))}>
               <option value="">Todas as ações</option>
@@ -86,23 +94,26 @@ export default function AuditoriaPage() {
             </select>
           </div>
           <div>
-            <label className="label">Tipo de entidade</label>
+            <label className="label">Tipo de registro</label>
             <select className="input" value={f.entity_type} onChange={e => setF(s => ({ ...s, entity_type: e.target.value, entity_id: "" }))}>
               {Object.entries(ENTITIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </div>
           <div>
-            <label className="label">{f.entity_type === "Confederation" ? "Confederação" : f.entity_type === "BettingOperator" ? "Bet" : f.entity_type === "User" ? "Usuário (entidade)" : "Registro específico"}</label>
-            <select className="input" disabled={entityOptions.length === 0} value={f.entity_id} onChange={e => setF(s => ({ ...s, entity_id: e.target.value }))}>
+            <label className="label">{f.entity_type === "Confederation" ? "Confederação específica" : f.entity_type === "BettingOperator" ? "Bet específica" : f.entity_type === "User" ? "Usuário específico" : "Registro específico"}</label>
+            <select className="input" disabled={!["Confederation", "BettingOperator", "User"].includes(f.entity_type)} value={f.entity_id} onChange={e => setF(s => ({ ...s, entity_id: e.target.value }))}>
               <option value="">Todos</option>
               {entityOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
+            {!["Confederation", "BettingOperator", "User"].includes(f.entity_type) && (
+              <p className="text-xs text-muted mt-1">Escolha um tipo (Confederação, Bet ou Usuário) para filtrar por registro.</p>
+            )}
           </div>
           <div>
             <label className="label">Usuário (autor da ação)</label>
             <select className="input" value={f.user_id} onChange={e => setF(s => ({ ...s, user_id: e.target.value }))}>
               <option value="">Todos os usuários</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              {users.filter(u => u.is_active).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
           </div>
           <div>
@@ -115,7 +126,7 @@ export default function AuditoriaPage() {
           </div>
         </div>
         <div className="mt-3">
-          <button onClick={() => setF({ action: "", entity_type: "", entity_id: "", user_id: "", date_from: "", date_to: "" })} className="btn-secondary">Limpar filtros</button>
+          <button onClick={() => setF({ action: "", entity_type: "", entity_id: "", user_id: "", confederation_id: "", date_from: "", date_to: "" })} className="btn-secondary">Limpar filtros</button>
         </div>
       </div>
 

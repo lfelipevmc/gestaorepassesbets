@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from .database import Base, engine
 from .routers import (auth, users, confederations, operators, collections, payments, reports,
-                      documents, ai, audit, endr, beneficiaries, redistributions, templates, finance, alerts)
+                      documents, ai, audit, endr, beneficiaries, redistributions, templates, finance, alerts, office)
 from .services.scheduler import start_scheduler
 import os
 import logging
@@ -25,7 +25,7 @@ app.add_middleware(
 def startup():
     Base.metadata.create_all(bind=engine)
     _run_light_migrations()
-    for d in ["/app/uploads", "/app/uploads/logos", "/app/uploads/reports", "/app/uploads/redistributions", "/app/uploads/regulations", "/app/uploads/oficios", "/app/uploads/email_replies"]:
+    for d in ["/app/uploads", "/app/uploads/logos", "/app/uploads/reports", "/app/uploads/redistributions", "/app/uploads/regulations", "/app/uploads/oficios", "/app/uploads/email_replies", "/app/uploads/office"]:
         os.makedirs(d, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
     _seed_initial_data()
@@ -249,6 +249,7 @@ app.include_router(redistributions.router)
 app.include_router(templates.router)
 app.include_router(finance.router)
 app.include_router(alerts.router)
+app.include_router(office.router)
 
 
 @app.get("/health")

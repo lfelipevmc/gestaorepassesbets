@@ -11,8 +11,17 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 @router.get("/", response_model=List[UserOut])
-def list_users(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    return db.query(User).all()
+def list_users(
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Por padrão retorna somente usuários ativos (para seletores em todo o sistema).
+    A página de gestão de usuários (admin) passa include_inactive=true para ver os desativados."""
+    q = db.query(User)
+    if not include_inactive:
+        q = q.filter(User.is_active == True)
+    return q.order_by(User.name).all()
 
 
 @router.post("/", response_model=UserOut)

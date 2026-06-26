@@ -3,23 +3,41 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
-import { getConfederations, getPayments } from "@/lib/api";
+import { getConfederations, getPayments, createConfederation } from "@/lib/api";
+import Modal from "@/components/ui/Modal";
 import { formatCurrency } from "@/lib/utils";
 
 export default function ConfederacoesPage() {
   const [confederations, setConfederations] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ name: "", acronym: "" });
 
-  useEffect(() => {
+  function load() {
     Promise.all([getConfederations(), getPayments({ limit: 1000 })])
       .then(([c, p]) => { setConfederations(c.data); setPayments(p.data); })
       .finally(() => setLoading(false));
-  }, []);
+  }
+  useEffect(() => { load(); }, []);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name || !form.acronym) { alert("Preencha nome e sigla."); return; }
+    setCreating(true);
+    try {
+      await createConfederation({ name: form.name, acronym: form.acronym.toUpperCase() });
+      setShowCreate(false); setForm({ name: "", acronym: "" }); load();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao criar confederação. A sigla pode já existir.");
+    } finally { setCreating(false); }
+  }
 
   return (
     <AppShell>
-      <Header title="Confederações" subtitle="CBTM, CBT, CBW, CBH" />
+      <Header title="Confederações" subtitle="Clientes do escritório — confederações contratantes"
+        actions={<button onClick={() => setShowCreate(true)} className="btn-primary">+ Nova Confederação</button>} />
       {loading ? <div className="text-muted">Carregando...</div> : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {confederations.map(conf => {
@@ -78,6 +96,24 @@ export default function ConfederacoesPage() {
           })}
         </div>
       )}
+
+      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="Nova Confederação">
+        <form onSubmit={handleCreate} className="space-y-4">
+          <div>
+            <label className="label">Nome da confederação *</label>
+            <input className="input" placeholder="Ex.: Confederação Brasileira de Vôlei" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Sigla * <span className="text-muted font-normal">(chave {"{confederacaosigla}"})</span></label>
+            <input className="input uppercase" placeholder="Ex.: CBV" value={form.acronym} onChange={e => setForm(f => ({ ...f, acronym: e.target.value }))} />
+            <p className="text-xs text-muted mt-1">A sigla é usada nas notificações automáticas pela chave {"{confederacaosigla}"}.</p>
+          </div>
+          <div className="flex gap-3 justify-end pt-2">
+            <button type="button" onClick={() => setShowCreate(false)} className="btn-secondary">Cancelar</button>
+            <button type="submit" disabled={creating} className="btn-primary">{creating ? "Criando..." : "Criar Confederação"}</button>
+          </div>
+        </form>
+      </Modal>
     </AppShell>
   );
 }
