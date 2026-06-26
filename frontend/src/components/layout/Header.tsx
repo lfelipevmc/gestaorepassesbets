@@ -1,8 +1,10 @@
 "use client";
 
+import React from "react";
+
 interface HeaderProps {
   title: string;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   actions?: React.ReactNode;
 }
 
