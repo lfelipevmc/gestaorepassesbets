@@ -111,6 +111,9 @@ export const deleteEndrPayment = (id: number) => api.delete(`/api/payments/endr/
 export const getComplianceReport = (cycleId: number) => api.get(`/api/reports/compliance/${cycleId}`);
 export const downloadExcelReport = (cycleId: number) =>
   api.get(`/api/reports/compliance/${cycleId}/excel`, { responseType: "blob" });
+export const getCrossReport = (params?: any) => api.get("/api/reports/cross", { params });
+export const downloadCrossExcel = (params?: any) =>
+  api.get("/api/reports/cross/excel", { params, responseType: "blob" });
 
 // Documents
 export const getDocuments = (params?: any) => api.get("/api/documents/", { params });

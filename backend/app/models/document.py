@@ -12,7 +12,14 @@ class DocumentType(str, enum.Enum):
     regulation = "regulation"
     correspondence = "correspondence"
     ggr_report = "ggr_report"
+    contract = "contract"
     other = "other"
+
+
+class DocumentCategory(str, enum.Enum):
+    """Natureza do documento: rascunho/minuta em elaboração ou documento oficial assinado/protocolado."""
+    minuta = "minuta"
+    documento_oficial = "documento_oficial"
 
 
 class Document(Base):
@@ -24,6 +31,7 @@ class Document(Base):
     payment_id = Column(Integer, ForeignKey("payments.id"), nullable=True)
     title = Column(String, nullable=False)
     document_type = Column(Enum(DocumentType), nullable=False)
+    category = Column(Enum(DocumentCategory), nullable=False, default=DocumentCategory.documento_oficial)
     file_path = Column(String, nullable=False)
     file_name = Column(String, nullable=False)
     file_size = Column(BigInteger, nullable=True)

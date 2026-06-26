@@ -3,21 +3,235 @@ import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import Badge from "@/components/ui/Badge";
-import { getConfederations, getCollections, getComplianceReport, downloadExcelReport } from "@/lib/api";
+import {
+  getConfederations, getCollections, getOperators, getComplianceReport, downloadExcelReport,
+  getCrossReport, downloadCrossExcel,
+} from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 
+const STATUS_OPTIONS = [
+  { value: "", label: "Todas as situações" },
+  { value: "paid", label: "Adimplente" },
+  { value: "report_pending", label: "Pendente de Relatório" },
+  { value: "pending", label: "Inadimplente" },
+  { value: "overdue", label: "Em Atraso" },
+  { value: "partial", label: "Parcial" },
+];
+
 export default function RelatoriosPage() {
+  const [tab, setTab] = useState<"consolidado" | "ciclo">("consolidado");
   const [confederations, setConfederations] = useState<any[]>([]);
   const [cycles, setCycles] = useState<any[]>([]);
-  const [selectedCycle, setSelectedCycle] = useState("");
+  const [operators, setOperators] = useState<any[]>([]);
+
+  useEffect(() => {
+    Promise.all([getConfederations(), getCollections(), getOperators({ limit: 300 })])
+      .then(([c, cy, ops]) => { setConfederations(c.data); setCycles(cy.data); setOperators(ops.data); });
+  }, []);
+
+  return (
+    <AppShell>
+      <Header title="Relatórios" subtitle="Adimplência individualizada por confederação, mês e Bet — com visão consolidada e cruzada" />
+
+      <div className="flex gap-2 mb-6">
+        <button onClick={() => setTab("consolidado")} className={tab === "consolidado" ? "btn-primary" : "btn-secondary"}>Consolidado / Cruzado</button>
+        <button onClick={() => setTab("ciclo")} className={tab === "ciclo" ? "btn-primary" : "btn-secondary"}>Por Ciclo</button>
+      </div>
+
+      {tab === "consolidado"
+        ? <Consolidado confederations={confederations} operators={operators} />
+        : <PorCiclo confederations={confederations} cycles={cycles} />}
+    </AppShell>
+  );
+}
+
+/* ------------------------- Consolidado / Cruzado ------------------------- */
+function Consolidado({ confederations, operators }: { confederations: any[]; operators: any[] }) {
+  const [filters, setFilters] = useState({ confederation_id: "", month: "", operator_id: "", status: "" });
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
-  useEffect(() => {
-    Promise.all([getConfederations(), getCollections()])
-      .then(([c, cy]) => { setConfederations(c.data); setCycles(cy.data); });
-  }, []);
+  function buildParams() {
+    const p: any = {};
+    if (filters.confederation_id) p.confederation_id = filters.confederation_id;
+    if (filters.month) p.month = `${filters.month}-01`;
+    if (filters.operator_id) p.operator_id = filters.operator_id;
+    if (filters.status) p.status = filters.status;
+    return p;
+  }
+
+  async function generate() {
+    setLoading(true);
+    try {
+      const r = await getCrossReport(buildParams());
+      setReport(r.data);
+    } catch (e: any) {
+      alert(e.response?.data?.detail || "Erro ao gerar relatório");
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => { generate(); /* carga inicial */ }, []); // eslint-disable-line
+
+  async function download() {
+    setDownloading(true);
+    try {
+      const r = await downloadCrossExcel(buildParams());
+      const url = URL.createObjectURL(new Blob([r.data]));
+      const a = document.createElement("a");
+      a.href = url; a.download = "relatorio_consolidado.xlsx"; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setDownloading(false); }
+  }
+
+  return (
+    <>
+      <div className="card mb-6">
+        <h3 className="font-semibold text-white mb-4">Filtros</h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div>
+            <label className="label">Confederação</label>
+            <select className="input" value={filters.confederation_id} onChange={e => setFilters(f => ({ ...f, confederation_id: e.target.value }))}>
+              <option value="">Todas</option>
+              {confederations.map(c => <option key={c.id} value={c.id}>{c.acronym}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Mês de Referência</label>
+            <input type="month" className="input" value={filters.month} onChange={e => setFilters(f => ({ ...f, month: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Bet (Agente Operador)</label>
+            <select className="input" value={filters.operator_id} onChange={e => setFilters(f => ({ ...f, operator_id: e.target.value }))}>
+              <option value="">Todas</option>
+              {operators.map(o => <option key={o.id} value={o.id}>{o.fantasy_name || o.company_name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Situação</label>
+            <select className="input" value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value }))}>
+              {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="flex gap-3 mt-4">
+          <button onClick={generate} disabled={loading} className="btn-primary">{loading ? "Gerando..." : "Aplicar Filtros"}</button>
+          <button onClick={download} disabled={downloading} className="btn-secondary">{downloading ? "Baixando..." : "Exportar Excel"}</button>
+          <button onClick={() => { setFilters({ confederation_id: "", month: "", operator_id: "", status: "" }); }} className="btn-secondary">Limpar</button>
+        </div>
+      </div>
+
+      {report && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+            <Stat value={report.totals.count} label="Lançamentos" />
+            <Stat value={report.totals.adimplentes} label="Adimplentes" color="text-success" />
+            <Stat value={report.totals.pendente_relatorio} label="Pend. de Relatório" color="text-warning" />
+            <Stat value={report.totals.inadimplentes} label="Inadimplentes" color="text-danger" />
+            <div className="card text-center">
+              <p className="text-2xl font-bold text-success">{formatCurrency(report.totals.amount_paid)}</p>
+              <p className="text-xs text-muted">Total Recebido</p>
+            </div>
+          </div>
+
+          {/* Visão cruzada: por confederação e por mês */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            <AggTable title="Por Confederação" labelKey="confederation_acronym" rows={report.by_confederation} header="Confederação" />
+            <AggTable title="Por Mês" labelKey="reference_month" rows={report.by_month} header="Mês" />
+          </div>
+
+          {/* Individualizado */}
+          <div className="card p-0 overflow-hidden">
+            <div className="p-4 border-b border-surface-border">
+              <h3 className="font-semibold text-white">Individualizado por Bet ({report.rows.length})</h3>
+              <p className="text-xs text-muted mt-1">Cada linha é um lançamento de uma Bet em uma confederação num determinado mês.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-surface">
+                  <tr>
+                    <th className="table-th">Conf.</th>
+                    <th className="table-th">Mês</th>
+                    <th className="table-th">Razão Social</th>
+                    <th className="table-th">CNPJ</th>
+                    <th className="table-th">Situação</th>
+                    <th className="table-th">Valor Devido</th>
+                    <th className="table-th">Valor Recebido</th>
+                    <th className="table-th">Relatório</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.rows.length === 0 ? (
+                    <tr><td colSpan={8} className="table-td text-center text-muted py-12">Nenhum lançamento para os filtros selecionados</td></tr>
+                  ) : report.rows.map((r: any) => (
+                    <tr key={r.payment_id} className="hover:bg-surface-light/20">
+                      <td className="table-td">{r.confederation_acronym}</td>
+                      <td className="table-td text-muted">{r.reference_month || "-"}</td>
+                      <td className="table-td font-medium text-white">{r.company_name}</td>
+                      <td className="table-td font-mono text-xs text-muted">{r.cnpj || "-"}</td>
+                      <td className="table-td"><Badge status={r.status} /></td>
+                      <td className="table-td">{formatCurrency(r.amount_due)}</td>
+                      <td className="table-td text-success">{formatCurrency(r.amount_paid)}</td>
+                      <td className="table-td">{r.report_received ? <span className="text-success text-xs">Recebido</span> : <span className="text-warning text-xs">Pendente</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+function Stat({ value, label, color = "text-white" }: { value: number; label: string; color?: string }) {
+  return (
+    <div className="card text-center">
+      <p className={`text-3xl font-bold ${color}`}>{value}</p>
+      <p className="text-xs text-muted">{label}</p>
+    </div>
+  );
+}
+
+function AggTable({ title, labelKey, rows, header }: { title: string; labelKey: string; rows: any[]; header: string }) {
+  return (
+    <div className="card p-0 overflow-hidden">
+      <div className="p-4 border-b border-surface-border"><h3 className="font-semibold text-white">{title}</h3></div>
+      <table className="w-full">
+        <thead className="bg-surface">
+          <tr>
+            <th className="table-th">{header}</th>
+            <th className="table-th">Bets</th>
+            <th className="table-th">Recebido</th>
+            <th className="table-th">Adimpl.</th>
+            <th className="table-th">Inadimpl.</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr><td colSpan={5} className="table-td text-center text-muted py-6">Sem dados</td></tr>
+          ) : rows.map((g: any, i: number) => (
+            <tr key={i}>
+              <td className="table-td font-medium text-white">{g[labelKey] || "-"}</td>
+              <td className="table-td text-muted">{g.count}</td>
+              <td className="table-td text-success">{formatCurrency(g.amount_paid)}</td>
+              <td className="table-td text-success">{g.adimplentes}</td>
+              <td className="table-td text-danger">{g.inadimplentes}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ------------------------------- Por Ciclo ------------------------------- */
+function PorCiclo({ confederations, cycles }: { confederations: any[]; cycles: any[] }) {
+  const [selectedCycle, setSelectedCycle] = useState("");
+  const [report, setReport] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   async function handleGenerate() {
     if (!selectedCycle) return;
@@ -27,9 +241,7 @@ export default function RelatoriosPage() {
       setReport(r.data);
     } catch (err: any) {
       alert(err.response?.data?.detail || "Erro ao gerar relatório");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   async function handleDownloadExcel() {
@@ -39,13 +251,9 @@ export default function RelatoriosPage() {
       const r = await downloadExcelReport(parseInt(selectedCycle));
       const url = URL.createObjectURL(new Blob([r.data]));
       const a = document.createElement("a");
-      a.href = url;
-      a.download = `relatorio_ciclo_${selectedCycle}.xlsx`;
-      a.click();
+      a.href = url; a.download = `relatorio_ciclo_${selectedCycle}.xlsx`; a.click();
       URL.revokeObjectURL(url);
-    } finally {
-      setDownloading(false);
-    }
+    } finally { setDownloading(false); }
   }
 
   const getCycleName = (c: any) => {
@@ -54,9 +262,7 @@ export default function RelatoriosPage() {
   };
 
   return (
-    <AppShell>
-      <Header title="Relatórios" subtitle="Adimplência e conformidade por ciclo de cobrança" />
-
+    <>
       <div className="card mb-6">
         <h3 className="font-semibold text-white mb-4">Selecionar Ciclo</h3>
         <div className="flex gap-3 items-end">
@@ -64,43 +270,23 @@ export default function RelatoriosPage() {
             <label className="label">Ciclo de Cobrança</label>
             <select className="input" value={selectedCycle} onChange={e => { setSelectedCycle(e.target.value); setReport(null); }}>
               <option value="">Selecione um ciclo...</option>
-              {cycles.map(c => (
-                <option key={c.id} value={c.id}>{getCycleName(c)} (#{c.id})</option>
-              ))}
+              {cycles.map(c => <option key={c.id} value={c.id}>{getCycleName(c)} (#{c.id})</option>)}
             </select>
           </div>
-          <button onClick={handleGenerate} disabled={!selectedCycle || loading} className="btn-primary">
-            {loading ? "Gerando..." : "Gerar Relatório"}
-          </button>
-          <button onClick={handleDownloadExcel} disabled={!selectedCycle || downloading} className="btn-secondary">
-            {downloading ? "Baixando..." : "Exportar Excel"}
-          </button>
+          <button onClick={handleGenerate} disabled={!selectedCycle || loading} className="btn-primary">{loading ? "Gerando..." : "Gerar Relatório"}</button>
+          <button onClick={handleDownloadExcel} disabled={!selectedCycle || downloading} className="btn-secondary">{downloading ? "Baixando..." : "Exportar Excel"}</button>
         </div>
       </div>
 
       {report && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+            <Stat value={report.summary.total_operators} label="Total de Operadores" />
+            <Stat value={report.summary.paid} label="Adimplentes" color="text-success" />
+            <Stat value={report.summary.report_pending} label="Pend. de Relatório" color="text-warning" />
+            <Stat value={report.summary.overdue} label="Inadimplentes" color="text-danger" />
             <div className="card text-center">
-              <p className="text-3xl font-bold text-white">{report.summary.total_operators}</p>
-              <p className="text-xs text-muted">Total de Operadores</p>
-            </div>
-            <div className="card text-center">
-              <p className="text-3xl font-bold text-success">{report.summary.paid}</p>
-              <p className="text-xs text-muted">Adimplentes</p>
-            </div>
-            <div className="card text-center">
-              <p className="text-3xl font-bold text-warning">{report.summary.report_pending}</p>
-              <p className="text-xs text-muted">Pend. de Relatório</p>
-            </div>
-            <div className="card text-center">
-              <p className="text-3xl font-bold text-danger">{report.summary.overdue}</p>
-              <p className="text-xs text-muted">Inadimplentes</p>
-            </div>
-            <div className="card text-center">
-              <p className={`text-3xl font-bold ${report.summary.compliance_rate >= 70 ? "text-success" : "text-warning"}`}>
-                {report.summary.compliance_rate}%
-              </p>
+              <p className={`text-3xl font-bold ${report.summary.compliance_rate >= 70 ? "text-success" : "text-warning"}`}>{report.summary.compliance_rate}%</p>
               <p className="text-xs text-muted">Taxa de Adimplência</p>
             </div>
           </div>
@@ -110,38 +296,9 @@ export default function RelatoriosPage() {
             <p className="text-2xl font-bold text-success">{formatCurrency(report.summary.total_received_brl)}</p>
           </div>
 
-          {/* Non-compliant */}
           {report.non_compliant.length > 0 && (
-            <div className="card p-0 overflow-hidden mb-4">
-              <div className="p-4 border-b border-surface-border bg-danger/5">
-                <h3 className="font-semibold text-danger">Inadimplentes ({report.non_compliant.length})</h3>
-              </div>
-              <table className="w-full">
-                <thead className="bg-surface">
-                  <tr>
-                    <th className="table-th">Razão Social</th>
-                    <th className="table-th">Nome Fantasia</th>
-                    <th className="table-th">CNPJ</th>
-                    <th className="table-th">Status</th>
-                    <th className="table-th">Valor Devido</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.non_compliant.map((p: any) => (
-                    <tr key={p.operator_id}>
-                      <td className="table-td">{p.company_name}</td>
-                      <td className="table-td">{p.fantasy_name || "-"}</td>
-                      <td className="table-td font-mono text-xs">{p.cnpj || "-"}</td>
-                      <td className="table-td"><Badge status={p.status} /></td>
-                      <td className="table-td">{formatCurrency(p.amount_due)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <CycleTable title={`Inadimplentes (${report.non_compliant.length})`} rows={report.non_compliant} />
           )}
-
-          {/* Pendentes de Relatório */}
           {report.report_pending_list?.length > 0 && (
             <div className="card p-0 overflow-hidden mb-4">
               <div className="p-4 border-b border-surface-border bg-warning/5">
@@ -149,58 +306,67 @@ export default function RelatoriosPage() {
                 <p className="text-xs text-muted mt-1">Pagaram, mas ainda não enviaram o relatório de individualização.</p>
               </div>
               <table className="w-full">
-                <thead className="bg-surface">
-                  <tr>
-                    <th className="table-th">Razão Social</th>
-                    <th className="table-th">CNPJ</th>
-                    <th className="table-th">Valor Recebido</th>
-                    <th className="table-th">Data Recebimento</th>
+                <thead className="bg-surface"><tr>
+                  <th className="table-th">Razão Social</th><th className="table-th">CNPJ</th>
+                  <th className="table-th">Valor Recebido</th><th className="table-th">Data Recebimento</th>
+                </tr></thead>
+                <tbody>{report.report_pending_list.map((p: any) => (
+                  <tr key={p.operator_id}>
+                    <td className="table-td">{p.company_name}</td>
+                    <td className="table-td font-mono text-xs">{p.cnpj || "-"}</td>
+                    <td className="table-td text-warning">{formatCurrency(p.amount_paid)}</td>
+                    <td className="table-td">{p.payment_date || "-"}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {report.report_pending_list.map((p: any) => (
-                    <tr key={p.operator_id}>
-                      <td className="table-td">{p.company_name}</td>
-                      <td className="table-td font-mono text-xs">{p.cnpj || "-"}</td>
-                      <td className="table-td text-warning">{formatCurrency(p.amount_paid)}</td>
-                      <td className="table-td">{p.payment_date || "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
+                ))}</tbody>
               </table>
             </div>
           )}
-
-          {/* Compliant */}
           {report.compliant.length > 0 && (
             <div className="card p-0 overflow-hidden">
               <div className="p-4 border-b border-surface-border bg-success/5">
                 <h3 className="font-semibold text-success">Adimplentes ({report.compliant.length})</h3>
               </div>
               <table className="w-full">
-                <thead className="bg-surface">
-                  <tr>
-                    <th className="table-th">Razão Social</th>
-                    <th className="table-th">Nome Fantasia</th>
-                    <th className="table-th">Valor Pago</th>
-                    <th className="table-th">Data Pagamento</th>
+                <thead className="bg-surface"><tr>
+                  <th className="table-th">Razão Social</th><th className="table-th">Nome Fantasia</th>
+                  <th className="table-th">Valor Pago</th><th className="table-th">Data Pagamento</th>
+                </tr></thead>
+                <tbody>{report.compliant.map((p: any) => (
+                  <tr key={p.operator_id}>
+                    <td className="table-td">{p.company_name}</td>
+                    <td className="table-td">{p.fantasy_name || "-"}</td>
+                    <td className="table-td text-success">{formatCurrency(p.amount_paid)}</td>
+                    <td className="table-td">{p.payment_date || "-"}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {report.compliant.map((p: any) => (
-                    <tr key={p.operator_id}>
-                      <td className="table-td">{p.company_name}</td>
-                      <td className="table-td">{p.fantasy_name || "-"}</td>
-                      <td className="table-td text-success">{formatCurrency(p.amount_paid)}</td>
-                      <td className="table-td">{p.payment_date || "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
+                ))}</tbody>
               </table>
             </div>
           )}
         </>
       )}
-    </AppShell>
+    </>
+  );
+}
+
+function CycleTable({ title, rows }: { title: string; rows: any[] }) {
+  return (
+    <div className="card p-0 overflow-hidden mb-4">
+      <div className="p-4 border-b border-surface-border bg-danger/5"><h3 className="font-semibold text-danger">{title}</h3></div>
+      <table className="w-full">
+        <thead className="bg-surface"><tr>
+          <th className="table-th">Razão Social</th><th className="table-th">Nome Fantasia</th>
+          <th className="table-th">CNPJ</th><th className="table-th">Status</th><th className="table-th">Valor Devido</th>
+        </tr></thead>
+        <tbody>{rows.map((p: any) => (
+          <tr key={p.operator_id}>
+            <td className="table-td">{p.company_name}</td>
+            <td className="table-td">{p.fantasy_name || "-"}</td>
+            <td className="table-td font-mono text-xs">{p.cnpj || "-"}</td>
+            <td className="table-td"><Badge status={p.status} /></td>
+            <td className="table-td">{formatCurrency(p.amount_due)}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
   );
 }

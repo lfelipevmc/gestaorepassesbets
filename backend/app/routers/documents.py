@@ -3,7 +3,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from ..database import get_db
-from ..models.document import Document, DocumentType
+from ..models.document import Document, DocumentType, DocumentCategory
 from ..models.user import User
 from ..core.auth import get_current_user, require_office
 from ..config import settings
@@ -18,6 +18,8 @@ def list_documents(
     operator_id: Optional[int] = None,
     confederation_id: Optional[int] = None,
     cycle_id: Optional[int] = None,
+    category: Optional[DocumentCategory] = None,
+    document_type: Optional[DocumentType] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -28,6 +30,10 @@ def list_documents(
         q = q.filter(Document.confederation_id == confederation_id)
     if cycle_id:
         q = q.filter(Document.cycle_id == cycle_id)
+    if category:
+        q = q.filter(Document.category == category)
+    if document_type:
+        q = q.filter(Document.document_type == document_type)
     if current_user.role == "confederation_viewer":
         q = q.filter(Document.confederation_id == current_user.confederation_id)
     return q.order_by(Document.created_at.desc()).all()
@@ -38,6 +44,7 @@ async def upload_document(
     file: UploadFile = File(...),
     title: str = Form(...),
     document_type: DocumentType = Form(...),
+    category: DocumentCategory = Form(DocumentCategory.documento_oficial),
     operator_id: Optional[int] = Form(None),
     confederation_id: Optional[int] = Form(None),
     cycle_id: Optional[int] = Form(None),
@@ -60,6 +67,7 @@ async def upload_document(
         cycle_id=cycle_id,
         title=title,
         document_type=document_type,
+        category=category,
         file_path=file_path,
         file_name=file.filename,
         file_size=len(content),

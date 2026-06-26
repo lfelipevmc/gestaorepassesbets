@@ -42,6 +42,19 @@ def _run_light_migrations():
     from sqlalchemy import inspect, text
     try:
         insp = inspect(engine)
+
+        # Tipos enum novos precisam existir ANTES de adicionar colunas que os usem (Postgres).
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "DO $$ BEGIN "
+                    "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'documentcategory') THEN "
+                    "CREATE TYPE documentcategory AS ENUM ('minuta', 'documento_oficial'); "
+                    "END IF; END $$;"
+                ))
+        except Exception as e:
+            logger.warning(f"Migração: tipo documentcategory já existe ou indisponível: {e}")
+
         for table in Base.metadata.sorted_tables:
             if not insp.has_table(table.name):
                 continue  # tabela nova: create_all já criou com todas as colunas
@@ -63,6 +76,12 @@ def _run_light_migrations():
                 conn.execute(text("ALTER TYPE paymentstatus ADD VALUE IF NOT EXISTS 'report_pending'"))
         except Exception as e:
             logger.warning(f"Migração: enum paymentstatus já atualizado ou indisponível: {e}")
+
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TYPE documenttype ADD VALUE IF NOT EXISTS 'contract'"))
+        except Exception as e:
+            logger.warning(f"Migração: enum documenttype já atualizado ou indisponível: {e}")
     except Exception as e:
         logger.error(f"Migração leve falhou: {e}")
 

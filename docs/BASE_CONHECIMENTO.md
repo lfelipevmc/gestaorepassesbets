@@ -181,6 +181,18 @@ partida. Por isso `DistributionRule.is_equanime = true` (sem percentuais fixos).
   `/api/finance/summary`, `/api/finance/by-confederation`.
 - Job diário `job_redistribution_deadline_alerts` registra alerta de prazos vencidos.
 
+## 6.X Relatórios e Documentos
+- **Relatórios** (`/relatorios`) têm dois modos:
+  - **Consolidado / Cruzado**: filtros combináveis por confederação, mês de referência, Bet e
+    situação; linha individualizada por lançamento (Bet × confederação × mês) + agregados por
+    confederação e por mês + totais. Endpoint `/api/reports/cross` (+ `/cross/excel`, com abas
+    Individualizado, Por Confederação e Por Mês).
+  - **Por Ciclo**: visão de adimplência de um ciclo específico (`/api/reports/compliance/{id}`).
+- **Documentos** (`/documentos`) são um repositório agrupável por **confederação** ou por **Bet**,
+  com filtros por confederação, Bet, categoria e tipo. Cada documento tem `category`:
+  `minuta` (rascunho em elaboração) ou `documento_oficial` (assinado/protocolado). Campo adicionado
+  via migração leve idempotente (`_run_light_migrations`).
+
 ## 7. Trabalho futuro recomendado (ainda NÃO implementado)
 - **Parser automático de relatórios** das operadoras (nome do evento, base de cálculo por partida,
   beneficiários) — hoje o relatório é anexado como arquivo e os campos preenchidos à mão; a
