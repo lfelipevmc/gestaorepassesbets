@@ -8,3 +8,7 @@ from .audit import AuditLog
 from .beneficiary import Beneficiary, BeneficiaryType
 from .redistribution import Redistribution, RedistributionItem, RedistributionSource, RedistributionStatus, ItemStatus
 from .messaging import MessageTemplate, TemplateOccasion, EmailMessage, EmailDirection
+from .tcu import (
+    TcuLead, TcuLeadNote, TcuCnpjEnrichment, TcuMonitorRun, TcuMonitorSettings,
+    TcuActType, TcuDocType, TcuLeadStatus, TcuSourceKind, TcuRunStatus,
+)

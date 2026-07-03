@@ -258,3 +258,20 @@ export const getTransparency = (params?: any) => api.get("/api/alerts/transparen
 
 // ---- Análise de GGR ----
 export const getGgrAnalysis = (id: number) => api.get(`/api/payments/${id}/ggr-analysis`);
+
+// ---- Radar TCU (captação de leads) ----
+export const getTcuLeads = (params?: any) => api.get("/api/tcu/leads", { params });
+export const getTcuLead = (id: number) => api.get(`/api/tcu/leads/${id}`);
+export const updateTcuLead = (id: number, data: any) => api.patch(`/api/tcu/leads/${id}`, data);
+export const addTcuLeadNote = (id: number, data: { body: string; kind?: string }) =>
+  api.post(`/api/tcu/leads/${id}/notes`, data);
+export const enrichTcuLead = (id: number) => api.post(`/api/tcu/leads/${id}/enrich`);
+export const getTcuStats = () => api.get("/api/tcu/stats");
+export const runTcuPipeline = () => api.post("/api/tcu/run");
+export const ingestTcuText = (data: { text: string; publication_date?: string }) =>
+  api.post("/api/tcu/ingest/text", data);
+export const ingestTcuPdf = (formData: FormData) =>
+  api.post("/api/tcu/ingest/pdf", formData, { headers: { "Content-Type": "multipart/form-data" } });
+export const getTcuRuns = (limit = 20) => api.get("/api/tcu/runs", { params: { limit } });
+export const getTcuSettings = () => api.get("/api/tcu/settings");
+export const updateTcuSettings = (data: any) => api.patch("/api/tcu/settings", data);
