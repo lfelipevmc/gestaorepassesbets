@@ -1,1 +1,5 @@
 tsconfig.tsbuildinfo
+# Gerado pelo Next.js no build (não deve ser versionado)
+next-env.d.ts
+# Lockfile gerado localmente (o build usa package.json)
+package-lock.json
