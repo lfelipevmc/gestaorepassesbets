@@ -19,12 +19,11 @@ import re
 from decimal import Decimal
 from typing import Optional
 
-from .ai_service import get_client
-from .tcu_parser import ParsedBlock
+from .ai import get_client
+from .parser import ParsedBlock
 
 logger = logging.getLogger(__name__)
 
-# Modelo alinhado ao restante do código (ai_service usa claude-sonnet-4-6)
 TCU_MODEL = "claude-sonnet-4-6"
 
 SYSTEM_PROMPT = (

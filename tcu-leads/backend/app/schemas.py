@@ -1,16 +1,43 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import datetime, date
 from decimal import Decimal
-from ..models.tcu import TcuActType, TcuDocType, TcuLeadStatus, TcuSourceKind, TcuRunStatus
+from .models.lead import TcuActType, TcuDocType, TcuLeadStatus, TcuSourceKind, TcuRunStatus
 
 
-class TcuLeadNoteCreate(BaseModel):
+# ------------------------------ Auth ------------------------------ #
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    name: str
+    role: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    name: str
+    password: str
+    role: str = "membro"
+
+
+# ------------------------------ Leads ------------------------------ #
+
+class LeadNoteCreate(BaseModel):
     body: str
     kind: str = "nota"
 
 
-class TcuLeadNoteOut(BaseModel):
+class LeadNoteOut(BaseModel):
     id: int
     lead_id: int
     author_id: Optional[int] = None
@@ -22,7 +49,7 @@ class TcuLeadNoteOut(BaseModel):
         from_attributes = True
 
 
-class TcuCnpjEnrichmentOut(BaseModel):
+class CnpjEnrichmentOut(BaseModel):
     id: int
     cnpj: str
     razao_social: Optional[str] = None
@@ -46,7 +73,7 @@ class TcuCnpjEnrichmentOut(BaseModel):
         from_attributes = True
 
 
-class TcuLeadOut(BaseModel):
+class LeadOut(BaseModel):
     id: int
     act_type: TcuActType
     natureza_processo: Optional[str] = None
@@ -92,13 +119,13 @@ class TcuLeadOut(BaseModel):
         from_attributes = True
 
 
-class TcuLeadDetail(TcuLeadOut):
+class LeadDetail(LeadOut):
     raw_text: Optional[str] = None
-    notes: List[TcuLeadNoteOut] = []
-    enrichment: Optional[TcuCnpjEnrichmentOut] = None
+    notes: List[LeadNoteOut] = []
+    enrichment: Optional[CnpjEnrichmentOut] = None
 
 
-class TcuLeadUpdate(BaseModel):
+class LeadUpdate(BaseModel):
     status: Optional[TcuLeadStatus] = None
     assignee_id: Optional[int] = None
     tema: Optional[str] = None
@@ -108,12 +135,36 @@ class TcuLeadUpdate(BaseModel):
     legitimate_interest_basis: Optional[str] = None
 
 
-class TcuIngestText(BaseModel):
+class IngestText(BaseModel):
     text: str
     publication_date: Optional[date] = None
 
 
-class TcuSettingsOut(BaseModel):
+# ------------------------------ Processos autuados ------------------------------ #
+
+class TrackedProcessOut(BaseModel):
+    id: int
+    numero_processo: str
+    natureza: Optional[str] = None
+    tipo: Optional[str] = None
+    orgao_entidade: Optional[str] = None
+    relator: Optional[str] = None
+    colegiado: Optional[str] = None
+    uf: Optional[str] = None
+    municipio: Optional[str] = None
+    titulo: Optional[str] = None
+    first_source: Optional[str] = None
+    detection_date: Optional[date] = None
+    first_seen_at: datetime
+    lead_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ------------------------------ Configuração ------------------------------ #
+
+class SettingsOut(BaseModel):
     id: int
     enabled: bool
     run_hour: int
@@ -125,6 +176,11 @@ class TcuSettingsOut(BaseModel):
     btcu_listing_method: str
     btcu_listing_body: Optional[str] = None
     pautas_enabled: bool
+    autuados_enabled: bool
+    autuados_listing_url: Optional[str] = None
+    autuados_listing_method: str
+    autuados_listing_body: Optional[str] = None
+    autuados_create_leads: bool
     enrich_cnpj: bool
     enrich_cache_days: int
     min_debito_alerta: Optional[Decimal] = None
@@ -137,7 +193,7 @@ class TcuSettingsOut(BaseModel):
         from_attributes = True
 
 
-class TcuSettingsUpdate(BaseModel):
+class SettingsUpdate(BaseModel):
     enabled: Optional[bool] = None
     run_hour: Optional[int] = None
     run_minute: Optional[int] = None
@@ -148,6 +204,11 @@ class TcuSettingsUpdate(BaseModel):
     btcu_listing_method: Optional[str] = None
     btcu_listing_body: Optional[str] = None
     pautas_enabled: Optional[bool] = None
+    autuados_enabled: Optional[bool] = None
+    autuados_listing_url: Optional[str] = None
+    autuados_listing_method: Optional[str] = None
+    autuados_listing_body: Optional[str] = None
+    autuados_create_leads: Optional[bool] = None
     enrich_cnpj: Optional[bool] = None
     enrich_cache_days: Optional[int] = None
     min_debito_alerta: Optional[Decimal] = None
@@ -156,7 +217,7 @@ class TcuSettingsUpdate(BaseModel):
     contact_email: Optional[str] = None
 
 
-class TcuRunOut(BaseModel):
+class RunOut(BaseModel):
     id: int
     started_at: datetime
     finished_at: Optional[datetime] = None

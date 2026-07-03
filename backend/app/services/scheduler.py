@@ -344,38 +344,6 @@ def job_monthly_office_report():
         db.close()
 
 
-def job_tcu_daily_monitor():
-    """Diário: executa o pipeline do Radar TCU (se habilitado nas configurações)."""
-    db = SessionLocal()
-    try:
-        from ..services.tcu_pipeline import get_settings, run_pipeline
-        settings = get_settings(db)
-        if not settings.enabled:
-            logger.info("Radar TCU desabilitado — pipeline não executado")
-            return
-        result = run_pipeline(db, trigger="scheduler")
-        logger.info(f"Radar TCU: {result.get('leads_created')} leads, status {result.get('status')}")
-    except Exception as e:
-        logger.error(f"TCU daily monitor error: {e}")
-    finally:
-        db.close()
-
-
-def reschedule_tcu_job(settings=None):
-    """(Re)agenda o job diário do Radar TCU conforme o horário configurado."""
-    hour, minute = 7, 30
-    if settings is not None:
-        hour = settings.run_hour if settings.run_hour is not None else 7
-        minute = settings.run_minute if settings.run_minute is not None else 30
-    scheduler.add_job(
-        job_tcu_daily_monitor,
-        CronTrigger(hour=hour, minute=minute),
-        id="tcu_monitor",
-        replace_existing=True,
-    )
-    logger.info(f"Radar TCU agendado para {hour:02d}:{minute:02d}")
-
-
 def start_scheduler():
     scheduler.add_job(job_sync_operators, CronTrigger(hour=7, minute=0), id="sync_mf", replace_existing=True)
     scheduler.add_job(job_send_first_notifications, CronTrigger(hour=8, minute=0), id="notify_1", replace_existing=True)
@@ -394,17 +362,5 @@ def start_scheduler():
     scheduler.add_job(job_redistribution_deadline_alerts, CronTrigger(hour=7, minute=30), id="redis_deadline", replace_existing=True)
     # Relatório mensal ao escritório (dia 1º às 6h)
     scheduler.add_job(job_monthly_office_report, CronTrigger(day=1, hour=6, minute=0), id="monthly_report", replace_existing=True)
-    # Radar TCU — pipeline diário de captação (horário lido das configurações)
-    try:
-        db = SessionLocal()
-        try:
-            from ..services.tcu_pipeline import get_settings
-            _tcu_settings = get_settings(db)
-        finally:
-            db.close()
-        reschedule_tcu_job(_tcu_settings)
-    except Exception as e:
-        logger.warning(f"Falha ao agendar Radar TCU (usando padrão 07:30): {e}")
-        reschedule_tcu_job(None)
     scheduler.start()
     logger.info("Scheduler started")

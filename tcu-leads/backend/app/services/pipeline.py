@@ -20,14 +20,14 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from ..models.tcu import (
+from ..models import (
     TcuLead, TcuCnpjEnrichment, TcuMonitorRun, TcuMonitorSettings,
     TcuActType, TcuDocType, TcuSourceKind, TcuRunStatus, TcuLeadStatus,
 )
-from . import tcu_sources as src
-from .tcu_parser import parse_caderno, extract_text_from_pdf, compute_deadline, ParsedBlock
-from .tcu_extractor import extract_block, score_opportunity
-from .audit_service import log_action
+from . import sources as src
+from .parser import parse_caderno, extract_text_from_pdf, compute_deadline, ParsedBlock
+from .extractor import extract_block, score_opportunity
+from .audit import log_action
 
 logger = logging.getLogger(__name__)
 
@@ -485,6 +485,26 @@ def run_pipeline(db: Session, trigger: str = "scheduler", user_id: Optional[int]
     except Exception as e:
         logger.error(f"Enriquecimento falhou: {e}")
         errors.append(f"enrich: {e}")
+
+    # Detecção de processos autuados do dia (compara a lista de hoje com a já conhecida)
+    try:
+        from . import process_tracker
+        today = date.today()
+        detail["processos_novos"] = process_tracker.sync_from_leads(db, detection_date=today)
+        if settings.autuados_enabled:
+            detail["autuados"] = process_tracker.fetch_and_register_autuados(
+                db, client, settings, detection_date=today)
+    except Exception as e:
+        logger.error(f"Detecção de autuados falhou: {e}")
+        errors.append(f"autuados: {e}")
+
+    # Resumo diário por e-mail (apenas quando houver oportunidades relevantes)
+    try:
+        from .digest import send_daily_digest
+        detail["digest"] = send_daily_digest(db)
+    except Exception as e:
+        logger.error(f"Envio do resumo falhou: {e}")
+        errors.append(f"digest: {e}")
 
     run.finished_at = datetime.utcnow()
     run.detail = json.dumps(detail, ensure_ascii=False, default=str)

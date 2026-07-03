@@ -32,7 +32,7 @@ CERTIDOES_INIDONEOS = "https://certidoes.apps.tcu.gov.br/api/publico/responsavei
 CERTIDOES_CONTAS_IRREGULARES = "https://certidoes.apps.tcu.gov.br/api/publico/responsaveis-contas-irregulares"
 BRASILAPI_CNPJ = "https://brasilapi.com.br/api/cnpj/v1/{cnpj}"
 
-DEFAULT_UA = "RadarTCU/1.0 (monitoramento juridico interno; contato: escritorio)"
+DEFAULT_UA = "TCULeads/1.0 (monitoramento juridico interno; contato: escritorio)"
 
 
 class TcuHttpClient:
@@ -184,6 +184,57 @@ def extract_codigo_from_listing_item(item: dict) -> Optional[str]:
         val = item.get(key)
         if val:
             return str(val)
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Listagem de processos (para a detecção de autuados do dia)
+# --------------------------------------------------------------------------- #
+
+def fetch_processos_listing(client: "TcuHttpClient", settings) -> list[dict]:
+    """Consulta o endpoint de LISTAGEM de processos do TCU.
+
+    Assim como a listagem do BTCU, este endpoint não é documentado e deve ser
+    capturado (DevTools) e configurado em TcuMonitorSettings.autuados_listing_url.
+    Se não configurado, retorna [] — a detecção de autuados então se apoia apenas
+    nos números de processo vistos nas demais fontes do pipeline.
+
+    Espera-se que cada item traga um campo com o número do processo.
+    """
+    url = getattr(settings, "autuados_listing_url", None)
+    if not url:
+        return []
+
+    today = date.today().strftime("%Y-%m-%d")
+    url = url.replace("{data_inicio}", today).replace("{data_fim}", today).replace("{data}", today)
+
+    method = (getattr(settings, "autuados_listing_method", "GET") or "GET").upper()
+    kwargs = {}
+    if method == "POST":
+        body = getattr(settings, "autuados_listing_body", None)
+        if body:
+            body = body.replace("{data_inicio}", today).replace("{data_fim}", today).replace("{data}", today)
+            try:
+                kwargs["json"] = json.loads(body)
+            except json.JSONDecodeError:
+                logger.error("autuados_listing_body não é JSON válido")
+                return []
+
+    data = client.request(method, url, **kwargs)
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("data", "itens", "content", "processos", "results"):
+            if isinstance(data.get(key), list):
+                return data[key]
+    return []
+
+
+def extract_processo_from_item(item: dict) -> Optional[str]:
+    for key in ("numeroProcesso", "numero_processo", "processo", "numeroProcessoFormatado", "numero"):
+        val = item.get(key)
+        if val:
+            return str(val).strip()
     return None
 
 

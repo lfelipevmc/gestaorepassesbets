@@ -1,5 +1,5 @@
 """
-Modelos do módulo "Radar TCU" — captação de oportunidades a partir do
+Modelos do sistema "TCU Leads" — captação de oportunidades a partir do
 Diário Eletrônico/BTCU e das APIs abertas do Tribunal de Contas da União.
 
 Postura de conformidade (roteiro técnico §3 e Recomendação 4):
@@ -48,6 +48,7 @@ class TcuSourceKind(str, enum.Enum):
     btcu_deliberacoes = "btcu_deliberacoes"  # PDF do caderno "Deliberações dos Colegiados"
     acordaos_api = "acordaos_api"            # webservice de Acórdãos (dados abertos)
     pauta_sessao = "pauta_sessao"            # pautas das sessões (early-warning)
+    processo_autuado = "processo_autuado"    # processo recém-autuado (varredura diária)
     ingestao_manual = "ingestao_manual"      # PDF/texto colado manualmente
 
 
@@ -219,6 +220,15 @@ class TcuMonitorSettings(Base):
     # Fonte pautas (early-warning)
     pautas_enabled = Column(Boolean, default=True)
 
+    # Fonte "Processos autuados" — varredura diária que compara a lista de processos
+    # de hoje com a já conhecida; os inéditos = autuados do dia. O endpoint/URL da
+    # listagem de processos também não é documentado e deve ser capturado (DevTools).
+    autuados_enabled = Column(Boolean, default=False)
+    autuados_listing_url = Column(String(500), nullable=True)
+    autuados_listing_method = Column(String(6), default="GET")
+    autuados_listing_body = Column(Text, nullable=True)
+    autuados_create_leads = Column(Boolean, default=True)  # cria lead (baixo score) para cada autuado inédito
+
     # Enriquecimento
     enrich_cnpj = Column(Boolean, default=True)
     enrich_cache_days = Column(Integer, default=40)
@@ -228,7 +238,7 @@ class TcuMonitorSettings(Base):
 
     # Rede
     request_delay_seconds = Column(Float, default=3.0)
-    user_agent = Column(String(200), default="RadarTCU/1.0 (monitoramento juridico interno)")
+    user_agent = Column(String(200), default="TCULeads/1.0 (monitoramento juridico interno)")
     contact_email = Column(String(200), nullable=True)
 
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
