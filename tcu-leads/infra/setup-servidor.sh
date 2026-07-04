@@ -1,9 +1,9 @@
 #!/bin/bash
 # Instalação do TCU Leads num servidor (VPS Ubuntu/Debian). Rode como root.
-# Uso: bash setup-servidor.sh tcu.seuescritorio.com.br [branch]
+# Uso: bash setup-servidor.sh tculeads.vascav.com.br [branch]
 set -e
 
-DOMINIO=${1:-"tcu.seuescritorio.com.br"}
+DOMINIO=${1:-"tculeads.vascav.com.br"}
 BRANCH=${2:-"main"}
 REPO="https://github.com/lfelipevmc/gestaorepassesbets.git"
 DIR="/opt/gestaorepassesbets"

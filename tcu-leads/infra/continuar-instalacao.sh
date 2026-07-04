@@ -1,9 +1,9 @@
 #!/bin/bash
 # Segunda parte da instalação do TCU Leads — rode após criar o .env.
-# Uso: bash continuar-instalacao.sh tcu.seuescritorio.com.br [email-para-certificado]
+# Uso: bash continuar-instalacao.sh tculeads.vascav.com.br [email-para-certificado]
 set -e
 
-DOMINIO=${1:-"tcu.seuescritorio.com.br"}
+DOMINIO=${1:-"tculeads.vascav.com.br"}
 EMAIL=${2:-"admin@$DOMINIO"}
 DIR="/opt/gestaorepassesbets/tcu-leads"
 
@@ -14,7 +14,7 @@ fi
 
 echo "=== Configurando Nginx para $DOMINIO ==="
 cp "$DIR/infra/nginx-http.conf" /etc/nginx/sites-available/tculeads
-sed -i "s/tcu.seuescritorio.com.br/$DOMINIO/g" /etc/nginx/sites-available/tculeads
+sed -i "s/tculeads.vascav.com.br/$DOMINIO/g" /etc/nginx/sites-available/tculeads
 ln -sf /etc/nginx/sites-available/tculeads /etc/nginx/sites-enabled/tculeads
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl restart nginx

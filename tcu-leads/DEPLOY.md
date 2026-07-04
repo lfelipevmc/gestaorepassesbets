@@ -1,7 +1,7 @@
 # Como publicar o TCU Leads (VPS + subdomínio)
 
 Guia para colocar o sistema no ar num **servidor próprio (VPS)**, acessível por um
-**subdomínio do escritório** (ex.: `tcu.seuescritorio.com.br`), com **cadeado de
+**subdomínio do escritório** (ex.: `tculeads.vascav.com.br`), com **cadeado de
 segurança (HTTPS)**.
 
 Você não precisa entender de programação para seguir — mas peça ajuda de alguém
@@ -16,7 +16,7 @@ só executar na ordem.
 2. Aponta o **subdomínio** do escritório para o endereço desse servidor.
 3. Roda **dois comandos** no servidor: um instala tudo, o outro liga o sistema e
    o cadeado HTTPS.
-4. Acessa `https://tcu.seuescritorio.com.br` e entra com o login de administrador.
+4. Acessa `https://tculeads.vascav.com.br` e entra com o login de administrador.
 
 ---
 
@@ -34,7 +34,7 @@ sistema **Ubuntu 22.04 (ou 24.04)**. Ao criar, você recebe um **endereço IP**
 
 No painel onde fica o domínio do escritório (onde ele foi registrado), crie um
 **registro do tipo A**:
-- **Nome/Host:** `tcu` (isso forma `tcu.seuescritorio.com.br`)
+- **Nome/Host:** `tculeads` (isso forma `tculeads.vascav.com.br`)
 - **Valor/Aponta para:** o **IP do servidor** do Passo 1
 - **TTL:** o padrão
 
@@ -47,12 +47,12 @@ Acesse o servidor (pelo terminal/SSH) e rode, **como root**:
 ```bash
 # Baixa e prepara tudo (troque pelo seu subdomínio)
 curl -fsSL https://raw.githubusercontent.com/lfelipevmc/gestaorepassesbets/main/tcu-leads/infra/setup-servidor.sh -o setup.sh
-bash setup.sh tcu.seuescritorio.com.br
+bash setup.sh tculeads.vascav.com.br
 ```
 
 > Observação: enquanto este código estiver na branch de desenvolvimento, troque
 > `main` pela branch correspondente, ou passe a branch como 2º argumento:
-> `bash setup.sh tcu.seuescritorio.com.br claude/tcu-lead-capture-nz5ghz`
+> `bash setup.sh tculeads.vascav.com.br claude/tcu-lead-capture-nz5ghz`
 
 ## Passo 4 — Preencher a configuração (.env)
 
@@ -67,7 +67,7 @@ nano .env
 Preencha (as linhas mais importantes):
 - `SECRET_KEY` — uma senha longa e aleatória (segredo do login).
 - `ADMIN_EMAIL` e `ADMIN_PASSWORD` — seu login de administrador do sistema.
-- `SITE_URL=https://tcu.seuescritorio.com.br`
+- `SITE_URL=https://tculeads.vascav.com.br`
 - `ANTHROPIC_API_KEY` — (opcional) ativa a extração com inteligência artificial.
 - `SMTP_*` e `DIGEST_TO` — (opcional) para o resumo diário por e-mail.
 
@@ -76,13 +76,13 @@ Salve (`Ctrl+O`, `Enter`, `Ctrl+X`).
 ## Passo 5 — Ligar o sistema + HTTPS
 
 ```bash
-bash /opt/gestaorepassesbets/tcu-leads/infra/continuar-instalacao.sh tcu.seuescritorio.com.br seu-email@escritorio.com.br
+bash /opt/gestaorepassesbets/tcu-leads/infra/continuar-instalacao.sh tculeads.vascav.com.br seu-email@vascav.com.br
 ```
 
 Esse comando configura o proxy, sobe o sistema e obtém o **certificado HTTPS
 gratuito** (Let's Encrypt). Ao final, acesse:
 
-**https://tcu.seuescritorio.com.br** — entre com o `ADMIN_EMAIL` / `ADMIN_PASSWORD`
+**https://tculeads.vascav.com.br** — entre com o `ADMIN_EMAIL` / `ADMIN_PASSWORD`
 e **troque a senha** em seguida.
 
 ---

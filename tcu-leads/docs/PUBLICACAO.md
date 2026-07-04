@@ -7,7 +7,7 @@ seguido sem conhecimento técnico — peça apoio do TI apenas nos comandos do s
 > Existe também uma versão ilustrada em página única: abra o arquivo
 > [`guia-publicacao.html`](guia-publicacao.html) no navegador (as telas já vêm embutidas).
 
-- Servidor: **DigitalOcean** · Endereço: **tculeads.vcwadv.com.br** · Segurança: **HTTPS incluso** · Custo aprox.: **US$ 6–12/mês**
+- Servidor: **DigitalOcean** · Endereço: **tculeads.vascav.com.br** · Segurança: **HTTPS incluso** · Custo aprox.: **US$ 6–12/mês**
 
 ---
 
@@ -31,12 +31,14 @@ DigitalOcean ele se chama **Droplet**. Ao final você copia o **número de IP**
 
 ## Parte 2 — Criar o endereço (subdomínio) no Registro.BR (~5 min)
 
-Agora você aponta **tculeads.vcwadv.com.br** para o IP, criando um registro do
-tipo **A** na zona de DNS do domínio `vcwadv.com.br`.
+Agora você aponta **tculeads.vascav.com.br** para o IP, criando um registro do
+tipo **A** na zona de DNS do domínio `vascav.com.br`.
 
-1. **Painel do domínio** — acesse [registro.br](https://registro.br), faça login e clique no domínio **vcwadv.com.br**.
-2. **Editor de DNS** — abra a aba **DNS → Editar Zona**. *(Se o domínio usar outro provedor de DNS — Cloudflare, GoDaddy etc. — faça o mesmo registro lá.)*
-3. **Adicionar o registro:**
+1. **Painel do domínio** — acesse [registro.br](https://registro.br), faça login e clique no domínio **vascav.com.br**.
+2. **Editor de DNS** — abra a aba **DNS → Editar Zona**.
+   - Se aparecer uma tela de **"DNS Parking"** (servidores `ns1/ns2.dns-parking.com`) em vez de "Editar Zona", clique em **Alterar servidores DNS** e escolha usar os **servidores DNS do Registro.br** — só então a zona fica editável. Isso é raro para um domínio já em uso.
+   - Se o domínio usar outro provedor de DNS (Cloudflare, GoDaddy etc.), faça o mesmo registro lá — o conceito é idêntico.
+3. **Adicionar o registro** (⚠️ **apenas adicione** — como `vascav.com.br` já é o domínio ativo do escritório com e-mail, não edite nem apague nenhum registro existente, em especial os do tipo `MX`):
    - **Nome / Host:** `tculeads`
    - **Tipo:** `A`
    - **Valor / Dados:** o **IP da Parte 1**
@@ -44,7 +46,7 @@ tipo **A** na zona de DNS do domínio `vcwadv.com.br`.
 4. **Salvar** — a propagação leva de minutos a ~1 hora.
 
 > ⚠️ Digite o subdomínio em minúsculas (`tculeads`). O endereço final é
-> **tculeads.vcwadv.com.br**.
+> **tculeads.vascav.com.br**.
 
 ✅ **Resultado:** o endereço passa a apontar para o seu servidor.
 
@@ -55,7 +57,7 @@ No servidor, como **root**:
 ```bash
 # passo 1 de 2 — baixa e prepara tudo
 curl -fsSL https://raw.githubusercontent.com/lfelipevmc/gestaorepassesbets/main/tcu-leads/infra/setup-servidor.sh -o setup.sh
-bash setup.sh tculeads.vcwadv.com.br
+bash setup.sh tculeads.vascav.com.br
 ```
 
 O script pede para criar o arquivo de configuração (`.env`) com o login de
@@ -63,10 +65,10 @@ administrador, a chave de IA (opcional) e o e-mail. Depois:
 
 ```bash
 # passo 2 de 2 — sobe o sistema e obtém o HTTPS
-bash /opt/gestaorepassesbets/tcu-leads/infra/continuar-instalacao.sh tculeads.vcwadv.com.br seu-email@vcwadv.com.br
+bash /opt/gestaorepassesbets/tcu-leads/infra/continuar-instalacao.sh tculeads.vascav.com.br seu-email@vascav.com.br
 ```
 
-Ao final, acesse **https://tculeads.vcwadv.com.br** e entre com o login definido
+Ao final, acesse **https://tculeads.vascav.com.br** e entre com o login definido
 no `.env`. Detalhes em [`DEPLOY.md`](../DEPLOY.md).
 
 ---
