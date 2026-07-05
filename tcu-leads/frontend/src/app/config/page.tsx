@@ -112,61 +112,44 @@ export default function ConfigPage() {
         </div>
 
         <div className="card">
-          <h3 className="font-semibold text-white text-sm mb-3">Processos autuados (comparação diária)</h3>
-          <Toggle label="Detectar processos autuados do dia" hint="Compara a lista de processos de hoje com a já conhecida; os inéditos = autuados do dia." checked={s.autuados_enabled} onChange={v => up("autuados_enabled", v)} />
-          <Toggle label="Criar oportunidade para cada autuado inédito" hint="Gera um lead de baixo score para acompanhamento de cada processo novo." checked={s.autuados_create_leads} onChange={v => up("autuados_create_leads", v)} />
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3">
-            <div className="md:col-span-3">
-              <label className="label">URL da listagem de processos</label>
-              <input className="input" placeholder="https://...  (use {data_inicio}/{data_fim} se filtrar por data)"
-                value={s.autuados_listing_url || ""} onChange={e => up("autuados_listing_url", e.target.value)} />
-            </div>
-            <div>
-              <label className="label">Método</label>
-              <select className="input" value={s.autuados_listing_method} onChange={e => up("autuados_listing_method", e.target.value)}>
-                <option>GET</option><option>POST</option>
-              </select>
-            </div>
-          </div>
-          {s.autuados_listing_method === "POST" && (
-            <div className="mt-3">
-              <label className="label">Corpo (JSON, se POST)</label>
-              <textarea className="input h-20 font-mono text-xs" value={s.autuados_listing_body || ""} onChange={e => up("autuados_listing_body", e.target.value)} />
-            </div>
-          )}
-          <div className="mt-3 flex items-center gap-2">
+          <h3 className="font-semibold text-white text-sm mb-1">Processos autuados (Pesquisa Integrada do TCU)</h3>
+          <p className="text-xs text-muted mb-3">Fonte <strong>já integrada</strong> — não precisa configurar endereço. Busca diariamente os processos do dia direto no TCU.</p>
+          <Toggle label="Detectar processos autuados do dia" hint="Consulta a Pesquisa Integrada por data e registra os processos inéditos." checked={s.autuados_enabled} onChange={v => up("autuados_enabled", v)} />
+          <Toggle label="Criar oportunidade para cada processo novo" hint="Gera um lead (com órgão e assunto) para cada processo detectado." checked={s.autuados_create_leads} onChange={v => up("autuados_create_leads", v)} />
+
+          <label className="label mt-3">O que detectar</label>
+          <select className="input max-w-md" value={s.autuados_filtro_campo || "DTAUTUACAO"} onChange={e => up("autuados_filtro_campo", e.target.value)}>
+            <option value="DTAUTUACAO">Processos autuados (abertos) no dia — recomendado</option>
+            <option value="DTATUALIZACAO">Processos com qualquer movimentação no dia</option>
+          </select>
+          <p className="text-xs text-muted mt-1">"Autuados no dia" traz exatamente os processos abertos naquela data — o momento ideal de aproximação.</p>
+
+          <div className="mt-4 flex items-center gap-2">
             <button onClick={handleTest} disabled={testing} className="btn-secondary text-xs">
               {testing ? "Testando..." : "🔌 Testar fonte (a partir do servidor)"}
             </button>
-            <span className="text-xs text-muted">Salve antes de testar.</span>
+            <span className="text-xs text-muted">Salve antes de testar. Testa a data de hoje.</span>
           </div>
           {testResult && (
-            <div className={`mt-2 rounded-lg p-3 text-xs border ${testResult.error || testResult.status !== "ok" ? "border-danger/30 bg-danger/5 text-danger" : "border-success/30 bg-success/5 text-success"}`}>
+            <div className={`mt-2 rounded-lg p-3 text-xs border ${testResult.error ? "border-danger/30 bg-danger/5 text-danger" : "border-success/30 bg-success/5 text-success"}`}>
               {testResult.error ? (
                 <p>{testResult.error}</p>
               ) : (
                 <>
-                  <p><strong>Status:</strong> {testResult.status} · <strong>Itens encontrados:</strong> {testResult.count}</p>
+                  <p><strong>Status:</strong> {testResult.status} · <strong>Processos hoje:</strong> {testResult.count}{testResult.total != null && ` (total no TCU: ${testResult.total})`}</p>
                   {testResult.sample && (
-                    <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-slate-300 max-h-48 overflow-y-auto">{JSON.stringify(testResult.sample, null, 2)}</pre>
+                    <div className="mt-1 text-slate-300">
+                      Exemplo: <strong>{testResult.sample.numero}</strong> — {testResult.sample.natureza || "—"} · {testResult.sample.orgao_entidade || "órgão não informado"}
+                    </div>
                   )}
                 </>
               )}
             </div>
           )}
-          <div className="bg-surface rounded-lg p-3 text-xs text-slate-400 mt-3 space-y-1">
-            <p className="text-slate-300 font-medium">⚠️ A URL precisa retornar DADOS (JSON), não a página.</p>
-            <p>A Pesquisa Integrada exige a <strong>data</strong> para listar os processos. Use os marcadores
-              <code className="text-slate-300"> {"{data_inicio}"}</code> e <code className="text-slate-300">{"{data_fim}"}</code> — o sistema os troca pela data do dia a cada coleta.</p>
-            <p className="text-slate-300 font-medium mt-1">Como capturar a URL de dados:</p>
-            <ol className="list-decimal list-inside space-y-0.5">
-              <li>Abra a Pesquisa Integrada de Processos do TCU no Chrome e faça uma busca por um dia.</li>
-              <li>DevTools (F12) → aba <strong>Network</strong> → filtro <strong>Fetch/XHR</strong>.</li>
-              <li>Ache a chamada que devolve a lista (não a página HTML). Clique com o botão direito → <strong>Copy → Copy as cURL</strong>.</li>
-              <li>Cole aqui no chat que eu monto a URL/corpo certos, ou preencha os campos acima e use <strong>Testar fonte</strong>.</li>
-            </ol>
-            <p>Enquanto não configurada, a detecção se apoia nos números de processo vistos nas demais fontes.</p>
-          </div>
+          <p className="text-xs text-muted mt-3">
+            Observação: a Pesquisa Integrada informa nº do processo, natureza, assunto, órgão (unidade jurisdicionada) e relator.
+            Os <strong>responsáveis nominais</strong> costumam aparecer depois, no edital de citação (fonte BTCU) — que o sistema também captura.
+          </p>
         </div>
 
         <div className="card">

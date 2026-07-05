@@ -192,6 +192,7 @@ class SettingsOut(BaseModel):
     btcu_listing_body: Optional[str] = None
     pautas_enabled: bool
     autuados_enabled: bool
+    autuados_filtro_campo: Optional[str] = None
     autuados_listing_url: Optional[str] = None
     autuados_listing_method: str
     autuados_listing_body: Optional[str] = None
@@ -221,6 +222,7 @@ class SettingsUpdate(BaseModel):
     btcu_listing_body: Optional[str] = None
     pautas_enabled: Optional[bool] = None
     autuados_enabled: Optional[bool] = None
+    autuados_filtro_campo: Optional[str] = None
     autuados_listing_url: Optional[str] = None
     autuados_listing_method: Optional[str] = None
     autuados_listing_body: Optional[str] = None

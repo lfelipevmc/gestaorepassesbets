@@ -245,10 +245,14 @@ class TcuMonitorSettings(Base):
     # de hoje com a já conhecida; os inéditos = autuados do dia. O endpoint/URL da
     # listagem de processos também não é documentado e deve ser capturado (DevTools).
     autuados_enabled = Column(Boolean, default=False)
-    autuados_listing_url = Column(String(500), nullable=True)
+    # Campo de data usado no filtro da Pesquisa Integrada:
+    #   DTAUTUACAO   = processos AUTUADOS (abertos) na data — o lead mais valioso
+    #   DTATUALIZACAO = processos com qualquer movimentação na data
+    autuados_filtro_campo = Column(String(30), default="DTAUTUACAO")
+    autuados_listing_url = Column(String(500), nullable=True)   # opcional: fonte customizada
     autuados_listing_method = Column(String(6), default="GET")
     autuados_listing_body = Column(Text, nullable=True)
-    autuados_create_leads = Column(Boolean, default=True)  # cria lead (baixo score) para cada autuado inédito
+    autuados_create_leads = Column(Boolean, default=True)  # cria lead para cada autuado inédito
 
     # Enriquecimento
     enrich_cnpj = Column(Boolean, default=True)

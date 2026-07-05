@@ -219,28 +219,108 @@ def _extract_list(data) -> list:
     return []
 
 
+# --- Pesquisa Integrada de Processos (confirmado) ------------------------- #
+# Endpoint público, GET, parâmetros na URL. Protegido por WAF: só responde a
+# requisições com "cara de navegador" (User-Agent real + Sec-Fetch-* + Referer).
+PESQUISA_PROC_URL = "https://pesquisa.apps.tcu.gov.br/rest/publico/base/processo/documentosResumidos"
+BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+              "(KHTML, like Gecko) Version/17.0 Safari/605.1.15")
+
+
+def _pesquisa_headers(referer: str) -> dict:
+    return {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "pt-BR,pt;q=0.9",
+        "User-Agent": BROWSER_UA,
+        "Origin": "https://pesquisa.apps.tcu.gov.br",
+        "Referer": referer,
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
+        "origem": "angular",
+        "todas-bases": "false",
+    }
+
+
+def _yyyymmdd(data_iso: str) -> str:
+    return re.sub(r"\D", "", data_iso)[:8]
+
+
+def fetch_pesquisa_processos(client: "TcuHttpClient", data_iso: str, *,
+                             filtro_campo: str = "DTAUTUACAO", page_size: int = 100,
+                             max_total: int = 500) -> tuple[list, dict]:
+    """Lista processos do TCU numa data via Pesquisa Integrada, com paginação.
+
+    filtro_campo: DTAUTUACAO (autuados na data) ou DTATUALIZACAO (movimentados).
+    Retorna (documentos, diagnóstico).
+    """
+    import urllib.parse
+    d = _yyyymmdd(data_iso)
+    filtro = f"{filtro_campo}:[{d} to {d}]"
+    # Referer com o filtro duplo-codificado (como o front-end Angular faz)
+    referer = ("https://pesquisa.apps.tcu.gov.br/resultado/processo/*/"
+               + urllib.parse.quote(urllib.parse.quote(filtro, safe=""), safe=""))
+    headers = _pesquisa_headers(referer)
+
+    diag = {"url": PESQUISA_PROC_URL, "filtro": filtro, "status": None,
+            "count": 0, "total": None, "sample": None, "raw_sample": None, "error": None}
+
+    documentos = []
+    inicio = 0
+    total = None
+    while True:
+        params = {
+            "termo": "*", "filtro": filtro,
+            "ordenacao": "DTAUTUACAOORDENACAO desc, NUMEROCOMZEROS desc,KEY asc",
+            "quantidade": page_size, "inicio": inicio,
+        }
+        data = client.request("GET", PESQUISA_PROC_URL, params=params, headers=headers, max_retries=3)
+        if data is None:
+            if not documentos:
+                diag["error"] = "Sem resposta do TCU (bloqueio do firewall, timeout ou manutenção)."
+            break
+        if isinstance(data, dict) and data.get("documentos") is None and total is None:
+            # resposta inesperada (ex.: HTML de bloqueio veio como texto → não é dict com documentos)
+            diag["error"] = "Resposta inesperada (possível bloqueio do firewall)."
+            diag["raw_sample"] = str(data)[:400]
+            break
+        page = (data or {}).get("documentos") or _extract_list(data)
+        if total is None:
+            total = (data or {}).get("quantidadeEncontrada")
+            diag["total"] = total
+            if page:
+                diag["raw_sample"] = {k: page[0].get(k) for k in list(page[0].keys())[:14]}
+        documentos.extend(page)
+        if not page or len(page) < page_size or len(documentos) >= (total or 0) or len(documentos) >= max_total:
+            break
+        inicio += page_size
+
+    diag["status"] = "ok" if not diag["error"] else "erro"
+    diag["count"] = len(documentos)
+    if documentos:
+        diag["sample"] = extract_processo_fields(documentos[0])
+    return documentos, diag
+
+
 def fetch_processos_listing(client: "TcuHttpClient", settings, *,
                             data_inicio: Optional[str] = None,
                             data_fim: Optional[str] = None) -> tuple[list, dict]:
-    """Consulta o endpoint de listagem de processos do TCU (por data).
+    """Lista processos do TCU numa data.
 
-    O endpoint da Pesquisa Integrada não é documentado e deve ser capturado
-    (DevTools/'Copy as cURL') e configurado. A URL/corpo aceitam os marcadores
-    {data_inicio}, {data_fim} e {data}, substituídos pela data-alvo.
-
-    Retorna (lista_de_itens, diagnostico). Diagnóstico traz status/amostra para
-    o botão "Testar fonte".
+    Por padrão usa a Pesquisa Integrada (confirmada). Se o usuário configurar uma
+    URL customizada em settings.autuados_listing_url, usa-a no lugar.
     """
-    url = getattr(settings, "autuados_listing_url", None)
-    diag = {"configured": bool(url), "url": url, "status": None, "count": 0, "sample": None, "error": None}
-    if not url:
-        diag["error"] = "URL da listagem de processos não configurada."
-        return [], diag
-
     di = data_inicio or date.today().strftime("%Y-%m-%d")
     dfim = data_fim or di
-    url = _subst_datas(url, di, dfim)
+    custom_url = getattr(settings, "autuados_listing_url", None)
 
+    if not custom_url:  # caminho padrão: Pesquisa Integrada
+        campo = getattr(settings, "autuados_filtro_campo", None) or "DTAUTUACAO"
+        return fetch_pesquisa_processos(client, di, filtro_campo=campo)
+
+    # caminho customizado (URL/corpo com marcadores de data)
+    url = _subst_datas(custom_url, di, dfim)
+    diag = {"url": url, "status": None, "count": 0, "sample": None, "error": None}
     method = (getattr(settings, "autuados_listing_method", "GET") or "GET").upper()
     kwargs = {}
     if method == "POST":
@@ -251,19 +331,15 @@ def fetch_processos_listing(client: "TcuHttpClient", settings, *,
             except json.JSONDecodeError:
                 diag["error"] = "Corpo (JSON) da fonte de processos é inválido."
                 return [], diag
-
     data = client.request(method, url, **kwargs)
     if data is None:
-        diag["error"] = "Sem resposta (bloqueio, timeout, erro de rede ou janela de manutenção)."
+        diag["error"] = "Sem resposta (bloqueio, timeout ou erro de rede)."
         return [], diag
-
     items = _extract_list(data)
     diag["status"] = "ok"
     diag["count"] = len(items)
     if items:
         diag["sample"] = extract_processo_fields(items[0])
-    elif isinstance(data, dict):
-        diag["sample"] = {"chaves_da_resposta": list(data.keys())[:20]}
     return items, diag
 
 
@@ -285,17 +361,35 @@ def _deep_first(item, keys: tuple, _depth: int = 0):
     return None
 
 
+def _join_if_list(v) -> Optional[str]:
+    if isinstance(v, list):
+        return "; ".join(str(x) for x in v if x) or None
+    return v
+
+
 def extract_processo_fields(item: dict) -> dict:
-    """Extrai campos de um item de processo, tolerante a nomes variados."""
+    """Extrai campos de um item de processo.
+
+    Reconhece o formato da Pesquisa Integrada (chaves MAIÚSCULAS) e cai para
+    nomes genéricos em fontes customizadas.
+    """
     if not isinstance(item, dict):
         return {"numero": None}
-    numero = _deep_first(item, ("numeroProcesso", "numero_processo", "numeroProcessoFormatado",
-                                "processo", "numero", "nup"))
-    if not numero:  # fallback: acha o número em qualquer texto do item
+
+    numero = (item.get("NUMEROFORMATADO")
+              or _deep_first(item, ("numeroProcesso", "numero_processo", "numeroProcessoFormatado",
+                                    "processo", "numero", "nup")))
+    if not numero:
         blob = json.dumps(item, ensure_ascii=False, default=str)
         m = RE_PROCESSO_ANY.search(blob)
         numero = m.group(1) if m else None
 
+    movs = item.get("MOVIMENTACOES")
+    ultima = movs[0] if isinstance(movs, list) and movs else _deep_first(item, ("ultimaMovimentacao",))
+
+    # Responsáveis: a Pesquisa Integrada (documentosResumidos) NÃO retorna as
+    # partes; ficam vazias aqui (o órgão/UJ é o principal sinal). Fontes
+    # customizadas podem trazê-las.
     responsaveis = []
     resp_raw = _deep_first(item, ("responsaveis", "responsavel", "partes", "interessados"))
     if isinstance(resp_raw, list):
@@ -303,29 +397,29 @@ def extract_processo_fields(item: dict) -> dict:
             if isinstance(r, dict):
                 nome = r.get("nome") or r.get("name")
                 doc = r.get("cpf") or r.get("cnpj") or r.get("documento") or r.get("numeroRegistro")
-                tipo = "cnpj" if (r.get("cnpj") or (doc and len(re.sub(r"\\D", "", str(doc))) == 14)) else "cpf" if doc else None
+                tdoc = "cnpj" if (r.get("cnpj") or (doc and len(re.sub(r"\D", "", str(doc))) == 14)) else "cpf" if doc else None
                 if nome or doc:
-                    responsaveis.append({"nome": nome, "documento": doc, "tipo_doc": tipo, "papel": r.get("papel")})
+                    responsaveis.append({"nome": nome, "documento": doc, "tipo_doc": tdoc, "papel": r.get("papel")})
             elif isinstance(r, str):
                 responsaveis.append({"nome": r, "documento": None, "tipo_doc": None, "papel": None})
-    elif isinstance(resp_raw, str):
-        responsaveis.append({"nome": resp_raw, "documento": None, "tipo_doc": None, "papel": None})
+
+    orgao = (_join_if_list(item.get("UNIDADESJURISDICIONADAS"))
+             or _deep_first(item, ("orgao", "orgaoEntidade", "orgao_entidade",
+                                   "unidadeJurisdicionada", "entidade")))
 
     return {
         "numero": str(numero).strip() if numero else None,
-        "natureza": _deep_first(item, ("naturezaProcesso", "natureza", "classe")),
-        "tipo": _deep_first(item, ("tipoProcesso", "tipo")),
-        "assunto": _deep_first(item, ("assunto", "titulo", "descricao", "ementa")),
-        "orgao_entidade": _deep_first(item, ("orgao", "orgaoEntidade", "orgao_entidade",
-                                             "unidadeJurisdicionada", "entidade", "municipio")),
-        "relator": _deep_first(item, ("nomeRelator", "relator")),
+        "natureza": item.get("TIPO") or _deep_first(item, ("naturezaProcesso", "natureza", "classe", "tipoProcesso", "tipo")),
+        "tipo": item.get("TIPO") or _deep_first(item, ("tipoProcesso", "tipo")),
+        "assunto": item.get("ASSUNTO") or _deep_first(item, ("assunto", "titulo", "descricao", "ementa")),
+        "orgao_entidade": orgao,
+        "relator": item.get("RELATOR") or _deep_first(item, ("nomeRelator", "relator")),
         "colegiado": _deep_first(item, ("nomeColegiado", "colegiado", "siglaColegiado")),
-        "uf": _deep_first(item, ("uf", "estado", "sigla_uf")),
-        "estado": _deep_first(item, ("estadoProcesso", "situacao", "estado_processo")),
-        "ultima_movimentacao": _deep_first(item, ("ultimaMovimentacao", "ultima_movimentacao",
-                                                  "dataUltimaMovimentacao")),
-        "data_autuacao": _deep_first(item, ("dataAutuacao", "data_autuacao", "dataAutuado",
-                                            "dataProtocolo", "dataInclusao")),
+        "uf": _deep_first(item, ("uf", "sigla_uf")),
+        "estado": item.get("ESTADO") or _deep_first(item, ("estadoProcesso", "situacao", "estado_processo")),
+        "ultima_movimentacao": ultima,
+        "data_autuacao": _deep_first(item, ("dataAutuacao", "data_autuacao", "dataAutuado")),
+        "source_url": item.get("URLSISTEMAPUSH"),
         "responsaveis": responsaveis,
     }
 

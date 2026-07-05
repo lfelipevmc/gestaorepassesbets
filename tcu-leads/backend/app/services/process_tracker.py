@@ -106,6 +106,9 @@ def fetch_and_register_autuados(db: Session, client: "src.TcuHttpClient", settin
     """
     di = detection_date.strftime("%Y-%m-%d")
     items, diag = src.fetch_processos_listing(client, settings, data_inicio=di, data_fim=di)
+    # Se o filtro é por DATA DE AUTUAÇÃO, todo processo retornado foi autuado nesse dia
+    filtro_campo = (getattr(settings, "autuados_filtro_campo", None) or "DTAUTUACAO").upper()
+    is_autuacao_filter = filtro_campo == "DTAUTUACAO"
     novos = 0
     leads_criados = 0
     for item in items:
@@ -113,8 +116,8 @@ def fetch_and_register_autuados(db: Session, client: "src.TcuHttpClient", settin
         numero = fields.get("numero")
         if not numero:
             continue
-        # Abordagem (ii): se a data de autuação (1º andamento) == hoje, é autuado do dia
-        autuacao = _parse_any_date(fields.get("data_autuacao"))
+        # Abordagem (ii): data de autuação. Com o filtro DTAUTUACAO, é a própria data-alvo.
+        autuacao = _parse_any_date(fields.get("data_autuacao")) or (detection_date if is_autuacao_filter else None)
         meta = dict(fields)
         meta["titulo"] = fields.get("assunto")
         meta["data_autuacao_date"] = autuacao
@@ -124,7 +127,7 @@ def fetch_and_register_autuados(db: Session, client: "src.TcuHttpClient", settin
             continue
         novos += 1
         if settings.autuados_create_leads:
-            lead = _create_autuado_lead(db, tp, detection_date, fields.get("responsaveis") or [])
+            lead = _create_autuado_lead(db, tp, detection_date, fields)
             if lead:
                 tp.lead_id = lead.id
                 leads_criados += 1
@@ -147,16 +150,17 @@ def _parse_any_date(v):
     return None
 
 
-def _create_autuado_lead(db: Session, tp: TrackedProcess, detection_date: date,
-                         responsaveis: list = None):
-    """Cria um lead para um processo autuado inédito (com responsáveis/órgão)."""
+def _create_autuado_lead(db: Session, tp: TrackedProcess, detection_date: date, fields: dict = None):
+    """Cria um lead para um processo autuado inédito (com órgão/assunto/responsáveis)."""
     from .pipeline import upsert_lead  # import tardio (evita ciclo)
-    responsaveis = responsaveis or []
+    fields = fields or {}
+    responsaveis = fields.get("responsaveis") or []
     principal = responsaveis[0] if responsaveis else {"nome": None, "documento": None, "tipo_doc": None, "papel": None}
-    nomes = "; ".join(r["nome"] for r in responsaveis if r.get("nome")) or "responsável a identificar"
+    nomes = "; ".join(r["nome"] for r in responsaveis if r.get("nome"))
+    assunto = tp.assunto or fields.get("assunto")
     data = {
         "act_type": "edital",
-        "natureza_processo": tp.natureza or tp.assunto,
+        "natureza_processo": tp.natureza or tp.tipo,
         "tema": None,
         "numero_processo": tp.numero_processo,
         "colegiado": tp.colegiado,
@@ -166,14 +170,18 @@ def _create_autuado_lead(db: Session, tp: TrackedProcess, detection_date: date,
         "responsavel": principal,
         "responsaveis": responsaveis,
         "prazo_dias": None,
-        "resumo": f"Processo autuado no TCU detectado em {detection_date.strftime('%d/%m/%Y')}"
-                  f"{' — ' + tp.natureza if tp.natureza else ''}. Responsável(is): {nomes}."
-                  f" Órgão: {tp.orgao_entidade or '—'}. Momento ideal de aproximação (recém-autuado).",
+        "resumo": (f"Processo autuado no TCU em {detection_date.strftime('%d/%m/%Y')}"
+                   f"{' — ' + tp.natureza if tp.natureza else ''}."
+                   f"{' Responsável(is): ' + nomes + '.' if nomes else ''}"
+                   f" Órgão: {tp.orgao_entidade or '—'}."
+                   f"{' Assunto: ' + assunto[:200] + '.' if assunto else ''}"
+                   f" Momento ideal de aproximação (recém-autuado)."),
         "is_opportunity": True,
-        "rationale": "Processo recém-autuado — momento de descoberta antecipada do possível cliente.",
-        "confidence": "medium" if responsaveis else "low",
+        "rationale": "Processo recém-autuado — descoberta antecipada, antes de qualquer intimação.",
+        "confidence": "medium",
         "extracted_by_ai": False,
     }
     lead, _ = upsert_lead(db, data, source_kind=TcuSourceKind.processo_autuado,
-                          publication=detection_date, source_key=f"autuado-{tp.numero_processo}")
+                          publication=detection_date, source_key=f"autuado-{tp.numero_processo}",
+                          source_url=fields.get("source_url"))
     return lead
