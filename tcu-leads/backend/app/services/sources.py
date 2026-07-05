@@ -191,51 +191,153 @@ def extract_codigo_from_listing_item(item: dict) -> Optional[str]:
 # Listagem de processos (para a detecção de autuados do dia)
 # --------------------------------------------------------------------------- #
 
-def fetch_processos_listing(client: "TcuHttpClient", settings) -> list[dict]:
-    """Consulta o endpoint de LISTAGEM de processos do TCU.
+RE_PROCESSO_ANY = re.compile(r"\b(\d{3}\.?\d{3}\s*/\s*\d{4}\s*-?\s*\d)\b")
 
-    Assim como a listagem do BTCU, este endpoint não é documentado e deve ser
-    capturado (DevTools) e configurado em TcuMonitorSettings.autuados_listing_url.
-    Se não configurado, retorna [] — a detecção de autuados então se apoia apenas
-    nos números de processo vistos nas demais fontes do pipeline.
 
-    Espera-se que cada item traga um campo com o número do processo.
+def _subst_datas(text: Optional[str], data_inicio: str, data_fim: str) -> Optional[str]:
+    if not text:
+        return text
+    return (text.replace("{data_inicio}", data_inicio)
+                .replace("{data_fim}", data_fim)
+                .replace("{data}", data_inicio))
+
+
+def _extract_list(data) -> list:
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("data", "itens", "items", "content", "conteudo", "processos",
+                    "results", "resultados", "hits", "documentos", "registros"):
+            val = data.get(key)
+            if isinstance(val, list):
+                return val
+            # nível aninhado comum: {"hits": {"hits": [...]}}
+            if isinstance(val, dict):
+                for k2 in ("hits", "content", "items", "data"):
+                    if isinstance(val.get(k2), list):
+                        return val[k2]
+    return []
+
+
+def fetch_processos_listing(client: "TcuHttpClient", settings, *,
+                            data_inicio: Optional[str] = None,
+                            data_fim: Optional[str] = None) -> tuple[list, dict]:
+    """Consulta o endpoint de listagem de processos do TCU (por data).
+
+    O endpoint da Pesquisa Integrada não é documentado e deve ser capturado
+    (DevTools/'Copy as cURL') e configurado. A URL/corpo aceitam os marcadores
+    {data_inicio}, {data_fim} e {data}, substituídos pela data-alvo.
+
+    Retorna (lista_de_itens, diagnostico). Diagnóstico traz status/amostra para
+    o botão "Testar fonte".
     """
     url = getattr(settings, "autuados_listing_url", None)
+    diag = {"configured": bool(url), "url": url, "status": None, "count": 0, "sample": None, "error": None}
     if not url:
-        return []
+        diag["error"] = "URL da listagem de processos não configurada."
+        return [], diag
 
-    today = date.today().strftime("%Y-%m-%d")
-    url = url.replace("{data_inicio}", today).replace("{data_fim}", today).replace("{data}", today)
+    di = data_inicio or date.today().strftime("%Y-%m-%d")
+    dfim = data_fim or di
+    url = _subst_datas(url, di, dfim)
 
     method = (getattr(settings, "autuados_listing_method", "GET") or "GET").upper()
     kwargs = {}
     if method == "POST":
-        body = getattr(settings, "autuados_listing_body", None)
+        body = _subst_datas(getattr(settings, "autuados_listing_body", None), di, dfim)
         if body:
-            body = body.replace("{data_inicio}", today).replace("{data_fim}", today).replace("{data}", today)
             try:
                 kwargs["json"] = json.loads(body)
             except json.JSONDecodeError:
-                logger.error("autuados_listing_body não é JSON válido")
-                return []
+                diag["error"] = "Corpo (JSON) da fonte de processos é inválido."
+                return [], diag
 
     data = client.request(method, url, **kwargs)
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in ("data", "itens", "content", "processos", "results"):
-            if isinstance(data.get(key), list):
-                return data[key]
-    return []
+    if data is None:
+        diag["error"] = "Sem resposta (bloqueio, timeout, erro de rede ou janela de manutenção)."
+        return [], diag
+
+    items = _extract_list(data)
+    diag["status"] = "ok"
+    diag["count"] = len(items)
+    if items:
+        diag["sample"] = extract_processo_fields(items[0])
+    elif isinstance(data, dict):
+        diag["sample"] = {"chaves_da_resposta": list(data.keys())[:20]}
+    return items, diag
+
+
+def _deep_first(item, keys: tuple, _depth: int = 0):
+    """Busca (recursiva rasa) o primeiro valor não-vazio para uma das chaves."""
+    if _depth > 3 or not isinstance(item, dict):
+        return None
+    for k in keys:
+        for real_k in item.keys():
+            if real_k.lower() == k.lower():
+                v = item[real_k]
+                if v not in (None, "", [], {}):
+                    return v
+    for v in item.values():
+        if isinstance(v, dict):
+            r = _deep_first(v, keys, _depth + 1)
+            if r is not None:
+                return r
+    return None
+
+
+def extract_processo_fields(item: dict) -> dict:
+    """Extrai campos de um item de processo, tolerante a nomes variados."""
+    if not isinstance(item, dict):
+        return {"numero": None}
+    numero = _deep_first(item, ("numeroProcesso", "numero_processo", "numeroProcessoFormatado",
+                                "processo", "numero", "nup"))
+    if not numero:  # fallback: acha o número em qualquer texto do item
+        blob = json.dumps(item, ensure_ascii=False, default=str)
+        m = RE_PROCESSO_ANY.search(blob)
+        numero = m.group(1) if m else None
+
+    responsaveis = []
+    resp_raw = _deep_first(item, ("responsaveis", "responsavel", "partes", "interessados"))
+    if isinstance(resp_raw, list):
+        for r in resp_raw:
+            if isinstance(r, dict):
+                nome = r.get("nome") or r.get("name")
+                doc = r.get("cpf") or r.get("cnpj") or r.get("documento") or r.get("numeroRegistro")
+                tipo = "cnpj" if (r.get("cnpj") or (doc and len(re.sub(r"\\D", "", str(doc))) == 14)) else "cpf" if doc else None
+                if nome or doc:
+                    responsaveis.append({"nome": nome, "documento": doc, "tipo_doc": tipo, "papel": r.get("papel")})
+            elif isinstance(r, str):
+                responsaveis.append({"nome": r, "documento": None, "tipo_doc": None, "papel": None})
+    elif isinstance(resp_raw, str):
+        responsaveis.append({"nome": resp_raw, "documento": None, "tipo_doc": None, "papel": None})
+
+    return {
+        "numero": str(numero).strip() if numero else None,
+        "natureza": _deep_first(item, ("naturezaProcesso", "natureza", "classe")),
+        "tipo": _deep_first(item, ("tipoProcesso", "tipo")),
+        "assunto": _deep_first(item, ("assunto", "titulo", "descricao", "ementa")),
+        "orgao_entidade": _deep_first(item, ("orgao", "orgaoEntidade", "orgao_entidade",
+                                             "unidadeJurisdicionada", "entidade", "municipio")),
+        "relator": _deep_first(item, ("nomeRelator", "relator")),
+        "colegiado": _deep_first(item, ("nomeColegiado", "colegiado", "siglaColegiado")),
+        "uf": _deep_first(item, ("uf", "estado", "sigla_uf")),
+        "estado": _deep_first(item, ("estadoProcesso", "situacao", "estado_processo")),
+        "ultima_movimentacao": _deep_first(item, ("ultimaMovimentacao", "ultima_movimentacao",
+                                                  "dataUltimaMovimentacao")),
+        "data_autuacao": _deep_first(item, ("dataAutuacao", "data_autuacao", "dataAutuado",
+                                            "dataProtocolo", "dataInclusao")),
+        "responsaveis": responsaveis,
+    }
 
 
 def extract_processo_from_item(item: dict) -> Optional[str]:
-    for key in ("numeroProcesso", "numero_processo", "processo", "numeroProcessoFormatado", "numero"):
-        val = item.get(key)
-        if val:
-            return str(val).strip()
-    return None
+    return extract_processo_fields(item).get("numero")
+
+
+def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional[str] = None) -> dict:
+    """Diagnóstico da fonte de processos (para o botão "Testar fonte")."""
+    _, diag = fetch_processos_listing(client, settings, data_inicio=data_str, data_fim=data_str)
+    return diag
 
 
 # --------------------------------------------------------------------------- #

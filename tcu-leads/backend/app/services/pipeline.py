@@ -21,7 +21,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from ..models import (
-    TcuLead, TcuCnpjEnrichment, TcuMonitorRun, TcuMonitorSettings,
+    TcuLead, TcuLeadNote, TcuCnpjEnrichment, TcuMonitorRun, TcuMonitorSettings,
     TcuActType, TcuDocType, TcuSourceKind, TcuRunStatus, TcuLeadStatus,
 )
 from . import sources as src
@@ -109,6 +109,10 @@ def upsert_lead(db: Session, data: dict, *, source_kind: TcuSourceKind,
     Retorna (lead, created). Se duplicado, retorna (lead_existente, False).
     """
     resp = data.get("responsavel") or {}
+    responsaveis = data.get("responsaveis") or []
+    # se não veio o principal mas há lista, usa o 1º da lista
+    if not resp.get("documento") and responsaveis:
+        resp = responsaveis[0]
     documento = resp.get("documento")
     act = data.get("act_type")
     numero = data.get("numero_processo")
@@ -135,6 +139,7 @@ def upsert_lead(db: Session, data: dict, *, source_kind: TcuSourceKind,
         unidade_tecnica=data.get("unidade_tecnica"),
         responsavel_nome=resp.get("nome"),
         responsavel_documento=documento,
+        responsaveis_json=json.dumps(responsaveis, ensure_ascii=False) if responsaveis else None,
         doc_type=_doc_type(resp.get("tipo_doc")),
         papel=resp.get("papel"),
         orgao_entidade=data.get("orgao_entidade"),
@@ -233,6 +238,33 @@ def enrich_lead_cnpj(db: Session, lead: TcuLead, client: src.TcuHttpClient,
 
 
 # --------------------------------------------------------------------------- #
+# Limpeza de ruído (acórdãos sem parte identificada)
+# --------------------------------------------------------------------------- #
+
+def cleanup_noise(db: Session) -> dict:
+    """Remove leads de baixo valor: acórdãos da API sem responsável identificado.
+
+    São os milhares de acórdãos antigos que poluem a lista — sem responsável,
+    órgão ou valor não servem para avaliação de lead.
+    """
+    from ..models.process import TrackedProcess
+    q = db.query(TcuLead).filter(
+        TcuLead.source_kind == TcuSourceKind.acordaos_api,
+        TcuLead.responsavel_documento.is_(None),
+    )
+    ids = [l.id for l in q.all()]
+    removed = 0
+    if ids:
+        # desvincula processos que apontavam para esses leads
+        db.query(TrackedProcess).filter(TrackedProcess.lead_id.in_(ids)).update(
+            {TrackedProcess.lead_id: None}, synchronize_session=False)
+        db.query(TcuLeadNote).filter(TcuLeadNote.lead_id.in_(ids)).delete(synchronize_session=False)
+        removed = q.delete(synchronize_session=False)
+        db.commit()
+    return {"removed": removed}
+
+
+# --------------------------------------------------------------------------- #
 # Ingestão de blocos → leads
 # --------------------------------------------------------------------------- #
 
@@ -301,8 +333,12 @@ def ingest_pdf(db: Session, pdf_bytes: bytes, *, publication: Optional[date] = N
 
 def _process_acordaos(db: Session, client: src.TcuHttpClient, settings: TcuMonitorSettings,
                       run: TcuMonitorRun) -> dict:
-    page_size = int(settings.acordaos_page_size or 50)
-    acordaos = src.fetch_acordaos(client, inicio=0, quantidade=page_size)
+    # Acórdãos da API raramente trazem responsável/órgão — só viram leads se o
+    # usuário optar explicitamente (evita inundar a lista com acórdãos antigos).
+    if not getattr(settings, "acordaos_create_leads", False):
+        return {"fetched": 0, "created": 0, "duplicated": 0, "skipped": "acordaos_create_leads=off"}
+    page_size = min(int(settings.acordaos_page_size or 50), 200)  # teto de segurança
+    acordaos = src.fetch_acordaos(client, inicio=0, quantidade=page_size)[:page_size]
     created = duplicated = 0
     for ac in acordaos:
         if not src.acordao_is_condenatorio(ac):

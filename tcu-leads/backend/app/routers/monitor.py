@@ -108,6 +108,26 @@ def list_runs(limit: int = 20, db: Session = Depends(get_db), current_user: User
     return db.query(TcuMonitorRun).order_by(TcuMonitorRun.started_at.desc()).limit(min(limit, 100)).all()
 
 
+@router.post("/cleanup-noise")
+def cleanup_noise(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Remove leads de baixo valor (acórdãos da API sem responsável identificado)."""
+    result = pipeline.cleanup_noise(db)
+    return {"message": f"{result['removed']} lead(s) de acórdão sem parte foram removidos.", **result}
+
+
+@router.post("/test-source/processos")
+def test_source_processos(data: dict = None, db: Session = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
+    """Testa a fonte de processos configurada, a partir DO SERVIDOR (que alcança
+    o TCU), e devolve um diagnóstico com status, contagem e amostra dos campos."""
+    from ..services import sources as src
+    settings = pipeline.get_settings(db)
+    client = pipeline._client(settings)
+    data_str = (data or {}).get("data")   # AAAA-MM-DD opcional
+    diag = src.probe_processos_source(client, settings, data_str=data_str)
+    return diag
+
+
 @router.get("/settings", response_model=SettingsOut)
 def get_settings_endpoint(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return pipeline.get_settings(db)

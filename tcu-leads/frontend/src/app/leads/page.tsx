@@ -41,6 +41,12 @@ function scoreColor(s: number | null) {
   return "text-slate-400";
 }
 
+function responsaveisNomes(l: any): string {
+  const lista = (l.responsaveis || []).map((r: any) => r.nome).filter(Boolean);
+  if (lista.length) return lista.join("; ");
+  return l.responsavel_nome || "";
+}
+
 function StatCard({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
   return (
     <div className="card">
@@ -217,51 +223,69 @@ export default function LeadsPage() {
           Nenhum lead encontrado. Use <strong className="text-slate-300">Executar coleta</strong> ou <strong className="text-slate-300">Ingerir Diário</strong> para começar.
         </div>
       ) : (
-        <div className="card p-0 overflow-x-auto">
-          <table className="w-full min-w-[900px]">
-            <thead className="bg-surface">
-              <tr>
-                <th className="table-th w-16">Score</th>
-                <th className="table-th">Ato</th>
-                <th className="table-th">Responsável</th>
-                <th className="table-th">Tema / Órgão</th>
-                <th className="table-th text-right">Valor</th>
-                <th className="table-th">Prazo</th>
-                <th className="table-th">Status</th>
-                <th className="table-th"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {leads.map(l => (
-                <tr key={l.id} className="hover:bg-surface-light/30">
-                  <td className="table-td"><span className={scoreColor(l.opportunity_score)}>{l.opportunity_score ?? "-"}</span></td>
-                  <td className="table-td">
-                    <span className={`text-[11px] px-2 py-0.5 rounded-full border ${ACT_COLORS[l.act_type] || ACT_COLORS.outro}`}>{ACT_LABELS[l.act_type] || l.act_type}</span>
-                    {l.ja_representado && <span className="ml-1 text-[10px] text-muted">(c/ adv.)</span>}
-                  </td>
-                  <td className="table-td">
-                    <div className="text-slate-200">{l.responsavel_nome || <span className="text-muted">—</span>}</div>
-                    <div className="text-[11px] text-muted">{l.responsavel_documento || l.numero_processo || ""}</div>
-                  </td>
-                  <td className="table-td">
-                    <div>{l.tema ? (TEMA_LABELS[l.tema] || l.tema) : <span className="text-muted">—</span>}</div>
-                    <div className="text-[11px] text-muted truncate max-w-[220px]">{l.orgao_entidade || ""}</div>
-                  </td>
-                  <td className="table-td text-right">
-                    {l.valor_debito ? formatCurrency(Number(l.valor_debito))
-                      : l.valor_multa ? <span className="text-muted">multa {formatCurrency(Number(l.valor_multa))}</span>
-                      : <span className="text-muted">—</span>}
-                  </td>
-                  <td className="table-td">{l.prazo_final ? formatDate(l.prazo_final) : <span className="text-muted">—</span>}</td>
-                  <td className="table-td">
-                    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${LEAD_STATUS_COLORS[l.status] || "text-muted bg-muted/10"}`}>{LEAD_STATUS_LABELS[l.status] || l.status}</span>
-                  </td>
-                  <td className="table-td"><Link href={`/leads/${l.id}`} className="text-primary text-xs hover:underline">Abrir →</Link></td>
+        <>
+          <p className="text-xs text-muted mb-2">
+            <span className="inline-block w-2 h-2 rounded-full bg-primary align-middle mr-1"></span>
+            Linhas em destaque = ainda <strong>não abertas</strong>. Ao abrir um lead, ele fica marcado como visto.
+          </p>
+          <div className="card p-0 overflow-x-auto">
+            <table className="w-full min-w-[1040px]">
+              <thead className="bg-surface">
+                <tr>
+                  <th className="table-th w-16">Score</th>
+                  <th className="table-th">Ato</th>
+                  <th className="table-th">Responsável(is)</th>
+                  <th className="table-th">Órgão / entidade</th>
+                  <th className="table-th">Tema</th>
+                  <th className="table-th text-right">Valor</th>
+                  <th className="table-th">Prazo</th>
+                  <th className="table-th">Status</th>
+                  <th className="table-th"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {leads.map(l => {
+                  const seen = !!l.viewed_at;
+                  const nomes = responsaveisNomes(l);
+                  const nResp = (l.responsaveis || []).length;
+                  return (
+                    <tr key={l.id} className={`hover:bg-surface-light/30 ${seen ? "opacity-60" : "bg-primary/[0.06]"}`}>
+                      <td className={`table-td border-l-2 ${seen ? "border-transparent" : "border-primary"}`}>
+                        <span className={scoreColor(l.opportunity_score)}>{l.opportunity_score ?? "-"}</span>
+                      </td>
+                      <td className="table-td">
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full border ${ACT_COLORS[l.act_type] || ACT_COLORS.outro}`}>{ACT_LABELS[l.act_type] || l.act_type}</span>
+                        {l.ja_representado && <span className="ml-1 text-[10px] text-muted">(c/ adv.)</span>}
+                      </td>
+                      <td className="table-td max-w-[320px]">
+                        <div className={seen ? "text-slate-300" : "text-white font-medium"}>
+                          {nomes || <span className="text-muted">—</span>}
+                          {nResp > 1 && <span className="ml-1 text-[10px] text-muted">({nResp})</span>}
+                        </div>
+                        <div className="text-[11px] text-muted">{l.responsavel_documento || l.numero_processo || ""}</div>
+                      </td>
+                      <td className="table-td max-w-[240px]">
+                        <div className="text-slate-300 truncate">{l.orgao_entidade || <span className="text-muted">—</span>}</div>
+                        {(l.uf || l.municipio) && <div className="text-[11px] text-muted">{[l.municipio, l.uf].filter(Boolean).join(" / ")}</div>}
+                      </td>
+                      <td className="table-td">{l.tema ? (TEMA_LABELS[l.tema] || l.tema) : <span className="text-muted">—</span>}</td>
+                      <td className="table-td text-right">
+                        {l.valor_debito ? formatCurrency(Number(l.valor_debito))
+                          : l.valor_multa ? <span className="text-muted">multa {formatCurrency(Number(l.valor_multa))}</span>
+                          : <span className="text-muted">—</span>}
+                      </td>
+                      <td className="table-td">{l.prazo_final ? formatDate(l.prazo_final) : <span className="text-muted">—</span>}</td>
+                      <td className="table-td">
+                        <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${LEAD_STATUS_COLORS[l.status] || "text-muted bg-muted/10"}`}>{LEAD_STATUS_LABELS[l.status] || l.status}</span>
+                      </td>
+                      <td className="table-td"><Link href={`/leads/${l.id}`} className="text-primary text-xs hover:underline">Abrir →</Link></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       <Modal isOpen={showIngest} onClose={() => setShowIngest(false)} title="Ingerir edição do Diário / BTCU">

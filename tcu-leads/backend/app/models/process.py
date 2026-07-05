@@ -26,12 +26,17 @@ class TrackedProcess(Base):
     # metadados quando disponíveis
     natureza = Column(String(200), nullable=True)
     tipo = Column(String(120), nullable=True)
+    assunto = Column(String(500), nullable=True)         # assunto do processo
     orgao_entidade = Column(String(300), nullable=True)
     relator = Column(String(200), nullable=True)
     colegiado = Column(String(80), nullable=True)
     uf = Column(String(2), nullable=True)
     municipio = Column(String(120), nullable=True)
     titulo = Column(String(500), nullable=True)
+    responsaveis_json = Column(Text, nullable=True)      # JSON: responsáveis do processo
+    estado = Column(String(40), nullable=True)           # Aberto / Encerrado
+    ultima_movimentacao = Column(String(500), nullable=True)
+    data_autuacao = Column(Date, nullable=True)          # data do 1º andamento (autuação), se conhecida
 
     first_source = Column(String(40), nullable=True)     # onde foi visto pela primeira vez
     detection_date = Column(Date, nullable=True, index=True)  # dia em que foi detectado como inédito
@@ -39,3 +44,15 @@ class TrackedProcess(Base):
 
     lead_id = Column(Integer, ForeignKey("tcu_leads.id"), nullable=True)  # lead gerado, se houver
     raw = Column(Text, nullable=True)
+
+    @property
+    def responsaveis(self) -> list:
+        import json as _json
+        if self.responsaveis_json:
+            try:
+                data = _json.loads(self.responsaveis_json)
+                if isinstance(data, list):
+                    return data
+            except (ValueError, TypeError):
+                pass
+        return []

@@ -127,6 +127,9 @@ def _merge_with_parser(data: dict, block: ParsedBlock) -> dict:
     if not resp.get("nome") and block.responsavel_nome:
         resp["nome"] = block.responsavel_nome
     data["responsavel"] = resp
+    # Lista completa de responsáveis: usa a do parser se a IA não trouxe
+    if not data.get("responsaveis") and block.responsaveis:
+        data["responsaveis"] = block.responsaveis
     if data.get("valor_debito") in (None, 0) and block.valor_debito:
         data["valor_debito"] = block.valor_debito
     if data.get("valor_multa") in (None, 0) and block.valor_multa:
@@ -161,6 +164,7 @@ def _from_parser(block: ParsedBlock) -> dict:
             "tipo_doc": block.tipo_documento,
             "papel": None,
         },
+        "responsaveis": block.responsaveis or [],
         "orgao_entidade": None,
         "uf": None,
         "municipio": None,

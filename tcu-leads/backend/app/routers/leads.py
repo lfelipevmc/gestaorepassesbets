@@ -81,6 +81,11 @@ def get_lead(lead_id: int, db: Session = Depends(get_db), current_user: User = D
     lead = db.query(TcuLead).get(lead_id)
     if not lead:
         raise HTTPException(404, "Lead não encontrado")
+    if lead.viewed_at is None:   # marca como aberto na 1ª visualização
+        from datetime import datetime
+        lead.viewed_at = datetime.utcnow()
+        db.commit()
+        db.refresh(lead)
     return lead
 
 

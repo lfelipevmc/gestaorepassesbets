@@ -79,8 +79,9 @@ class TcuLead(Base):
     unidade_tecnica = Column(String(120), nullable=True)             # AudTCE, SecexEstado...
 
     # --- Responsável (parte) ---
-    responsavel_nome = Column(String(300), nullable=True, index=True)
+    responsavel_nome = Column(String(300), nullable=True, index=True)   # principal (1º)
     responsavel_documento = Column(String(20), nullable=True, index=True)  # CPF/CNPJ mascarado
+    responsaveis_json = Column(Text, nullable=True)          # JSON: todos os responsáveis do ato
     doc_type = Column(Enum(TcuDocType), default=TcuDocType.desconhecido)
     papel = Column(String(120), nullable=True)               # responsável / solidário / representante legal
     orgao_entidade = Column(String(300), nullable=True)      # órgão/entidade lesada
@@ -117,6 +118,7 @@ class TcuLead(Base):
     # --- CRM ---
     status = Column(Enum(TcuLeadStatus), default=TcuLeadStatus.novo, index=True)
     assignee_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    viewed_at = Column(DateTime, nullable=True, index=True)   # quando o lead foi aberto pela 1ª vez
 
     # --- Conformidade LGPD/OAB ---
     lgpd_objection = Column(Boolean, default=False)          # titular exerceu direito de oposição
@@ -130,6 +132,22 @@ class TcuLead(Base):
                          order_by="TcuLeadNote.created_at.desc()")
     enrichment = relationship("TcuCnpjEnrichment", back_populates="lead", uselist=False,
                               cascade="all, delete-orphan")
+
+    @property
+    def responsaveis(self) -> list:
+        """Lista de responsáveis (do responsaveis_json). Cai para o principal se vazio."""
+        import json as _json
+        if self.responsaveis_json:
+            try:
+                data = _json.loads(self.responsaveis_json)
+                if isinstance(data, list) and data:
+                    return data
+            except (ValueError, TypeError):
+                pass
+        if self.responsavel_nome or self.responsavel_documento:
+            return [{"nome": self.responsavel_nome, "documento": self.responsavel_documento,
+                     "tipo_doc": self.doc_type.value if self.doc_type else None, "papel": self.papel}]
+        return []
 
 
 class TcuLeadNote(Base):
@@ -209,6 +227,9 @@ class TcuMonitorSettings(Base):
     acordaos_enabled = Column(Boolean, default=True)
     acordaos_page_size = Column(Integer, default=50)
     last_acordao_index = Column(Integer, nullable=True)
+    # Acórdãos da API raramente trazem responsável/órgão — por padrão NÃO viram leads
+    # (evita poluir a lista com milhares de acórdãos antigos sem parte identificada).
+    acordaos_create_leads = Column(Boolean, default=False)
 
     # Fonte BTCU "Deliberações" — endpoint de LISTAGEM não é documentado (lacuna do roteiro).
     # Deve ser capturado via DevTools e colado aqui. Ex.: URL com placeholders {data} etc.

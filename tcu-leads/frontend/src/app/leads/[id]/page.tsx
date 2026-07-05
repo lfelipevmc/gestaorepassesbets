@@ -123,11 +123,33 @@ export default function LeadDetail() {
           </div>
 
           <div className="card">
-            <h3 className="font-semibold text-white text-sm mb-3">Responsável (parte)</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <Field label="Nome">{lead.responsavel_nome}</Field>
-              <Field label={lead.doc_type === "cnpj" ? "CNPJ" : lead.doc_type === "cpf" ? "CPF" : "Documento"}>{lead.responsavel_documento}</Field>
-              <Field label="Papel">{lead.papel}</Field>
+            <h3 className="font-semibold text-white text-sm mb-3">
+              Responsável(is) da parte
+              {(lead.responsaveis || []).length > 1 && <span className="ml-2 text-xs text-muted">{lead.responsaveis.length} responsáveis</span>}
+            </h3>
+            {(lead.responsaveis || []).length > 0 ? (
+              <div className="space-y-2">
+                {lead.responsaveis.map((r: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between gap-3 bg-surface rounded-lg px-3 py-2">
+                    <div>
+                      <p className="text-sm text-slate-200">{r.nome || <span className="text-muted">nome não identificado</span>}</p>
+                      {r.papel && <p className="text-[11px] text-muted">{r.papel}</p>}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-mono text-slate-300">{r.documento || "—"}</p>
+                      {r.tipo_doc && <p className="text-[10px] text-muted uppercase">{r.tipo_doc}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <Field label="Nome">{lead.responsavel_nome}</Field>
+                <Field label={lead.doc_type === "cnpj" ? "CNPJ" : lead.doc_type === "cpf" ? "CPF" : "Documento"}>{lead.responsavel_documento}</Field>
+              </div>
+            )}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-3 pt-3 border-t border-surface-border">
+              <Field label="Órgão / entidade">{lead.orgao_entidade}</Field>
               <Field label="UF / Município">{[lead.uf, lead.municipio].filter(Boolean).join(" / ")}</Field>
             </div>
           </div>

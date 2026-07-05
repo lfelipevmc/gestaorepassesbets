@@ -53,6 +53,9 @@ export const ingestPdf = (formData: FormData) =>
 export const getRuns = (limit = 20) => api.get("/api/monitor/runs", { params: { limit } });
 export const getSettings = () => api.get("/api/monitor/settings");
 export const updateSettings = (data: any) => api.patch("/api/monitor/settings", data);
+export const cleanupNoise = () => api.post("/api/monitor/cleanup-noise");
+export const testSourceProcessos = (data?: { data?: string }) =>
+  api.post("/api/monitor/test-source/processos", data || {});
 
 // Processos autuados
 export const getProcesses = (params?: any) => api.get("/api/processes", { params });

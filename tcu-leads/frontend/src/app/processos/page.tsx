@@ -96,34 +96,44 @@ export default function ProcessosPage() {
         </div>
       ) : (
         <div className="card p-0 overflow-x-auto">
-          <table className="w-full min-w-[820px]">
+          <table className="w-full min-w-[1040px]">
             <thead className="bg-surface">
               <tr>
                 <th className="table-th">Nº do processo</th>
-                <th className="table-th">Natureza</th>
+                <th className="table-th">Responsável(is)</th>
                 <th className="table-th">Órgão / Relator</th>
+                <th className="table-th">Natureza / Assunto</th>
                 <th className="table-th">UF</th>
                 <th className="table-th">Detectado em</th>
                 <th className="table-th">Oportunidade</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => (
-                <tr key={r.id} className="hover:bg-surface-light/30">
-                  <td className="table-td font-medium text-slate-200">{r.numero_processo}</td>
-                  <td className="table-td">{r.natureza || <span className="text-muted">—</span>}</td>
-                  <td className="table-td">
-                    <div>{r.orgao_entidade || <span className="text-muted">—</span>}</div>
-                    <div className="text-[11px] text-muted">{r.relator || ""}</div>
-                  </td>
-                  <td className="table-td">{r.uf || <span className="text-muted">—</span>}</td>
-                  <td className="table-td">{r.detection_date ? formatDate(r.detection_date) : formatDateTime(r.first_seen_at)}</td>
-                  <td className="table-td">
-                    {r.lead_id ? <Link href={`/leads/${r.lead_id}`} className="text-primary text-xs hover:underline">ver lead →</Link>
-                      : <span className="text-muted text-xs">—</span>}
-                  </td>
-                </tr>
-              ))}
+              {rows.map(r => {
+                const nomes = (r.responsaveis || []).map((x: any) => x.nome).filter(Boolean).join("; ");
+                return (
+                  <tr key={r.id} className="hover:bg-surface-light/30">
+                    <td className="table-td font-medium text-slate-200">{r.numero_processo}</td>
+                    <td className="table-td max-w-[300px]">
+                      <div className="text-slate-300 truncate">{nomes || <span className="text-muted">—</span>}</div>
+                    </td>
+                    <td className="table-td max-w-[220px]">
+                      <div className="truncate">{r.orgao_entidade || <span className="text-muted">—</span>}</div>
+                      <div className="text-[11px] text-muted">{r.relator || ""}</div>
+                    </td>
+                    <td className="table-td max-w-[220px]">
+                      <div className="truncate">{r.natureza || <span className="text-muted">—</span>}</div>
+                      <div className="text-[11px] text-muted truncate">{r.assunto || ""}</div>
+                    </td>
+                    <td className="table-td">{r.uf || <span className="text-muted">—</span>}</td>
+                    <td className="table-td">{r.detection_date ? formatDate(r.detection_date) : formatDateTime(r.first_seen_at)}</td>
+                    <td className="table-td">
+                      {r.lead_id ? <Link href={`/leads/${r.lead_id}`} className="text-primary text-xs hover:underline">ver lead →</Link>
+                        : <span className="text-muted text-xs">—</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

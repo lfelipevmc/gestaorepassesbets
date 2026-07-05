@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
-import { getSettings, updateSettings, getRuns } from "@/lib/api";
+import { getSettings, updateSettings, getRuns, cleanupNoise, testSourceProcessos } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
 
 const RUN_STATUS: Record<string, string> = {
@@ -29,6 +29,30 @@ export default function ConfigPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [testResult, setTestResult] = useState<any>(null);
+  const [testing, setTesting] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+
+  async function handleCleanup() {
+    if (!confirm("Remover os leads de acórdãos antigos sem parte identificada? (não afeta editais nem processos)")) return;
+    setCleaning(true);
+    try {
+      const r = await cleanupNoise();
+      flash(r.data.message || "Limpeza concluída.");
+    } catch { flash("Erro na limpeza."); }
+    finally { setCleaning(false); }
+  }
+
+  async function handleTest() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await testSourceProcessos();
+      setTestResult(r.data);
+    } catch (e: any) {
+      setTestResult({ error: e.response?.data?.detail || "Falha ao testar." });
+    } finally { setTesting(false); }
+  }
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
   const load = () => {
@@ -73,9 +97,18 @@ export default function ConfigPage() {
           <p className="text-xs text-muted mb-3">A janela de manutenção do TCU (20h–21h) já é respeitada automaticamente.</p>
 
           <h4 className="text-xs text-muted uppercase tracking-wide mt-4 mb-1">Fontes de oportunidades</h4>
-          <Toggle label="API de Acórdãos" hint="Fonte confirmada. Detecta acórdãos condenatórios (débito/multa)." checked={s.acordaos_enabled} onChange={v => up("acordaos_enabled", v)} />
+          <Toggle label="API de Acórdãos" hint="Consulta a base de acórdãos. Atenção: esses registros raramente têm responsável/órgão." checked={s.acordaos_enabled} onChange={v => up("acordaos_enabled", v)} />
+          <div className="pl-7">
+            <Toggle label="Transformar acórdãos em leads" hint="Desligado por padrão — evita inundar a lista com milhares de acórdãos antigos sem parte identificada." checked={s.acordaos_create_leads} onChange={v => up("acordaos_create_leads", v)} />
+          </div>
           <Toggle label="Pautas das sessões" hint="Early-warning: processos prestes a julgar." checked={s.pautas_enabled} onChange={v => up("pautas_enabled", v)} />
           <Toggle label="BTCU — Deliberações (editais SEPROC)" hint="Requer o endpoint de listagem configurado abaixo." checked={s.btcu_enabled} onChange={v => up("btcu_enabled", v)} />
+          <div className="mt-3 pt-3 border-t border-surface-border">
+            <button onClick={handleCleanup} disabled={cleaning} className="btn-secondary text-xs">
+              {cleaning ? "Limpando..." : "🧹 Limpar acórdãos antigos sem parte"}
+            </button>
+            <p className="text-xs text-muted mt-1">Remove os leads de acórdão sem responsável/órgão que poluem a lista de Oportunidades.</p>
+          </div>
         </div>
 
         <div className="card">
@@ -101,10 +134,39 @@ export default function ConfigPage() {
               <textarea className="input h-20 font-mono text-xs" value={s.autuados_listing_body || ""} onChange={e => up("autuados_listing_body", e.target.value)} />
             </div>
           )}
-          <p className="text-xs text-muted mt-2">
-            Enquanto a URL de listagem não é configurada, a detecção se apoia nos números de processo vistos nas demais fontes.
-            A captura do endpoint segue o mesmo procedimento do BTCU (abaixo).
-          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <button onClick={handleTest} disabled={testing} className="btn-secondary text-xs">
+              {testing ? "Testando..." : "🔌 Testar fonte (a partir do servidor)"}
+            </button>
+            <span className="text-xs text-muted">Salve antes de testar.</span>
+          </div>
+          {testResult && (
+            <div className={`mt-2 rounded-lg p-3 text-xs border ${testResult.error || testResult.status !== "ok" ? "border-danger/30 bg-danger/5 text-danger" : "border-success/30 bg-success/5 text-success"}`}>
+              {testResult.error ? (
+                <p>{testResult.error}</p>
+              ) : (
+                <>
+                  <p><strong>Status:</strong> {testResult.status} · <strong>Itens encontrados:</strong> {testResult.count}</p>
+                  {testResult.sample && (
+                    <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-slate-300 max-h-48 overflow-y-auto">{JSON.stringify(testResult.sample, null, 2)}</pre>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          <div className="bg-surface rounded-lg p-3 text-xs text-slate-400 mt-3 space-y-1">
+            <p className="text-slate-300 font-medium">⚠️ A URL precisa retornar DADOS (JSON), não a página.</p>
+            <p>A Pesquisa Integrada exige a <strong>data</strong> para listar os processos. Use os marcadores
+              <code className="text-slate-300"> {"{data_inicio}"}</code> e <code className="text-slate-300">{"{data_fim}"}</code> — o sistema os troca pela data do dia a cada coleta.</p>
+            <p className="text-slate-300 font-medium mt-1">Como capturar a URL de dados:</p>
+            <ol className="list-decimal list-inside space-y-0.5">
+              <li>Abra a Pesquisa Integrada de Processos do TCU no Chrome e faça uma busca por um dia.</li>
+              <li>DevTools (F12) → aba <strong>Network</strong> → filtro <strong>Fetch/XHR</strong>.</li>
+              <li>Ache a chamada que devolve a lista (não a página HTML). Clique com o botão direito → <strong>Copy → Copy as cURL</strong>.</li>
+              <li>Cole aqui no chat que eu monto a URL/corpo certos, ou preencha os campos acima e use <strong>Testar fonte</strong>.</li>
+            </ol>
+            <p>Enquanto não configurada, a detecção se apoia nos números de processo vistos nas demais fontes.</p>
+          </div>
         </div>
 
         <div className="card">

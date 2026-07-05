@@ -73,6 +73,13 @@ class CnpjEnrichmentOut(BaseModel):
         from_attributes = True
 
 
+class ResponsavelOut(BaseModel):
+    nome: Optional[str] = None
+    documento: Optional[str] = None
+    tipo_doc: Optional[str] = None
+    papel: Optional[str] = None
+
+
 class LeadOut(BaseModel):
     id: int
     act_type: TcuActType
@@ -86,6 +93,7 @@ class LeadOut(BaseModel):
     unidade_tecnica: Optional[str] = None
     responsavel_nome: Optional[str] = None
     responsavel_documento: Optional[str] = None
+    responsaveis: List[ResponsavelOut] = []
     doc_type: TcuDocType
     papel: Optional[str] = None
     orgao_entidade: Optional[str] = None
@@ -110,6 +118,7 @@ class LeadOut(BaseModel):
     source_url: Optional[str] = None
     status: TcuLeadStatus
     assignee_id: Optional[int] = None
+    viewed_at: Optional[datetime] = None
     lgpd_objection: bool
     legitimate_interest_basis: Optional[str] = None
     created_at: datetime
@@ -147,12 +156,17 @@ class TrackedProcessOut(BaseModel):
     numero_processo: str
     natureza: Optional[str] = None
     tipo: Optional[str] = None
+    assunto: Optional[str] = None
     orgao_entidade: Optional[str] = None
     relator: Optional[str] = None
     colegiado: Optional[str] = None
     uf: Optional[str] = None
     municipio: Optional[str] = None
     titulo: Optional[str] = None
+    responsaveis: List[ResponsavelOut] = []
+    estado: Optional[str] = None
+    ultima_movimentacao: Optional[str] = None
+    data_autuacao: Optional[date] = None
     first_source: Optional[str] = None
     detection_date: Optional[date] = None
     first_seen_at: datetime
@@ -171,6 +185,7 @@ class SettingsOut(BaseModel):
     run_minute: int
     acordaos_enabled: bool
     acordaos_page_size: int
+    acordaos_create_leads: bool
     btcu_enabled: bool
     btcu_listing_url: Optional[str] = None
     btcu_listing_method: str
@@ -199,6 +214,7 @@ class SettingsUpdate(BaseModel):
     run_minute: Optional[int] = None
     acordaos_enabled: Optional[bool] = None
     acordaos_page_size: Optional[int] = None
+    acordaos_create_leads: Optional[bool] = None
     btcu_enabled: Optional[bool] = None
     btcu_listing_url: Optional[str] = None
     btcu_listing_method: Optional[str] = None

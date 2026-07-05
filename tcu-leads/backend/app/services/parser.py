@@ -182,6 +182,7 @@ class ParsedBlock:
     responsavel_nome: Optional[str] = None
     responsavel_documento: Optional[str] = None
     tipo_documento: Optional[str] = None      # cpf | cnpj
+    responsaveis: list = field(default_factory=list)  # [{nome, documento, tipo_doc, papel}]
     valor_debito: Optional[float] = None
     valor_multa: Optional[float] = None
     data_referencia_valor: Optional[date] = None
@@ -252,6 +253,69 @@ def detect_tema(text: str) -> Optional[str]:
             if _strip_accents(kw).lower() in up:
                 return tema
     return None
+
+
+# Documento (CPF ou CNPJ) com o nome que o antecede
+RE_DOC_ANY = re.compile(
+    r"(CPF|CNPJ)\s*[:\s]\s*([0-9][0-9.\-/]{9,17}[0-9])", re.IGNORECASE
+)
+# Nome imediatamente antes do rótulo do documento
+RE_NOME_ANTES = re.compile(
+    r"([A-ZÀ-Ú][A-ZÀ-Úa-zà-ú'.&\-\s]{3,90}?)\s*,?\s*$"
+)
+_PALAVRAS_RUIDO = re.compile(
+    r"\b(fica|ficam|citad[oa]s?|notificad[oa]s?|audi[êe]ncia|de|do|da|dos|das|o|a|os|as|"
+    r"respons[áa]ve(?:l|is)|senhor[a]?|sr|sra|dr|dra|solidariedade|com|e|em|na|pessoa|"
+    r"seu|sua|representante|legal|para|prazo)\b",
+    re.IGNORECASE,
+)
+
+
+def extract_responsaveis(block: str) -> list[dict]:
+    """Extrai todos os responsáveis (nome + documento) citados no bloco.
+
+    Estratégia: localiza cada CPF/CNPJ e captura o nome que o antecede
+    (últimas palavras capitalizadas antes do rótulo). Deduplica por documento.
+    """
+    out = []
+    seen = set()
+    for m in RE_DOC_ANY.finditer(block):
+        tipo = m.group(1).lower()
+        doc_raw = m.group(2)
+        doc = _fmt_cnpj(doc_raw) if tipo == "cnpj" else _fmt_cpf(doc_raw)
+        key = _digits(doc_raw)
+        # valida tamanho
+        if tipo == "cpf" and len(key) != 11:
+            continue
+        if tipo == "cnpj" and len(key) != 14:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+
+        # nome nos ~90 caracteres antes do documento
+        before = block[max(0, m.start() - 90):m.start()]
+        before = re.sub(r"\s+", " ", before).strip(" ,;:.")
+        nome = None
+        nm = RE_NOME_ANTES.search(before)
+        if nm:
+            cand = _clean_nome(nm.group(1))
+            # remove palavras de ação/ligação que antecedem o nome
+            cand = re.sub(
+                r"^(?:(?:fica[m]?|citad[oa]s?|notificad[oa]s?|intimad[oa]s?|audi[êe]ncia|"
+                r"respons[áa]ve(?:l|is)|senhor[a]?|sr|sra|dr|dra|solidariedade|"
+                r"de|do|da|dos|das|o|a|os|as|com|e|em|na|no|à|ao|aos|pessoa|seu|sua|"
+                r"representante|legal|para)\b[\s,\.]*)+",
+                "", cand, flags=re.IGNORECASE,
+            ).strip(" ,.;:")
+            # descarta se sobrou só ruído (preposições/verbos)
+            resto = _PALAVRAS_RUIDO.sub("", cand).strip()
+            if len(cand) >= 3 and len(resto) >= 3:
+                nome = cand
+        out.append({
+            "nome": nome, "documento": doc, "tipo_doc": tipo, "papel": None,
+        })
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -326,15 +390,22 @@ def parse_block(block: str) -> ParsedBlock:
     if name_match:
         pb.responsavel_nome = _clean_nome(name_match.group(1))
 
-    # Documento (prioriza o que aparecer primeiro, junto do nome)
-    cnpj_m = RE_CNPJ.search(block)
-    cpf_m = RE_CPF.search(block)
-    if cnpj_m and (not cpf_m or cnpj_m.start() <= cpf_m.start()):
-        pb.responsavel_documento = _fmt_cnpj(cnpj_m.group(1))
-        pb.tipo_documento = "cnpj"
-    elif cpf_m:
-        pb.responsavel_documento = _fmt_cpf(cpf_m.group(1))
-        pb.tipo_documento = "cpf"
+    # Todos os responsáveis (nome + documento), na ordem em que aparecem
+    pb.responsaveis = extract_responsaveis(block)
+
+    # Se o nome do CITADO foi capturado, garante que ele seja o 1º da lista
+    if pb.responsavel_nome and pb.responsaveis:
+        first_doc = pb.responsaveis[0]
+        if not first_doc.get("nome"):
+            first_doc["nome"] = pb.responsavel_nome
+
+    # Documento principal = 1º responsável (ou o mais próximo do nome citado)
+    if pb.responsaveis:
+        principal = pb.responsaveis[0]
+        pb.responsavel_documento = principal["documento"]
+        pb.tipo_documento = principal["tipo_doc"]
+        if not pb.responsavel_nome and principal.get("nome"):
+            pb.responsavel_nome = principal["nome"]
 
     # Valor / débito
     vm = RE_VALOR.search(block)
