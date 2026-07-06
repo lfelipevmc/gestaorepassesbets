@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import Base, engine, SessionLocal
 from .config import settings
-from .routers import auth, leads, monitor, processes
+from .routers import auth, leads, monitor, processes, external
 from .services.scheduler import start_scheduler
 
 logging.basicConfig(level=logging.INFO)
@@ -82,6 +82,7 @@ app.include_router(auth.router)
 app.include_router(leads.router)
 app.include_router(monitor.router)
 app.include_router(processes.router)
+app.include_router(external.router)
 
 
 @app.get("/health")

@@ -34,6 +34,31 @@ const LEAD_STATUS_COLORS: Record<string, string> = {
   em_atendimento: "text-success bg-success/10", descartado: "text-muted bg-muted/10",
 };
 
+// Origem do lead (de onde veio o sinal)
+const ORIGEM_LABELS: Record<string, string> = {
+  btcu_deliberacoes: "TCU · Diário", acordaos_api: "TCU · Acórdão", pauta_sessao: "TCU · Pauta",
+  processo_autuado: "TCU · Autuado", ingestao_manual: "TCU · Manual",
+  dou: "DOU", fonte_web: "Radar web",
+};
+const ORIGEM_COLORS: Record<string, string> = {
+  dou: "text-emerald-300 bg-emerald-500/10 border-emerald-500/30",
+  fonte_web: "text-sky-300 bg-sky-500/10 border-sky-500/30",
+};
+function origemBadge(sk: string) {
+  return ORIGEM_COLORS[sk] || "text-slate-300 bg-slate-500/10 border-slate-500/30";
+}
+// Categoria do sinal (Radar Externo)
+const CATEGORIA_LABELS: Record<string, string> = {
+  tcu: "TCU", licitacao: "Licitação", sancao: "Sanção",
+  nomeacao: "Nomeação", palavra_chave: "Palavra-chave", outro: "Outro",
+};
+const CATEGORIA_COLORS: Record<string, string> = {
+  licitacao: "text-amber-300 bg-amber-500/10 border-amber-500/30",
+  sancao: "text-red-300 bg-red-500/10 border-red-500/30",
+  nomeacao: "text-violet-300 bg-violet-500/10 border-violet-500/30",
+  palavra_chave: "text-cyan-300 bg-cyan-500/10 border-cyan-500/30",
+};
+
 function scoreColor(s: number | null) {
   if (s == null) return "text-muted";
   if (s >= 75) return "text-danger font-bold";
@@ -64,7 +89,7 @@ export default function LeadsPage() {
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState("");
   const [f, setF] = useState<any>({
-    act_type: "", tema: "", status: "", doc_type: "", uf: "",
+    act_type: "", tema: "", status: "", doc_type: "", uf: "", source_kind: "", categoria: "",
     valor_min: "", only_opportunities: false, hide_represented: false, search: "", order_by: "score",
   });
   const [showIngest, setShowIngest] = useState(false);
@@ -78,7 +103,7 @@ export default function LeadsPage() {
 
   const load = useCallback(() => {
     const params: any = { limit: 200, order_by: f.order_by };
-    ["act_type", "tema", "status", "doc_type", "uf", "search"].forEach(k => { if (f[k]) params[k] = f[k]; });
+    ["act_type", "tema", "status", "doc_type", "uf", "source_kind", "categoria", "search"].forEach(k => { if (f[k]) params[k] = f[k]; });
     if (f.valor_min) params.valor_min = parseFloat(f.valor_min);
     if (f.only_opportunities) params.only_opportunities = true;
     if (f.hide_represented) params.hide_represented = true;
@@ -122,7 +147,7 @@ export default function LeadsPage() {
   }
 
   function clearFilters() {
-    setF({ act_type: "", tema: "", status: "", doc_type: "", uf: "", valor_min: "",
+    setF({ act_type: "", tema: "", status: "", doc_type: "", uf: "", source_kind: "", categoria: "", valor_min: "",
       only_opportunities: false, hide_represented: false, search: "", order_by: "score" });
   }
 
@@ -130,7 +155,7 @@ export default function LeadsPage() {
     <AppShell>
       <Header
         title="Oportunidades"
-        subtitle="Leads identificados no Diário Eletrônico/BTCU e nas APIs abertas do TCU"
+        subtitle="Leads do TCU (Diário/BTCU, autuados) e do Radar Externo (DOU, sites e RSS)"
         actions={
           <div className="flex items-center gap-2">
             <button onClick={() => setShowIngest(true)} className="btn-secondary">Ingerir Diário</button>
@@ -205,6 +230,25 @@ export default function LeadsPage() {
             <option value="recent">Ordenar: Recentes</option>
           </select>
         </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <select className="input" value={f.source_kind} onChange={e => setF({ ...f, source_kind: e.target.value })}>
+            <option value="">Toda origem</option>
+            <option value="dou">DOU (Diário Oficial)</option>
+            <option value="fonte_web">Radar web (sites/RSS)</option>
+            <option value="processo_autuado">TCU · Autuado</option>
+            <option value="btcu_deliberacoes">TCU · Diário/BTCU</option>
+            <option value="acordaos_api">TCU · Acórdão</option>
+            <option value="pauta_sessao">TCU · Pauta</option>
+          </select>
+          <select className="input" value={f.categoria} onChange={e => setF({ ...f, categoria: e.target.value })}>
+            <option value="">Toda categoria</option>
+            <option value="tcu">TCU</option>
+            <option value="licitacao">Licitação / contratação</option>
+            <option value="sancao">Sanção / investigação</option>
+            <option value="nomeacao">Nomeação / gestão</option>
+            <option value="palavra_chave">Palavra-chave</option>
+          </select>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           <input className="input max-w-[10rem]" type="number" placeholder="Débito mínimo R$" value={f.valor_min} onChange={e => setF({ ...f, valor_min: e.target.value })} />
           <input className="input max-w-[6rem]" placeholder="UF" maxLength={2} value={f.uf} onChange={e => setF({ ...f, uf: e.target.value.toUpperCase() })} />
@@ -229,10 +273,11 @@ export default function LeadsPage() {
             Linhas em destaque = ainda <strong>não abertas</strong>. Ao abrir um lead, ele fica marcado como visto.
           </p>
           <div className="card p-0 overflow-x-auto">
-            <table className="w-full min-w-[1040px]">
+            <table className="w-full min-w-[1180px]">
               <thead className="bg-surface">
                 <tr>
                   <th className="table-th w-16">Score</th>
+                  <th className="table-th">Origem</th>
                   <th className="table-th">Ato</th>
                   <th className="table-th">Responsável(is)</th>
                   <th className="table-th">Órgão / entidade</th>
@@ -252,6 +297,16 @@ export default function LeadsPage() {
                     <tr key={l.id} className={`hover:bg-surface-light/30 ${seen ? "opacity-60" : "bg-primary/[0.06]"}`}>
                       <td className={`table-td border-l-2 ${seen ? "border-transparent" : "border-primary"}`}>
                         <span className={scoreColor(l.opportunity_score)}>{l.opportunity_score ?? "-"}</span>
+                      </td>
+                      <td className="table-td">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${origemBadge(l.source_kind)}`} title={l.fonte_nome || ""}>
+                          {ORIGEM_LABELS[l.source_kind] || l.source_kind}
+                        </span>
+                        {l.categoria && l.categoria !== "tcu" && CATEGORIA_COLORS[l.categoria] && (
+                          <span className={`mt-1 block text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${CATEGORIA_COLORS[l.categoria]}`}>
+                            {CATEGORIA_LABELS[l.categoria] || l.categoria}
+                          </span>
+                        )}
                       </td>
                       <td className="table-td">
                         <span className={`text-[11px] px-2 py-0.5 rounded-full border ${ACT_COLORS[l.act_type] || ACT_COLORS.outro}`}>{ACT_LABELS[l.act_type] || l.act_type}</span>

@@ -60,3 +60,13 @@ export const testSourceProcessos = (data?: { data?: string }) =>
 // Processos autuados
 export const getProcesses = (params?: any) => api.get("/api/processes", { params });
 export const getProcessStats = () => api.get("/api/processes/stats");
+
+// Radar Externo (DOU + fontes web/RSS)
+export const getSources = () => api.get("/api/external/sources");
+export const createSource = (data: any) => api.post("/api/external/sources", data);
+export const updateSource = (id: number, data: any) => api.patch(`/api/external/sources/${id}`, data);
+export const deleteSource = (id: number) => api.delete(`/api/external/sources/${id}`);
+export const testSavedSource = (id: number) => api.post(`/api/external/sources/${id}/test`);
+export const testSourceAdhoc = (data: any) => api.post("/api/external/test-source", data);
+export const testDou = (data?: any) => api.post("/api/external/test-dou", data || {});
+export const runExternal = () => api.post("/api/external/run");

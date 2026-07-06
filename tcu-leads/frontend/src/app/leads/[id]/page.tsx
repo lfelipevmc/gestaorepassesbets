@@ -25,6 +25,7 @@ const STATUS_LABELS: Record<string, string> = {
 const SOURCE_LABELS: Record<string, string> = {
   btcu_deliberacoes: "BTCU — Deliberações", acordaos_api: "API de Acórdãos",
   pauta_sessao: "Pauta de sessão", processo_autuado: "Processo autuado", ingestao_manual: "Ingestão manual",
+  dou: "DOU — Diário Oficial da União", fonte_web: "Radar Externo (site/RSS)",
 };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -245,6 +246,7 @@ export default function LeadDetail() {
           <div className="card">
             <h3 className="font-semibold text-white text-sm mb-2">Fonte</h3>
             <p className="text-xs text-muted">{SOURCE_LABELS[lead.source_kind] || lead.source_kind}</p>
+            {lead.fonte_nome && <p className="text-xs text-slate-300 mt-1">{lead.fonte_nome}</p>}
             {lead.source_codigo && <p className="text-xs text-muted mt-1">Código: {lead.source_codigo}</p>}
             {lead.source_url && <a href={lead.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">Abrir documento original ↗</a>}
           </div>

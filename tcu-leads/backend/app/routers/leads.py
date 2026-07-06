@@ -22,6 +22,7 @@ def list_leads(
     doc_type: Optional[TcuDocType] = None,
     uf: Optional[str] = None,
     source_kind: Optional[TcuSourceKind] = None,
+    categoria: Optional[str] = None,
     valor_min: Optional[float] = None,
     valor_max: Optional[float] = None,
     only_opportunities: bool = False,
@@ -46,6 +47,8 @@ def list_leads(
         q = q.filter(TcuLead.uf == uf.upper())
     if source_kind:
         q = q.filter(TcuLead.source_kind == source_kind)
+    if categoria:
+        q = q.filter(TcuLead.categoria == categoria)
     if valor_min is not None:
         q = q.filter(func.coalesce(TcuLead.valor_debito, TcuLead.valor_multa, 0) >= Decimal(str(valor_min)))
     if valor_max is not None:

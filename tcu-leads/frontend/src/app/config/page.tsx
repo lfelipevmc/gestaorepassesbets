@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
-import { getSettings, updateSettings, getRuns, cleanupNoise, testSourceProcessos } from "@/lib/api";
+import { getSettings, updateSettings, getRuns, cleanupNoise, testSourceProcessos, testDou } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
 
 const RUN_STATUS: Record<string, string> = {
@@ -32,6 +32,19 @@ export default function ConfigPage() {
   const [testResult, setTestResult] = useState<any>(null);
   const [testing, setTesting] = useState(false);
   const [cleaning, setCleaning] = useState(false);
+  const [douResult, setDouResult] = useState<any>(null);
+  const [douTesting, setDouTesting] = useState(false);
+
+  async function handleTestDou() {
+    setDouTesting(true);
+    setDouResult(null);
+    try {
+      const r = await testDou();
+      setDouResult(r.data);
+    } catch (e: any) {
+      setDouResult({ status: "erro", error: e.response?.data?.detail || "Falha ao testar o DOU." });
+    } finally { setDouTesting(false); }
+  }
 
   async function handleCleanup() {
     if (!confirm("Remover os leads de acórdãos antigos sem parte identificada? (não afeta editais nem processos)")) return;
@@ -81,7 +94,7 @@ export default function ConfigPage() {
     <AppShell>
       <Header
         title="Configuração"
-        subtitle="Fontes, agendamento, detecção de autuados e captura de endpoints do TCU"
+        subtitle="Fontes do TCU e do Radar Externo (DOU), agendamento e detecção de autuados"
         actions={<button onClick={save} disabled={saving} className="btn-primary">{saving ? "Salvando..." : "Salvar"}</button>}
       />
       {msg && <div className="mb-4 bg-primary/10 border border-primary/30 text-primary rounded-lg px-4 py-3 text-sm">{msg}</div>}
@@ -150,6 +163,44 @@ export default function ConfigPage() {
             Observação: a Pesquisa Integrada informa nº do processo, natureza, assunto, órgão (unidade jurisdicionada) e relator.
             Os <strong>responsáveis nominais</strong> costumam aparecer depois, no edital de citação (fonte BTCU) — que o sistema também captura.
           </p>
+        </div>
+
+        <div className="card">
+          <h3 className="font-semibold text-white text-sm mb-1">Radar Externo — DOU (Diário Oficial da União)</h3>
+          <p className="text-xs text-muted mb-3">Varre o DOU do dia e cria oportunidades quando encontra sinais (licitações, sanções, nomeações) ou suas palavras-chave. As demais fontes (embaixadas, estatais, empresas) ficam em <Link href="/fontes" className="text-primary">Radar Externo</Link>.</p>
+          <Toggle label="Monitorar o DOU diariamente" hint="Lê as seções escolhidas na leitura do jornal da Imprensa Nacional." checked={s.dou_enabled} onChange={v => up("dou_enabled", v)} />
+          <Toggle label="Monitorar sites e feeds cadastrados" hint="Liga a varredura das fontes web/RSS da página Radar Externo." checked={s.fontes_web_enabled} onChange={v => up("fontes_web_enabled", v)} />
+
+          <label className="label mt-3">Seções do DOU (separadas por vírgula)</label>
+          <input className="input max-w-md" placeholder="do1,do3" value={s.dou_secoes || ""} onChange={e => up("dou_secoes", e.target.value)} />
+          <p className="text-xs text-muted mt-1">do1 = atos normativos · do2 = pessoal · do3 = contratos/licitações. Recomendado: <code className="text-slate-300">do1,do3</code>.</p>
+
+          <label className="label mt-3">Palavras-chave adicionais (uma por linha)</label>
+          <textarea className="input h-20 text-xs" placeholder={"nome de cliente\nórgão de interesse\ntema específico"} value={s.dou_keywords || ""} onChange={e => up("dou_keywords", e.target.value)} />
+          <p className="text-xs text-muted mt-1">Além dos sinais automáticos, qualquer item do DOU que contenha um destes termos vira oportunidade.</p>
+
+          <div className="mt-4 flex items-center gap-2">
+            <button onClick={handleTestDou} disabled={douTesting} className="btn-secondary text-xs">
+              {douTesting ? "Testando..." : "🔌 Testar DOU (a partir do servidor)"}
+            </button>
+            <span className="text-xs text-muted">Salve antes de testar. Lê o DOU de hoje.</span>
+          </div>
+          {douResult && (
+            <div className={`mt-2 rounded-lg p-3 text-xs border ${douResult.status === "erro" ? "border-danger/30 bg-danger/5 text-danger" : douResult.status === "vazio" ? "border-warning/30 bg-warning/5 text-warning" : "border-success/30 bg-success/5 text-success"}`}>
+              {douResult.status === "erro" ? <p>{douResult.error}</p> : douResult.status === "vazio" ? (
+                <p>{douResult.error || "Nenhum item lido hoje (pode não haver edição ou a estrutura mudou)."}</p>
+              ) : (
+                <>
+                  <p><strong>Itens lidos:</strong> {douResult.total_itens} · <strong>oportunidades na amostra:</strong> {douResult.oportunidades_na_amostra}</p>
+                  <div className="mt-1 space-y-0.5 text-slate-300 max-h-40 overflow-y-auto">
+                    {(douResult.amostra || []).filter((a: any) => a.is_opportunity).slice(0, 8).map((a: any, i: number) => (
+                      <div key={i}>• <span className="text-amber-300">[{a.categoria}]</span> {a.title}</div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="card">

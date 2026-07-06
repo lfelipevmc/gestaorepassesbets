@@ -50,6 +50,18 @@ class TcuSourceKind(str, enum.Enum):
     pauta_sessao = "pauta_sessao"            # pautas das sessões (early-warning)
     processo_autuado = "processo_autuado"    # processo recém-autuado (varredura diária)
     ingestao_manual = "ingestao_manual"      # PDF/texto colado manualmente
+    dou = "dou"                              # Diário Oficial da União (Imprensa Nacional)
+    fonte_web = "fonte_web"                  # site/RSS externo monitorado (embaixadas, empresas...)
+
+
+class TcuLeadCategoria(str, enum.Enum):
+    """Sinal que caracteriza o lead nas fontes externas (Radar Externo)."""
+    tcu = "tcu"                              # origem TCU (editais/acórdãos/autuados)
+    licitacao = "licitacao"                  # licitação / contratação pública
+    sancao = "sancao"                        # sanção / investigação (CGU, TCU, CEIS/CNEP)
+    nomeacao = "nomeacao"                    # nomeação / mudança de gestão
+    palavra_chave = "palavra_chave"          # casou com palavra-chave definida pelo usuário
+    outro = "outro"
 
 
 class TcuRunStatus(str, enum.Enum):
@@ -69,6 +81,8 @@ class TcuLead(Base):
     act_type = Column(Enum(TcuActType), default=TcuActType.outro, index=True)
     natureza_processo = Column(String(200), nullable=True)   # TCE, Representação, Denúncia, Recurso...
     tema = Column(String(80), nullable=True, index=True)     # educacao_fnde, saude, licitacoes...
+    categoria = Column(String(30), nullable=True, index=True)  # tcu|licitacao|sancao|nomeacao|palavra_chave
+    fonte_nome = Column(String(200), nullable=True)          # rótulo da origem externa (ex.: "DOU Seção 3")
 
     # --- Processo / referências ---
     numero_processo = Column(String(40), nullable=True, index=True)  # TC nnn.nnn/aaaa-n
@@ -253,6 +267,13 @@ class TcuMonitorSettings(Base):
     autuados_listing_method = Column(String(6), default="GET")
     autuados_listing_body = Column(Text, nullable=True)
     autuados_create_leads = Column(Boolean, default=True)  # cria lead para cada autuado inédito
+
+    # --- Radar Externo: DOU (Diário Oficial da União) ---
+    dou_enabled = Column(Boolean, default=False)
+    dou_secoes = Column(String(40), default="do1,do3")   # seções do DOU a varrer
+    dou_keywords = Column(Text, nullable=True)           # termos-chave para buscar no DOU (um por linha)
+    # --- Radar Externo: fontes web/RSS ---
+    fontes_web_enabled = Column(Boolean, default=True)
 
     # Enriquecimento
     enrich_cnpj = Column(Boolean, default=True)

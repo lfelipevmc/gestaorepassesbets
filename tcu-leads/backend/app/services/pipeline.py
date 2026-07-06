@@ -127,10 +127,17 @@ def upsert_lead(db: Session, data: dict, *, source_kind: TcuSourceKind,
     prazo_dias = data.get("prazo_dias")
     prazo_final = compute_deadline(publication, prazo_dias) if publication else None
 
+    # Categoria: fontes externas informam explicitamente; origens TCU são "tcu".
+    categoria = data.get("categoria")
+    if not categoria and source_kind not in (TcuSourceKind.dou, TcuSourceKind.fonte_web):
+        categoria = "tcu"
+
     lead = TcuLead(
         act_type=_act_type(act),
         natureza_processo=data.get("natureza_processo"),
         tema=data.get("tema"),
+        categoria=categoria,
+        fonte_nome=data.get("fonte_nome"),
         numero_processo=numero,
         edital_numero=data.get("edital_numero"),
         acordao_ref=data.get("acordao_ref"),
@@ -533,6 +540,18 @@ def run_pipeline(db: Session, trigger: str = "scheduler", user_id: Optional[int]
     except Exception as e:
         logger.error(f"Detecção de autuados falhou: {e}")
         errors.append(f"autuados: {e}")
+
+    # Radar Externo: DOU + fontes web/RSS (embaixadas, estatais, empresas)
+    try:
+        from .external import pipeline as ext_pipeline
+        ext = ext_pipeline.run_external(db, settings, detection_date=date.today())
+        detail["radar_externo"] = ext
+        ext_created = (ext.get("dou", {}).get("created", 0) if isinstance(ext.get("dou"), dict) else 0) \
+            + (ext.get("web", {}).get("created", 0) if isinstance(ext.get("web"), dict) else 0)
+        run.leads_created = (run.leads_created or 0) + ext_created
+    except Exception as e:
+        logger.error(f"Radar Externo falhou: {e}")
+        errors.append(f"radar_externo: {e}")
 
     # Resumo diário por e-mail (apenas quando houver oportunidades relevantes)
     try:

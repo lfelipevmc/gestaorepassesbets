@@ -85,6 +85,8 @@ class LeadOut(BaseModel):
     act_type: TcuActType
     natureza_processo: Optional[str] = None
     tema: Optional[str] = None
+    categoria: Optional[str] = None
+    fonte_nome: Optional[str] = None
     numero_processo: Optional[str] = None
     edital_numero: Optional[str] = None
     acordao_ref: Optional[str] = None
@@ -197,6 +199,10 @@ class SettingsOut(BaseModel):
     autuados_listing_method: str
     autuados_listing_body: Optional[str] = None
     autuados_create_leads: bool
+    dou_enabled: bool
+    dou_secoes: Optional[str] = None
+    dou_keywords: Optional[str] = None
+    fontes_web_enabled: bool
     enrich_cnpj: bool
     enrich_cache_days: int
     min_debito_alerta: Optional[Decimal] = None
@@ -227,12 +233,56 @@ class SettingsUpdate(BaseModel):
     autuados_listing_method: Optional[str] = None
     autuados_listing_body: Optional[str] = None
     autuados_create_leads: Optional[bool] = None
+    dou_enabled: Optional[bool] = None
+    dou_secoes: Optional[str] = None
+    dou_keywords: Optional[str] = None
+    fontes_web_enabled: Optional[bool] = None
     enrich_cnpj: Optional[bool] = None
     enrich_cache_days: Optional[int] = None
     min_debito_alerta: Optional[Decimal] = None
     request_delay_seconds: Optional[float] = None
     user_agent: Optional[str] = None
     contact_email: Optional[str] = None
+
+
+# ------------------------------ Radar Externo (fontes web) ------------------------------ #
+
+class MonitoredSourceBase(BaseModel):
+    name: str
+    kind: str = "rss"                       # rss | webpage
+    url: str
+    enabled: bool = True
+    keywords: Optional[str] = None
+    categoria_padrao: Optional[str] = None  # licitacao | sancao | nomeacao | palavra_chave
+    item_selector: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class MonitoredSourceCreate(MonitoredSourceBase):
+    pass
+
+
+class MonitoredSourceUpdate(BaseModel):
+    name: Optional[str] = None
+    kind: Optional[str] = None
+    url: Optional[str] = None
+    enabled: Optional[bool] = None
+    keywords: Optional[str] = None
+    categoria_padrao: Optional[str] = None
+    item_selector: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class MonitoredSourceOut(MonitoredSourceBase):
+    id: int
+    last_checked_at: Optional[datetime] = None
+    last_status: Optional[str] = None
+    items_found: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 
 class RunOut(BaseModel):
