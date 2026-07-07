@@ -267,6 +267,10 @@ class TcuMonitorSettings(Base):
     autuados_listing_method = Column(String(6), default="GET")
     autuados_listing_body = Column(Text, nullable=True)
     autuados_create_leads = Column(Boolean, default=True)  # cria lead para cada autuado inédito
+    # Busca o registro COMPLETO (endpoint 'documento') para trazer os RESPONSÁVEIS/
+    # INTERESSADOS (nome + CPF mascarado) — os possíveis clientes. Um pouco mais
+    # lento (páginas menores); desligue para usar só o resumo (sem responsáveis).
+    autuados_fetch_responsaveis = Column(Boolean, default=True)
 
     # --- Radar Externo: DOU (Diário Oficial da União) ---
     dou_enabled = Column(Boolean, default=False)

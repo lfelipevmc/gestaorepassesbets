@@ -199,6 +199,7 @@ class SettingsOut(BaseModel):
     autuados_listing_method: str
     autuados_listing_body: Optional[str] = None
     autuados_create_leads: bool
+    autuados_fetch_responsaveis: bool
     dou_enabled: bool
     dou_secoes: Optional[str] = None
     dou_keywords: Optional[str] = None
@@ -233,6 +234,7 @@ class SettingsUpdate(BaseModel):
     autuados_listing_method: Optional[str] = None
     autuados_listing_body: Optional[str] = None
     autuados_create_leads: Optional[bool] = None
+    autuados_fetch_responsaveis: Optional[bool] = None
     dou_enabled: Optional[bool] = None
     dou_secoes: Optional[str] = None
     dou_keywords: Optional[str] = None

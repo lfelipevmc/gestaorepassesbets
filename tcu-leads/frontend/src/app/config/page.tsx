@@ -129,6 +129,7 @@ export default function ConfigPage() {
           <p className="text-xs text-muted mb-3">Fonte <strong>já integrada</strong> — não precisa configurar endereço. Busca diariamente os processos do dia direto no TCU.</p>
           <Toggle label="Detectar processos autuados do dia" hint="Consulta a Pesquisa Integrada por data e registra os processos inéditos." checked={s.autuados_enabled} onChange={v => up("autuados_enabled", v)} />
           <Toggle label="Criar oportunidade para cada processo novo" hint="Gera um lead (com órgão e assunto) para cada processo detectado." checked={s.autuados_create_leads} onChange={v => up("autuados_create_leads", v)} />
+          <Toggle label="Capturar responsáveis / interessados" hint="Busca o registro completo do processo, trazendo nome e CPF mascarado dos responsáveis — os possíveis clientes. Um pouco mais lento." checked={s.autuados_fetch_responsaveis} onChange={v => up("autuados_fetch_responsaveis", v)} />
 
           <label className="label mt-3">O que detectar</label>
           <select className="input max-w-md" value={s.autuados_filtro_campo || "DTAUTUACAO"} onChange={e => up("autuados_filtro_campo", e.target.value)}>
@@ -153,6 +154,19 @@ export default function ConfigPage() {
                   {testResult.sample && (
                     <div className="mt-1 text-slate-300">
                       Exemplo: <strong>{testResult.sample.numero}</strong> — {testResult.sample.natureza || "—"} · {testResult.sample.orgao_entidade || "órgão não informado"}
+                    </div>
+                  )}
+                  <div className="mt-1 text-slate-300">
+                    <strong>Com responsáveis:</strong> {testResult.com_responsaveis ?? 0} processo(s)
+                  </div>
+                  {testResult.exemplo_responsaveis?.responsaveis?.length > 0 && (
+                    <div className="mt-1 text-slate-300">
+                      Responsáveis de <strong>{testResult.exemplo_responsaveis.numero}</strong>: {testResult.exemplo_responsaveis.responsaveis.join("; ")}
+                    </div>
+                  )}
+                  {(!testResult.com_responsaveis) && (
+                    <div className="mt-1 text-warning">
+                      Nenhum responsável capturado nesta amostra. Se os processos de hoje realmente têm responsáveis, me avise que ajusto a leitura.
                     </div>
                   )}
                 </>

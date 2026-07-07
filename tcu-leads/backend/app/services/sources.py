@@ -223,6 +223,9 @@ def _extract_list(data) -> list:
 # Endpoint público, GET, parâmetros na URL. Protegido por WAF: só responde a
 # requisições com "cara de navegador" (User-Agent real + Sec-Fetch-* + Referer).
 PESQUISA_PROC_URL = "https://pesquisa.apps.tcu.gov.br/rest/publico/base/processo/documentosResumidos"
+# Registro COMPLETO do processo (mesma base/params do resumido, porém com todos os
+# campos — inclusive RESPONSÁVEIS / INTERESSADOS com nome + CPF mascarado).
+PESQUISA_PROC_DOC_URL = "https://pesquisa.apps.tcu.gov.br/rest/publico/base/processo/documento"
 BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
               "(KHTML, like Gecko) Version/17.0 Safari/605.1.15")
 
@@ -248,21 +251,28 @@ def _yyyymmdd(data_iso: str) -> str:
 
 def fetch_pesquisa_processos(client: "TcuHttpClient", data_iso: str, *,
                              filtro_campo: str = "DTAUTUACAO", page_size: int = 100,
-                             max_total: int = 500) -> tuple[list, dict]:
+                             max_total: int = 500, full: bool = False) -> tuple[list, dict]:
     """Lista processos do TCU numa data via Pesquisa Integrada, com paginação.
 
     filtro_campo: DTAUTUACAO (autuados na data) ou DTATUALIZACAO (movimentados).
+    full=True usa o endpoint 'documento' (registro completo, com responsáveis/
+    interessados) em vez do 'documentosResumidos' (só o resumo).
     Retorna (documentos, diagnóstico).
     """
     import urllib.parse
     d = _yyyymmdd(data_iso)
     filtro = f"{filtro_campo}:[{d} to {d}]"
+    # Registro completo é mais pesado — pagina de a poucos por vez.
+    base_url = PESQUISA_PROC_DOC_URL if full else PESQUISA_PROC_URL
+    if full and page_size > 30:
+        page_size = 30
     # Referer com o filtro duplo-codificado (como o front-end Angular faz)
-    referer = ("https://pesquisa.apps.tcu.gov.br/resultado/processo/*/"
+    ref_path = "documento" if full else "resultado"
+    referer = (f"https://pesquisa.apps.tcu.gov.br/{ref_path}/processo/*/"
                + urllib.parse.quote(urllib.parse.quote(filtro, safe=""), safe=""))
     headers = _pesquisa_headers(referer)
 
-    diag = {"url": PESQUISA_PROC_URL, "filtro": filtro, "status": None,
+    diag = {"url": base_url, "filtro": filtro, "status": None, "full": full,
             "count": 0, "total": None, "sample": None, "raw_sample": None, "error": None}
 
     documentos = []
@@ -274,7 +284,7 @@ def fetch_pesquisa_processos(client: "TcuHttpClient", data_iso: str, *,
             "ordenacao": "DTAUTUACAOORDENACAO desc, NUMEROCOMZEROS desc,KEY asc",
             "quantidade": page_size, "inicio": inicio,
         }
-        data = client.request("GET", PESQUISA_PROC_URL, params=params, headers=headers, max_retries=3)
+        data = client.request("GET", base_url, params=params, headers=headers, max_retries=3)
         if data is None:
             if not documentos:
                 diag["error"] = "Sem resposta do TCU (bloqueio do firewall, timeout ou manutenção)."
@@ -316,7 +326,9 @@ def fetch_processos_listing(client: "TcuHttpClient", settings, *,
 
     if not custom_url:  # caminho padrão: Pesquisa Integrada
         campo = getattr(settings, "autuados_filtro_campo", None) or "DTAUTUACAO"
-        return fetch_pesquisa_processos(client, di, filtro_campo=campo)
+        # Por padrão busca o registro completo (com responsáveis/interessados).
+        full = getattr(settings, "autuados_fetch_responsaveis", True)
+        return fetch_pesquisa_processos(client, di, filtro_campo=campo, full=full)
 
     # caminho customizado (URL/corpo com marcadores de data)
     url = _subst_datas(custom_url, di, dfim)
@@ -367,6 +379,60 @@ def _join_if_list(v) -> Optional[str]:
     return v
 
 
+# Uma entrada de responsável costuma vir como "Nome Completo - (XXX.303.302-XX)".
+RE_RESP_STR = re.compile(r"^\s*(.+?)\s*[-–—]\s*\(?\s*([\dXx][\dXx.\-/]{4,})\s*\)?\s*$")
+
+
+def _doc_type_from(doc: Optional[str]) -> Optional[str]:
+    if not doc:
+        return None
+    s = str(doc)
+    digits = re.sub(r"\D", "", s)
+    if len(digits) == 14:
+        return "cnpj"
+    if "X" in s.upper() or len(digits) in (9, 11):
+        return "cpf"
+    return None
+
+
+def _parse_responsaveis(resp_raw, papel_default: Optional[str] = None) -> list:
+    """Normaliza responsáveis/interessados de várias formas (lista de strings no
+    formato 'Nome - (CPF)', lista de dicts, ou string com quebras de linha)."""
+    out = []
+    seen = set()
+
+    def add(nome, doc, papel=None):
+        nome = (str(nome).strip() if nome else None) or None
+        doc = (str(doc).strip() if doc else None) or None
+        if not nome and not doc:
+            return
+        key = (nome or "", doc or "")
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({"nome": nome, "documento": doc, "tipo_doc": _doc_type_from(doc),
+                    "papel": papel or papel_default})
+
+    items = resp_raw
+    if isinstance(resp_raw, str):
+        items = [x for x in re.split(r"[\n;]+", resp_raw) if x.strip()]
+    if not isinstance(items, list):
+        return out
+
+    for r in items:
+        if isinstance(r, dict):
+            nome = _deep_first(r, ("nome", "name", "nomeResponsavel", "razaoSocial"))
+            doc = _deep_first(r, ("cpf", "cnpj", "documento", "numeroRegistro", "cpfCnpj", "numero"))
+            add(nome, doc, _deep_first(r, ("papel", "tipo", "qualificacao")))
+        elif isinstance(r, str):
+            m = RE_RESP_STR.match(r.strip())
+            if m:
+                add(m.group(1), m.group(2))
+            else:
+                add(r, None)
+    return out
+
+
 def extract_processo_fields(item: dict) -> dict:
     """Extrai campos de um item de processo.
 
@@ -387,21 +453,21 @@ def extract_processo_fields(item: dict) -> dict:
     movs = item.get("MOVIMENTACOES")
     ultima = movs[0] if isinstance(movs, list) and movs else _deep_first(item, ("ultimaMovimentacao",))
 
-    # Responsáveis: a Pesquisa Integrada (documentosResumidos) NÃO retorna as
-    # partes; ficam vazias aqui (o órgão/UJ é o principal sinal). Fontes
-    # customizadas podem trazê-las.
+    # Responsáveis / Interessados: o registro RESUMIDO (documentosResumidos) NÃO
+    # os traz; o registro COMPLETO (endpoint 'documento') traz — com nome e CPF
+    # mascarado. O rótulo varia com o tipo processual ("Responsáveis" na maioria;
+    # "Interessados" em processos administrativos). Capturamos ambos.
     responsaveis = []
-    resp_raw = _deep_first(item, ("responsaveis", "responsavel", "partes", "interessados"))
-    if isinstance(resp_raw, list):
-        for r in resp_raw:
-            if isinstance(r, dict):
-                nome = r.get("nome") or r.get("name")
-                doc = r.get("cpf") or r.get("cnpj") or r.get("documento") or r.get("numeroRegistro")
-                tdoc = "cnpj" if (r.get("cnpj") or (doc and len(re.sub(r"\D", "", str(doc))) == 14)) else "cpf" if doc else None
-                if nome or doc:
-                    responsaveis.append({"nome": nome, "documento": doc, "tipo_doc": tdoc, "papel": r.get("papel")})
-            elif isinstance(r, str):
-                responsaveis.append({"nome": r, "documento": None, "tipo_doc": None, "papel": None})
+    for keys, papel in (
+        (("responsaveis", "responsavel"), "responsável"),
+        (("interessados", "interessado"), "interessado"),
+        (("partes",), None),
+    ):
+        raw = _deep_first(item, keys)
+        if raw:
+            responsaveis.extend(_parse_responsaveis(raw, papel))
+        if responsaveis:
+            break
 
     orgao = (_join_if_list(item.get("UNIDADESJURISDICIONADAS"))
              or _deep_first(item, ("orgao", "orgaoEntidade", "orgao_entidade",
@@ -430,7 +496,20 @@ def extract_processo_from_item(item: dict) -> Optional[str]:
 
 def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional[str] = None) -> dict:
     """Diagnóstico da fonte de processos (para o botão "Testar fonte")."""
-    _, diag = fetch_processos_listing(client, settings, data_inicio=data_str, data_fim=data_str)
+    docs, diag = fetch_processos_listing(client, settings, data_inicio=data_str, data_fim=data_str)
+    # Mostra os responsáveis do 1º processo que tiver — confirma que a captura
+    # do registro completo está funcionando.
+    com_resp = 0
+    exemplo = None
+    for it in docs:
+        fields = extract_processo_fields(it)
+        if fields.get("responsaveis"):
+            com_resp += 1
+            if exemplo is None:
+                exemplo = {"numero": fields.get("numero"),
+                           "responsaveis": [r.get("nome") for r in fields["responsaveis"] if r.get("nome")][:12]}
+    diag["com_responsaveis"] = com_resp
+    diag["exemplo_responsaveis"] = exemplo
     return diag
 
 
