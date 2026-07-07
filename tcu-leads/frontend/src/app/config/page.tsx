@@ -178,7 +178,7 @@ export default function ConfigPage() {
             <div className={`mt-2 rounded-lg p-3 text-xs border ${testResult.status === "erro" || (testResult.error && !testResult.count) ? "border-danger/30 bg-danger/5 text-danger" : "border-success/30 bg-success/5 text-success"}`}>
               <p><strong>Status:</strong> {testResult.status || "—"}{testResult.endpoint && ` · via ${testResult.endpoint}`} · <strong>Processos:</strong> {testResult.count ?? 0}{testResult.total != null && ` (total no TCU: ${testResult.total})`}</p>
               {testResult.cookies_firewall != null && (
-                <p className="text-slate-400">Cookies do firewall obtidos: <strong>{testResult.cookies_firewall}</strong> {testResult.cookies_firewall > 0 ? "✓" : "(nenhum — o firewall pode estar bloqueando o servidor)"}</p>
+                <p className="text-slate-400">Cookies do firewall obtidos: <strong>{testResult.cookies_firewall}</strong> {testResult.cookies_firewall > 0 ? "✓" : "(nenhum)"}{testResult.cookies_nomes?.length > 0 && ` — ${testResult.cookies_nomes.join(", ")}`}</p>
               )}
               {testResult.error && <p className="mt-1 text-danger">{testResult.error}</p>}
               {testResult.sample && (

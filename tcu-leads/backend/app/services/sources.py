@@ -59,13 +59,27 @@ class TcuHttpClient:
             time.sleep(self.delay - elapsed)
         self._last_request_ts = time.monotonic()
 
+    def cookie_names(self) -> list:
+        try:
+            return sorted({c.name for c in self.cookies.jar})
+        except Exception:
+            return []
+
     def prime(self, home_url: str, referer: Optional[str] = None):
-        """Visita a home do serviço para receber os cookies do firewall (F5 TS...)
-        antes das chamadas de API. Idempotente por host."""
+        """Visita a home do serviço para receber (e validar) os cookies do firewall
+        F5 (TS...) antes das chamadas de API. O F5 costuma emitir o cookie na 1ª
+        resposta e validá-lo na 2ª — por isso visitamos duas vezes. Idempotente."""
         host = home_url.split("/rest/")[0].rstrip("/")
         if host in self._primed_hosts:
             return
         self._primed_hosts.add(host)
+        # Cookie de sessão do app (o Angular normalmente o cria via JS).
+        try:
+            import urllib.parse
+            val = urllib.parse.quote(json.dumps({"uuid": SESSION_UUID, "dh": int(time.time() * 1000)}))
+            self.cookies.set("PESQUISA_TEXTUAL_UUID", val, domain="pesquisa.apps.tcu.gov.br", path="/")
+        except Exception:
+            pass
         headers = {
             "User-Agent": self.headers.get("User-Agent"),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -73,15 +87,17 @@ class TcuHttpClient:
         }
         if referer:
             headers["Referer"] = referer
-        try:
-            self._throttle()
-            with httpx.Client(timeout=20, headers=self.headers, cookies=self.cookies,
-                              follow_redirects=True) as client:
-                client.get(host + "/", headers=headers)
-                self.cookies = client.cookies
-            logger.info(f"Prime {host}: {len(self.cookies)} cookie(s) obtidos")
-        except httpx.HTTPError as e:
-            logger.warning(f"Prime {host} falhou (segue sem cookies): {e}")
+        for _ in range(2):  # F5: valida o cookie na 2ª requisição
+            try:
+                self._throttle()
+                with httpx.Client(timeout=20, headers=self.headers, cookies=self.cookies,
+                                  follow_redirects=True) as client:
+                    client.get(host + "/", headers=headers)
+                    self.cookies = client.cookies
+            except httpx.HTTPError as e:
+                logger.warning(f"Prime {host} falhou (segue sem cookies): {e}")
+                break
+        logger.info(f"Prime {host}: cookies={self.cookie_names()}")
 
     @staticmethod
     def in_maintenance_window(now: Optional[datetime] = None) -> bool:
@@ -712,6 +728,7 @@ def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional
         "exemplo_responsaveis": next((a["exemplo_responsaveis"] for a in attempts if a["exemplo_responsaveis"]), None),
         "campos_retornados": best.get("campos", []),
         "cookies_firewall": _n_cookies(client),
+        "cookies_nomes": client.cookie_names() if hasattr(client, "cookie_names") else [],
         "custom_url_configurada": bool(custom_url),
         "diagnostics": attempts,
     }
