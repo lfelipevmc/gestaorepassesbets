@@ -67,11 +67,14 @@ export default function ConfigPage() {
     } finally { setTesting(false); }
   }
 
+  const [loadError, setLoadError] = useState(false);
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
   const load = () => {
     setLoading(true);
+    setLoadError(false);
     Promise.all([getSettings(), getRuns(20)])
       .then(([a, b]) => { setS(a.data); setRuns(b.data); })
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
@@ -87,7 +90,15 @@ export default function ConfigPage() {
     finally { setSaving(false); }
   }
 
-  if (loading || !s) return <AppShell><div className="text-muted">Carregando...</div></AppShell>;
+  if (loading) return <AppShell><div className="text-muted">Carregando...</div></AppShell>;
+  if (loadError || !s) return (
+    <AppShell>
+      <div className="card text-center py-10">
+        <p className="text-danger mb-3">Não foi possível carregar as configurações.</p>
+        <button onClick={load} className="btn-primary">Tentar novamente</button>
+      </div>
+    </AppShell>
+  );
   const up = (k: string, v: any) => setS({ ...s, [k]: v });
 
   return (
