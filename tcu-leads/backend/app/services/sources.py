@@ -80,12 +80,41 @@ class TcuHttpClient:
                 if resp.status_code != 200:
                     logger.warning(f"{url} status {resp.status_code}")
                     return None
-                return resp.json() if expect_json else resp.content
+                if not expect_json:
+                    return resp.content
+                try:
+                    return resp.json()
+                except ValueError:
+                    # 200 mas corpo não-JSON (vazio, comprimido ou página de bloqueio)
+                    logger.warning(f"{url} respondeu 200 sem JSON válido: {resp.text[:200]!r}")
+                    return None
             except (httpx.TransportError, httpx.HTTPError) as e:
                 logger.warning(f"{url} erro de rede ({e}); tentativa {attempt+1}")
                 time.sleep(backoff)
                 backoff *= 2
         logger.error(f"{url} falhou após {max_retries} tentativas")
+        return None
+
+    def fetch_raw(self, method: str, url: str, *, max_retries: int = 2, **kwargs):
+        """Como request(), mas devolve (status, headers, content_bytes) para
+        diagnóstico — não tenta decodificar JSON. None em falha de rede."""
+        if self.in_maintenance_window():
+            return None
+        backoff = 2
+        for attempt in range(max_retries):
+            self._throttle()
+            try:
+                with httpx.Client(timeout=30, headers=self.headers, follow_redirects=True) as client:
+                    resp = client.request(method, url, **kwargs)
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                return resp.status_code, dict(resp.headers), resp.content
+            except (httpx.TransportError, httpx.HTTPError) as e:
+                logger.warning(f"{url} erro de rede ({e}); tentativa {attempt+1}")
+                time.sleep(backoff)
+                backoff *= 2
         return None
 
 
@@ -274,7 +303,8 @@ def fetch_pesquisa_processos(client: "TcuHttpClient", data_iso: str, *,
     headers = _pesquisa_headers(referer)
 
     diag = {"url": base_url, "filtro": filtro, "status": None, "full": full,
-            "count": 0, "total": None, "sample": None, "raw_sample": None, "error": None}
+            "count": 0, "total": None, "sample": None, "raw_sample": None, "error": None,
+            "http_status": None, "content_encoding": None, "body_len": None}
 
     documentos = []
     inicio = 0
@@ -285,15 +315,33 @@ def fetch_pesquisa_processos(client: "TcuHttpClient", data_iso: str, *,
             "ordenacao": "DTAUTUACAOORDENACAO desc, NUMEROCOMZEROS desc,KEY asc",
             "quantidade": page_size, "inicio": inicio,
         }
-        data = client.request("GET", base_url, params=params, headers=headers, max_retries=max_retries)
-        if data is None:
+        raw = client.fetch_raw("GET", base_url, params=params, headers=headers, max_retries=max_retries)
+        if raw is None:
             if not documentos:
-                diag["error"] = "Sem resposta do TCU (bloqueio do firewall, timeout ou manutenção)."
+                diag["error"] = "Sem resposta do TCU (erro de rede, 5xx ou manutenção)."
+            break
+        http_status, resp_headers, content = raw
+        text = content.decode("utf-8", "replace") if isinstance(content, (bytes, bytearray)) else str(content or "")
+        if total is None:  # registra o diagnóstico da 1ª página
+            diag["http_status"] = http_status
+            diag["content_encoding"] = (resp_headers or {}).get("content-encoding")
+            diag["body_len"] = len(text)
+        if http_status != 200:
+            diag["error"] = f"TCU respondeu HTTP {http_status} (possível bloqueio do firewall)."
+            diag["raw_sample"] = text[:400]
+            break
+        try:
+            data = json.loads(text) if text.strip() else None
+        except json.JSONDecodeError:
+            data = None
+        if data is None:
+            diag["error"] = ("Resposta não é JSON — corpo vazio ou página de bloqueio "
+                             f"(tamanho={len(text)}, encoding={diag['content_encoding'] or 'nenhum'}).")
+            diag["raw_sample"] = text[:400]
             break
         if isinstance(data, dict) and data.get("documentos") is None and total is None:
-            # resposta inesperada (ex.: HTML de bloqueio veio como texto → não é dict com documentos)
-            diag["error"] = "Resposta inesperada (possível bloqueio do firewall)."
-            diag["raw_sample"] = str(data)[:400]
+            diag["error"] = "Resposta JSON sem a lista 'documentos' (estrutura inesperada)."
+            diag["raw_sample"] = json.dumps(data, ensure_ascii=False)[:400]
             break
         page = (data or {}).get("documentos") or _extract_list(data)
         if total is None:
@@ -510,48 +558,61 @@ def _probe_responsaveis(docs: list) -> dict:
 
 
 def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional[str] = None) -> dict:
-    """Diagnóstico RÁPIDO da fonte de processos (botão "Testar fonte").
+    """Diagnóstico RÁPIDO e completo da fonte de processos (botão "Testar fonte").
 
-    Faz uma única página pequena e sem retentativas longas (para não estourar o
-    tempo). Testa o registro COMPLETO (com responsáveis); se falhar, testa o
-    RESUMIDO para revelar se o problema é só do endpoint de detalhe. Também
-    devolve os nomes dos campos retornados (ajuda a calibrar a leitura)."""
+    Roda algumas tentativas leves (1 tentativa cada, sem back-off longo) e devolve
+    o corpo/erro de cada uma, para revelar exatamente onde está o problema:
+      - registro COMPLETO (documento) com 8 itens e com 1 item (como o site faz);
+      - registro RESUMIDO (documentosResumidos), que confirma se a base responde.
+    """
     di = data_str or date.today().strftime("%Y-%m-%d")
     campo = (getattr(settings, "autuados_filtro_campo", None) or "DTAUTUACAO")
     custom_url = getattr(settings, "autuados_listing_url", None)
 
-    # Fonte customizada: usa o caminho normal (rápido o suficiente).
-    if custom_url:
+    if custom_url:  # fonte customizada: caminho normal
         docs, diag = fetch_processos_listing(client, settings, data_inicio=di, data_fim=di)
         diag.update(_probe_responsaveis(docs))
         diag["campos_retornados"] = list(docs[0].keys()) if docs and isinstance(docs[0], dict) else []
         return diag
 
     quer_resp = getattr(settings, "autuados_fetch_responsaveis", True)
+    attempts = []
 
-    # 1) registro COMPLETO (com responsáveis) — rápido: 8 itens, 1 tentativa
-    diag = {}
-    if quer_resp:
-        docs, diag = fetch_pesquisa_processos(client, di, filtro_campo=campo, full=True,
-                                              page_size=8, max_total=8, max_retries=1)
-        diag["endpoint"] = "documento (completo)"
-        diag["campos_retornados"] = list(docs[0].keys()) if docs and isinstance(docs[0], dict) else []
-        diag.update(_probe_responsaveis(docs))
-        if not diag.get("error") and docs:
-            return diag  # completo funcionou
+    def run(label, full, qty):
+        docs, d = fetch_pesquisa_processos(client, di, filtro_campo=campo, full=full,
+                                           page_size=qty, max_total=qty, max_retries=1)
+        rp = _probe_responsaveis(docs)
+        attempts.append({
+            "label": label, "status": d.get("status"), "count": d.get("count"),
+            "total": d.get("total"), "error": d.get("error"),
+            "http_status": d.get("http_status"), "content_encoding": d.get("content_encoding"),
+            "body_len": d.get("body_len"), "raw_sample": d.get("raw_sample"),
+            "campos": (list(docs[0].keys()) if docs and isinstance(docs[0], dict) else []),
+            **rp,
+        })
+        return docs
 
-    # 2) fallback/refino: RESUMIDO — confirma se a base responde
-    docs_r, diag_r = fetch_pesquisa_processos(client, di, filtro_campo=campo, full=False,
-                                              page_size=8, max_total=8, max_retries=1)
-    diag_r["endpoint"] = "documentosResumidos (resumo)"
-    diag_r["campos_retornados"] = list(docs_r[0].keys()) if docs_r and isinstance(docs_r[0], dict) else []
-    diag_r.update(_probe_responsaveis(docs_r))
     if quer_resp:
-        # explica a diferença entre os dois testes
-        diag_r["detalhe_completo_status"] = diag.get("status")
-        diag_r["detalhe_completo_error"] = diag.get("error")
-        diag_r["detalhe_completo_campos"] = diag.get("campos_retornados")
-    return diag_r
+        run("Registro completo (documento, 8 itens)", True, 8)
+        run("Registro completo (documento, 1 item — como o site)", True, 1)
+    run("Registro resumido (documentosResumidos, 8 itens)", False, 8)
+
+    # Escolhe o melhor resultado para o resumo no topo.
+    best = next((a for a in attempts if a["com_responsaveis"]), None) \
+        or next((a for a in attempts if a["count"]), None) \
+        or (attempts[0] if attempts else {"status": "erro", "error": "sem tentativas"})
+
+    return {
+        "status": best.get("status") or ("ok" if best.get("count") else "erro"),
+        "endpoint": best.get("label"),
+        "count": best.get("count", 0),
+        "total": best.get("total"),
+        "error": best.get("error"),
+        "com_responsaveis": best.get("com_responsaveis", 0),
+        "exemplo_responsaveis": best.get("exemplo_responsaveis"),
+        "campos_retornados": best.get("campos", []),
+        "diagnostics": attempts,   # detalhamento de cada tentativa
+    }
 
 
 # --------------------------------------------------------------------------- #

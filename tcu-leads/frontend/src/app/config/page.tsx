@@ -177,17 +177,29 @@ export default function ConfigPage() {
                   Nenhum responsável capturado nesta amostra.
                 </div>
               )}
-              {testResult.campos_retornados?.length > 0 && (
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-muted">Campos retornados pelo TCU (diagnóstico)</summary>
-                  <p className="mt-1 text-slate-400 break-words">{testResult.campos_retornados.join(", ")}</p>
-                </details>
-              )}
-              {testResult.detalhe_completo_status !== undefined && (
-                <details className="mt-1">
-                  <summary className="cursor-pointer text-muted">Detalhe do registro completo (documento)</summary>
-                  <p className="mt-1 text-slate-400">status: {testResult.detalhe_completo_status || "—"} · erro: {testResult.detalhe_completo_error || "—"}</p>
-                  {testResult.detalhe_completo_campos?.length > 0 && <p className="text-slate-400 break-words">campos: {testResult.detalhe_completo_campos.join(", ")}</p>}
+              {testResult.diagnostics?.length > 0 && (
+                <details className="mt-2" open>
+                  <summary className="cursor-pointer text-muted">Diagnóstico detalhado (cada tentativa)</summary>
+                  <div className="mt-1 space-y-2">
+                    {testResult.diagnostics.map((d: any, i: number) => (
+                      <div key={i} className="rounded border border-surface-border p-2 bg-surface/50">
+                        <p className="text-slate-200">{d.label}</p>
+                        <p className="text-slate-400">
+                          status: <strong>{d.status || "—"}</strong>
+                          {d.http_status != null && ` · HTTP ${d.http_status}`}
+                          {` · itens: ${d.count ?? 0}`}
+                          {d.total != null && ` · total TCU: ${d.total}`}
+                          {` · responsáveis: ${d.com_responsaveis ?? 0}`}
+                        </p>
+                        {(d.body_len != null || d.content_encoding) && (
+                          <p className="text-slate-500">corpo: {d.body_len ?? "?"} bytes · encoding: {d.content_encoding || "nenhum"}</p>
+                        )}
+                        {d.error && <p className="text-danger">{d.error}</p>}
+                        {d.campos?.length > 0 && <p className="text-slate-500 break-words">campos: {d.campos.join(", ")}</p>}
+                        {d.raw_sample && <p className="text-slate-500 break-words mt-1">corpo (início): {typeof d.raw_sample === "string" ? d.raw_sample.slice(0, 300) : JSON.stringify(d.raw_sample).slice(0, 300)}</p>}
+                      </div>
+                    ))}
+                  </div>
                 </details>
               )}
             </div>
