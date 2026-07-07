@@ -29,18 +29,22 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface p-4">
-      <div className="w-full max-w-sm">
+    <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden bg-surface">
+      {/* brilho de fundo */}
+      <div className="pointer-events-none absolute -top-40 -left-40 w-[32rem] h-[32rem] rounded-full bg-primary/20 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 -right-40 w-[32rem] h-[32rem] rounded-full bg-blue-500/10 blur-3xl" />
+
+      <div className="relative w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 bg-primary/20 rounded-2xl flex items-center justify-center mb-3">
-            <svg className="w-7 h-7 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="w-16 h-16 bg-gradient-to-br from-primary to-blue-500 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-primary/30">
+            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-white">TCU Leads</h1>
-          <p className="text-muted text-sm">Captação de oportunidades no TCU</p>
+          <h1 className="text-3xl font-bold text-white tracking-tight">TCU Leads</h1>
+          <p className="text-muted text-sm mt-1">Inteligência de captação de oportunidades no TCU</p>
         </div>
-        <form onSubmit={handleSubmit} className="card space-y-4">
+        <form onSubmit={handleSubmit} className="card space-y-4 shadow-xl">
           {error && <div className="bg-danger/10 border border-danger/30 text-danger rounded-lg px-4 py-3 text-sm">{error}</div>}
           <div>
             <label className="label">E-mail</label>
@@ -54,6 +58,7 @@ export default function LoginPage() {
             {loading ? "Entrando..." : "Entrar"}
           </button>
         </form>
+        <p className="text-center text-[11px] text-muted/70 mt-6">Ferramenta interna · Dados de fontes públicas · Sem captação ativa (OAB 205/2021)</p>
       </div>
     </div>
   );

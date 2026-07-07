@@ -1,7 +1,9 @@
 "use client";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { clearAuth, getUser } from "@/lib/auth";
+import { getStats } from "@/lib/api";
 
 const navItems = [
   { href: "/painel", label: "Painel", icon: "M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" },
@@ -19,6 +21,16 @@ export default function Sidebar() {
   const router = useRouter();
   const user = getUser();
   const items = user?.role === "admin" ? [...navItems, ...adminNavItems] : navItems;
+  const [badges, setBadges] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let alive = true;
+    getStats().then(r => {
+      if (!alive) return;
+      setBadges({ "/leads": r.data.novos || 0, "/processos": r.data.autuados_hoje || 0 });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [pathname]);
 
   function handleLogout() {
     clearAuth();
@@ -52,7 +64,12 @@ export default function Sidebar() {
               <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
               </svg>
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {badges[item.href] > 0 && (
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${active ? "bg-primary/30 text-primary" : "bg-surface-border text-slate-300"}`}>
+                  {badges[item.href]}
+                </span>
+              )}
             </Link>
           );
         })}
