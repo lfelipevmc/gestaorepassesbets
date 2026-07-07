@@ -124,8 +124,12 @@ def test_source_processos(data: dict = None, db: Session = Depends(get_db),
     settings = pipeline.get_settings(db)
     client = pipeline._client(settings)
     data_str = (data or {}).get("data")   # AAAA-MM-DD opcional
-    diag = src.probe_processos_source(client, settings, data_str=data_str)
-    return diag
+    try:
+        return src.probe_processos_source(client, settings, data_str=data_str)
+    except Exception as e:
+        import logging, traceback
+        logging.getLogger(__name__).warning(f"probe processos falhou: {e}\n{traceback.format_exc()}")
+        return {"status": "erro", "error": f"Exceção no teste: {e}"}
 
 
 @router.get("/settings", response_model=SettingsOut)

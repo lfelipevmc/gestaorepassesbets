@@ -156,31 +156,39 @@ export default function ConfigPage() {
             <span className="text-xs text-muted">Salve antes de testar. Testa a data de hoje.</span>
           </div>
           {testResult && (
-            <div className={`mt-2 rounded-lg p-3 text-xs border ${testResult.error ? "border-danger/30 bg-danger/5 text-danger" : "border-success/30 bg-success/5 text-success"}`}>
-              {testResult.error ? (
-                <p>{testResult.error}</p>
-              ) : (
-                <>
-                  <p><strong>Status:</strong> {testResult.status} · <strong>Processos hoje:</strong> {testResult.count}{testResult.total != null && ` (total no TCU: ${testResult.total})`}</p>
-                  {testResult.sample && (
-                    <div className="mt-1 text-slate-300">
-                      Exemplo: <strong>{testResult.sample.numero}</strong> — {testResult.sample.natureza || "—"} · {testResult.sample.orgao_entidade || "órgão não informado"}
-                    </div>
-                  )}
-                  <div className="mt-1 text-slate-300">
-                    <strong>Com responsáveis:</strong> {testResult.com_responsaveis ?? 0} processo(s)
-                  </div>
-                  {testResult.exemplo_responsaveis?.responsaveis?.length > 0 && (
-                    <div className="mt-1 text-slate-300">
-                      Responsáveis de <strong>{testResult.exemplo_responsaveis.numero}</strong>: {testResult.exemplo_responsaveis.responsaveis.join("; ")}
-                    </div>
-                  )}
-                  {(!testResult.com_responsaveis) && (
-                    <div className="mt-1 text-warning">
-                      Nenhum responsável capturado nesta amostra. Se os processos de hoje realmente têm responsáveis, me avise que ajusto a leitura.
-                    </div>
-                  )}
-                </>
+            <div className={`mt-2 rounded-lg p-3 text-xs border ${testResult.status === "erro" || (testResult.error && !testResult.count) ? "border-danger/30 bg-danger/5 text-danger" : "border-success/30 bg-success/5 text-success"}`}>
+              <p><strong>Status:</strong> {testResult.status || "—"}{testResult.endpoint && ` · via ${testResult.endpoint}`} · <strong>Processos:</strong> {testResult.count ?? 0}{testResult.total != null && ` (total no TCU: ${testResult.total})`}</p>
+              {testResult.error && <p className="mt-1 text-danger">{testResult.error}</p>}
+              {testResult.sample && (
+                <div className="mt-1 text-slate-300">
+                  Exemplo: <strong>{testResult.sample.numero}</strong> — {testResult.sample.natureza || "—"} · {testResult.sample.orgao_entidade || "órgão não informado"}
+                </div>
+              )}
+              <div className="mt-1 text-slate-300">
+                <strong>Com responsáveis:</strong> {testResult.com_responsaveis ?? 0} processo(s)
+              </div>
+              {testResult.exemplo_responsaveis?.responsaveis?.length > 0 && (
+                <div className="mt-1 text-slate-300">
+                  Responsáveis de <strong>{testResult.exemplo_responsaveis.numero}</strong>: {testResult.exemplo_responsaveis.responsaveis.join("; ")}
+                </div>
+              )}
+              {testResult.count > 0 && !testResult.com_responsaveis && (
+                <div className="mt-1 text-warning">
+                  Nenhum responsável capturado nesta amostra.
+                </div>
+              )}
+              {testResult.campos_retornados?.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-muted">Campos retornados pelo TCU (diagnóstico)</summary>
+                  <p className="mt-1 text-slate-400 break-words">{testResult.campos_retornados.join(", ")}</p>
+                </details>
+              )}
+              {testResult.detalhe_completo_status !== undefined && (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-muted">Detalhe do registro completo (documento)</summary>
+                  <p className="mt-1 text-slate-400">status: {testResult.detalhe_completo_status || "—"} · erro: {testResult.detalhe_completo_error || "—"}</p>
+                  {testResult.detalhe_completo_campos?.length > 0 && <p className="text-slate-400 break-words">campos: {testResult.detalhe_completo_campos.join(", ")}</p>}
+                </details>
               )}
             </div>
           )}

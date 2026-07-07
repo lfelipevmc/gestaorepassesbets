@@ -251,7 +251,8 @@ def _yyyymmdd(data_iso: str) -> str:
 
 def fetch_pesquisa_processos(client: "TcuHttpClient", data_iso: str, *,
                              filtro_campo: str = "DTAUTUACAO", page_size: int = 100,
-                             max_total: int = 500, full: bool = False) -> tuple[list, dict]:
+                             max_total: int = 500, full: bool = False,
+                             max_retries: int = 3) -> tuple[list, dict]:
     """Lista processos do TCU numa data via Pesquisa Integrada, com paginação.
 
     filtro_campo: DTAUTUACAO (autuados na data) ou DTATUALIZACAO (movimentados).
@@ -284,7 +285,7 @@ def fetch_pesquisa_processos(client: "TcuHttpClient", data_iso: str, *,
             "ordenacao": "DTAUTUACAOORDENACAO desc, NUMEROCOMZEROS desc,KEY asc",
             "quantidade": page_size, "inicio": inicio,
         }
-        data = client.request("GET", base_url, params=params, headers=headers, max_retries=3)
+        data = client.request("GET", base_url, params=params, headers=headers, max_retries=max_retries)
         if data is None:
             if not documentos:
                 diag["error"] = "Sem resposta do TCU (bloqueio do firewall, timeout ou manutenção)."
@@ -494,11 +495,8 @@ def extract_processo_from_item(item: dict) -> Optional[str]:
     return extract_processo_fields(item).get("numero")
 
 
-def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional[str] = None) -> dict:
-    """Diagnóstico da fonte de processos (para o botão "Testar fonte")."""
-    docs, diag = fetch_processos_listing(client, settings, data_inicio=data_str, data_fim=data_str)
-    # Mostra os responsáveis do 1º processo que tiver — confirma que a captura
-    # do registro completo está funcionando.
+def _probe_responsaveis(docs: list) -> dict:
+    """Resume os responsáveis achados numa amostra de processos."""
     com_resp = 0
     exemplo = None
     for it in docs:
@@ -508,9 +506,52 @@ def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional
             if exemplo is None:
                 exemplo = {"numero": fields.get("numero"),
                            "responsaveis": [r.get("nome") for r in fields["responsaveis"] if r.get("nome")][:12]}
-    diag["com_responsaveis"] = com_resp
-    diag["exemplo_responsaveis"] = exemplo
-    return diag
+    return {"com_responsaveis": com_resp, "exemplo_responsaveis": exemplo}
+
+
+def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional[str] = None) -> dict:
+    """Diagnóstico RÁPIDO da fonte de processos (botão "Testar fonte").
+
+    Faz uma única página pequena e sem retentativas longas (para não estourar o
+    tempo). Testa o registro COMPLETO (com responsáveis); se falhar, testa o
+    RESUMIDO para revelar se o problema é só do endpoint de detalhe. Também
+    devolve os nomes dos campos retornados (ajuda a calibrar a leitura)."""
+    di = data_str or date.today().strftime("%Y-%m-%d")
+    campo = (getattr(settings, "autuados_filtro_campo", None) or "DTAUTUACAO")
+    custom_url = getattr(settings, "autuados_listing_url", None)
+
+    # Fonte customizada: usa o caminho normal (rápido o suficiente).
+    if custom_url:
+        docs, diag = fetch_processos_listing(client, settings, data_inicio=di, data_fim=di)
+        diag.update(_probe_responsaveis(docs))
+        diag["campos_retornados"] = list(docs[0].keys()) if docs and isinstance(docs[0], dict) else []
+        return diag
+
+    quer_resp = getattr(settings, "autuados_fetch_responsaveis", True)
+
+    # 1) registro COMPLETO (com responsáveis) — rápido: 8 itens, 1 tentativa
+    diag = {}
+    if quer_resp:
+        docs, diag = fetch_pesquisa_processos(client, di, filtro_campo=campo, full=True,
+                                              page_size=8, max_total=8, max_retries=1)
+        diag["endpoint"] = "documento (completo)"
+        diag["campos_retornados"] = list(docs[0].keys()) if docs and isinstance(docs[0], dict) else []
+        diag.update(_probe_responsaveis(docs))
+        if not diag.get("error") and docs:
+            return diag  # completo funcionou
+
+    # 2) fallback/refino: RESUMIDO — confirma se a base responde
+    docs_r, diag_r = fetch_pesquisa_processos(client, di, filtro_campo=campo, full=False,
+                                              page_size=8, max_total=8, max_retries=1)
+    diag_r["endpoint"] = "documentosResumidos (resumo)"
+    diag_r["campos_retornados"] = list(docs_r[0].keys()) if docs_r and isinstance(docs_r[0], dict) else []
+    diag_r.update(_probe_responsaveis(docs_r))
+    if quer_resp:
+        # explica a diferença entre os dois testes
+        diag_r["detalhe_completo_status"] = diag.get("status")
+        diag_r["detalhe_completo_error"] = diag.get("error")
+        diag_r["detalhe_completo_campos"] = diag.get("campos_retornados")
+    return diag_r
 
 
 # --------------------------------------------------------------------------- #
