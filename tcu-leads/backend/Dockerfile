@@ -10,6 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Navegador headless (Chromium) para vencer o desafio JavaScript do firewall F5
+# do TCU. --with-deps instala também as bibliotecas de sistema necessárias.
+RUN playwright install --with-deps chromium
+
 COPY . .
 
 EXPOSE 8000

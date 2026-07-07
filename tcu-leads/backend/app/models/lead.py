@@ -271,6 +271,9 @@ class TcuMonitorSettings(Base):
     # INTERESSADOS (nome + CPF mascarado) — os possíveis clientes. Um pouco mais
     # lento (páginas menores); desligue para usar só o resumo (sem responsáveis).
     autuados_fetch_responsaveis = Column(Boolean, default=True)
+    # Usa um navegador headless (Chromium) para as consultas ao TCU, vencendo o
+    # desafio JavaScript do firewall F5. Necessário no servidor (datacenter).
+    autuados_use_browser = Column(Boolean, default=True)
 
     # --- Radar Externo: DOU (Diário Oficial da União) ---
     dou_enabled = Column(Boolean, default=False)

@@ -151,6 +151,7 @@ export default function ConfigPage() {
           <Toggle label="Detectar processos autuados do dia" hint="Consulta a Pesquisa Integrada por data e registra os processos inéditos." checked={s.autuados_enabled} onChange={v => up("autuados_enabled", v)} />
           <Toggle label="Criar oportunidade para cada processo novo" hint="Gera um lead (com órgão e assunto) para cada processo detectado." checked={s.autuados_create_leads} onChange={v => up("autuados_create_leads", v)} />
           <Toggle label="Capturar responsáveis / interessados" hint="Busca o registro completo do processo, trazendo nome e CPF mascarado dos responsáveis — os possíveis clientes. Um pouco mais lento." checked={s.autuados_fetch_responsaveis} onChange={v => up("autuados_fetch_responsaveis", v)} />
+          <Toggle label="Usar navegador headless (recomendado no servidor)" hint="O firewall do TCU exige um desafio em JavaScript que só um navegador resolve. Ligado, as consultas passam por um Chromium interno. Desligue apenas se rodar localmente numa rede que já acessa o TCU." checked={s.autuados_use_browser} onChange={v => up("autuados_use_browser", v)} />
 
           <label className="label mt-3">O que detectar</label>
           <select className="input max-w-md" value={s.autuados_filtro_campo || "DTAUTUACAO"} onChange={e => up("autuados_filtro_campo", e.target.value)}>

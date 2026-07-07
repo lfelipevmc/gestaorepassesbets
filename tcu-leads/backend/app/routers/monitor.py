@@ -130,6 +130,11 @@ def test_source_processos(data: dict = None, db: Session = Depends(get_db),
         import logging, traceback
         logging.getLogger(__name__).warning(f"probe processos falhou: {e}\n{traceback.format_exc()}")
         return {"status": "erro", "error": f"Exceção no teste: {e}"}
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
 
 
 @router.post("/clear-autuados-source")

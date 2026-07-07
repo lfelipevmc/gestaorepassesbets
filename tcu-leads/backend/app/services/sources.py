@@ -40,7 +40,7 @@ class TcuHttpClient:
     """Envelope httpx com rate-limit, retry exponencial e respeito à janela de manutenção."""
 
     def __init__(self, user_agent: Optional[str] = None, delay: float = 3.0,
-                 contact_email: Optional[str] = None):
+                 contact_email: Optional[str] = None, use_browser: bool = False):
         ua = user_agent or DEFAULT_UA
         if contact_email:
             ua = f"{ua} <{contact_email}>"
@@ -52,6 +52,11 @@ class TcuHttpClient:
         # de API — o que o navegador faz e um cliente ingênuo não).
         self.cookies = httpx.Cookies()
         self._primed_hosts: set[str] = set()
+        # Navegador headless (Playwright): quando ligado, as chamadas GET do TCU
+        # passam pelo Chromium, que roda o desafio JavaScript do firewall F5.
+        self.use_browser = bool(use_browser)
+        self._browser = None
+        self._browser_failed = False
 
     def _throttle(self):
         elapsed = time.monotonic() - self._last_request_ts
@@ -60,15 +65,42 @@ class TcuHttpClient:
         self._last_request_ts = time.monotonic()
 
     def cookie_names(self) -> list:
+        if self.use_browser and self._browser is not None:
+            return self._browser.cookie_names()
         try:
             return sorted({c.name for c in self.cookies.jar})
         except Exception:
             return []
 
+    def _get_browser(self):
+        """Abre (uma vez) e devolve a sessão de navegador headless, ou None se
+        indisponível — caindo então para o cliente HTTP comum."""
+        if not self.use_browser or self._browser_failed:
+            return None
+        if self._browser is None:
+            from .browser import TcuBrowserSession
+            b = TcuBrowserSession(self.headers.get("User-Agent"))
+            if b.open() and b.prime():
+                self._browser = b
+                logger.info(f"Navegador headless pronto (cookies: {b.cookie_names()})")
+            else:
+                self._browser_failed = True
+                b.close()
+                return None
+        return self._browser
+
+    def close(self):
+        """Fecha o navegador headless (libera memória). Seguro chamar sempre."""
+        if self._browser is not None:
+            self._browser.close()
+            self._browser = None
+
     def prime(self, home_url: str, referer: Optional[str] = None):
         """Visita a home do serviço para receber (e validar) os cookies do firewall
         F5 (TS...) antes das chamadas de API. O F5 costuma emitir o cookie na 1ª
         resposta e validá-lo na 2ª — por isso visitamos duas vezes. Idempotente."""
+        if self.use_browser:
+            return  # o navegador headless faz seu próprio priming (com JS)
         host = home_url.split("/rest/")[0].rstrip("/")
         if host in self._primed_hosts:
             return
@@ -145,9 +177,19 @@ class TcuHttpClient:
 
     def fetch_raw(self, method: str, url: str, *, max_retries: int = 2, **kwargs):
         """Como request(), mas devolve (status, headers, content_bytes) para
-        diagnóstico — não tenta decodificar JSON. None em falha de rede."""
+        diagnóstico — não tenta decodificar JSON. None em falha de rede.
+
+        Em modo navegador, os GET passam pelo Chromium (desafio JS do firewall);
+        se o navegador não estiver disponível, cai para o cliente HTTP comum."""
         if self.in_maintenance_window():
             return None
+        if self.use_browser and method.upper() == "GET":
+            b = self._get_browser()
+            if b is not None:
+                res = b.get(url, params=kwargs.get("params"), headers=kwargs.get("headers"))
+                if res is not None:
+                    return res
+                # navegador não trouxe nada → tenta o caminho HTTP comum
         backoff = 2
         for attempt in range(max_retries):
             self._throttle()

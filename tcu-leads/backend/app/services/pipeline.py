@@ -46,11 +46,14 @@ def get_settings(db: Session) -> TcuMonitorSettings:
     return s
 
 
-def _client(settings: TcuMonitorSettings) -> src.TcuHttpClient:
+def _client(settings: TcuMonitorSettings, *, use_browser: Optional[bool] = None) -> src.TcuHttpClient:
+    if use_browser is None:
+        use_browser = getattr(settings, "autuados_use_browser", True)
     return src.TcuHttpClient(
         user_agent=settings.user_agent,
         delay=float(settings.request_delay_seconds or 3.0),
         contact_email=settings.contact_email,
+        use_browser=use_browser,
     )
 
 
@@ -552,6 +555,12 @@ def run_pipeline(db: Session, trigger: str = "scheduler", user_id: Optional[int]
     except Exception as e:
         logger.error(f"Radar Externo falhou: {e}")
         errors.append(f"radar_externo: {e}")
+
+    # Libera o navegador headless (memória) assim que a coleta no TCU termina.
+    try:
+        client.close()
+    except Exception:
+        pass
 
     # Resumo diário por e-mail (apenas quando houver oportunidades relevantes)
     try:

@@ -131,7 +131,7 @@ def enrich_lead(lead_id: int, db: Session = Depends(get_db), current_user: User 
     if lead.doc_type != TcuDocType.cnpj:
         raise HTTPException(400, "Enriquecimento disponível apenas para responsáveis PJ (CNPJ).")
     settings = pipeline.get_settings(db)
-    client = pipeline._client(settings)
+    client = pipeline._client(settings, use_browser=False)  # CNPJ é na BrasilAPI (sem firewall)
     enr = pipeline.enrich_lead_cnpj(db, lead, client, cache_days=int(settings.enrich_cache_days or 40))
     db.commit()
     if not enr:
