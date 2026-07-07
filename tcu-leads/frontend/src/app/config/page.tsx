@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
-import { getSettings, updateSettings, getRuns, cleanupNoise, testSourceProcessos, testDou } from "@/lib/api";
+import { getSettings, updateSettings, getRuns, cleanupNoise, clearAutuadosSource, testSourceProcessos, testDou } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
 
 const RUN_STATUS: Record<string, string> = {
@@ -44,6 +44,15 @@ export default function ConfigPage() {
     } catch (e: any) {
       setDouResult({ status: "erro", error: e.response?.data?.detail || "Falha ao testar o DOU." });
     } finally { setDouTesting(false); }
+  }
+
+  async function handleClearCustom() {
+    if (!confirm("Remover a fonte customizada antiga e voltar à Pesquisa Integrada padrão do TCU?")) return;
+    try {
+      const r = await clearAutuadosSource();
+      flash(r.data.message || "Fonte customizada removida.");
+      load();
+    } catch { flash("Erro ao remover fonte customizada."); }
   }
 
   async function handleCleanup() {
@@ -149,6 +158,13 @@ export default function ConfigPage() {
           </select>
           <p className="text-xs text-muted mt-1">"Autuados no dia" traz exatamente os processos abertos naquela data — o momento ideal de aproximação.</p>
 
+          {s.autuados_listing_url && (
+            <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
+              <p>⚠️ Há uma <strong>fonte customizada antiga</strong> configurada que está impedindo o uso da Pesquisa Integrada padrão.</p>
+              <button onClick={handleClearCustom} className="btn-secondary text-xs mt-2">Limpar fonte customizada</button>
+            </div>
+          )}
+
           <div className="mt-4 flex items-center gap-2">
             <button onClick={handleTest} disabled={testing} className="btn-secondary text-xs">
               {testing ? "Testando..." : "🔌 Testar fonte (a partir do servidor)"}
@@ -158,6 +174,9 @@ export default function ConfigPage() {
           {testResult && (
             <div className={`mt-2 rounded-lg p-3 text-xs border ${testResult.status === "erro" || (testResult.error && !testResult.count) ? "border-danger/30 bg-danger/5 text-danger" : "border-success/30 bg-success/5 text-success"}`}>
               <p><strong>Status:</strong> {testResult.status || "—"}{testResult.endpoint && ` · via ${testResult.endpoint}`} · <strong>Processos:</strong> {testResult.count ?? 0}{testResult.total != null && ` (total no TCU: ${testResult.total})`}</p>
+              {testResult.cookies_firewall != null && (
+                <p className="text-slate-400">Cookies do firewall obtidos: <strong>{testResult.cookies_firewall}</strong> {testResult.cookies_firewall > 0 ? "✓" : "(nenhum — o firewall pode estar bloqueando o servidor)"}</p>
+              )}
               {testResult.error && <p className="mt-1 text-danger">{testResult.error}</p>}
               {testResult.sample && (
                 <div className="mt-1 text-slate-300">

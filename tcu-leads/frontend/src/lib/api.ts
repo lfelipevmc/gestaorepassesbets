@@ -54,6 +54,7 @@ export const getRuns = (limit = 20) => api.get("/api/monitor/runs", { params: { 
 export const getSettings = () => api.get("/api/monitor/settings");
 export const updateSettings = (data: any) => api.patch("/api/monitor/settings", data);
 export const cleanupNoise = () => api.post("/api/monitor/cleanup-noise");
+export const clearAutuadosSource = () => api.post("/api/monitor/clear-autuados-source");
 export const testSourceProcessos = (data?: { data?: string }) =>
   api.post("/api/monitor/test-source/processos", data || {});
 

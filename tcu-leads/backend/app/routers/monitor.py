@@ -132,6 +132,18 @@ def test_source_processos(data: dict = None, db: Session = Depends(get_db),
         return {"status": "erro", "error": f"Exceção no teste: {e}"}
 
 
+@router.post("/clear-autuados-source")
+def clear_autuados_source(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Remove uma URL customizada antiga de listagem de autuados, voltando a usar
+    a Pesquisa Integrada padrão do TCU."""
+    s = pipeline.get_settings(db)
+    s.autuados_listing_url = None
+    s.autuados_listing_body = None
+    s.autuados_listing_method = "GET"
+    db.commit()
+    return {"ok": True, "message": "Fonte customizada removida. Usando a Pesquisa Integrada padrão."}
+
+
 @router.get("/settings", response_model=SettingsOut)
 def get_settings_endpoint(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return pipeline.get_settings(db)

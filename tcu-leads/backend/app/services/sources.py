@@ -16,6 +16,7 @@ import time
 import json
 import logging
 import re
+import uuid as _uuid
 from datetime import date, datetime
 from typing import Optional
 
@@ -46,12 +47,41 @@ class TcuHttpClient:
         self.delay = max(0.0, float(delay or 0))
         self.headers = {"User-Agent": ua, "Accept": "application/json"}
         self._last_request_ts = 0.0
+        # Cookies persistentes (essenciais para passar pelo firewall F5/BIG-IP do
+        # TCU, que emite cookies "TS..." e exige que sejam reenviados nas chamadas
+        # de API — o que o navegador faz e um cliente ingênuo não).
+        self.cookies = httpx.Cookies()
+        self._primed_hosts: set[str] = set()
 
     def _throttle(self):
         elapsed = time.monotonic() - self._last_request_ts
         if elapsed < self.delay:
             time.sleep(self.delay - elapsed)
         self._last_request_ts = time.monotonic()
+
+    def prime(self, home_url: str, referer: Optional[str] = None):
+        """Visita a home do serviço para receber os cookies do firewall (F5 TS...)
+        antes das chamadas de API. Idempotente por host."""
+        host = home_url.split("/rest/")[0].rstrip("/")
+        if host in self._primed_hosts:
+            return
+        self._primed_hosts.add(host)
+        headers = {
+            "User-Agent": self.headers.get("User-Agent"),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "pt-BR,pt;q=0.9",
+        }
+        if referer:
+            headers["Referer"] = referer
+        try:
+            self._throttle()
+            with httpx.Client(timeout=20, headers=self.headers, cookies=self.cookies,
+                              follow_redirects=True) as client:
+                client.get(host + "/", headers=headers)
+                self.cookies = client.cookies
+            logger.info(f"Prime {host}: {len(self.cookies)} cookie(s) obtidos")
+        except httpx.HTTPError as e:
+            logger.warning(f"Prime {host} falhou (segue sem cookies): {e}")
 
     @staticmethod
     def in_maintenance_window(now: Optional[datetime] = None) -> bool:
@@ -70,8 +100,10 @@ class TcuHttpClient:
         for attempt in range(max_retries):
             self._throttle()
             try:
-                with httpx.Client(timeout=30, headers=self.headers, follow_redirects=True) as client:
+                with httpx.Client(timeout=30, headers=self.headers, cookies=self.cookies,
+                                  follow_redirects=True) as client:
                     resp = client.request(method, url, **kwargs)
+                    self.cookies = client.cookies   # persiste cookies do WAF
                 if resp.status_code == 429 or resp.status_code >= 500:
                     logger.warning(f"{url} status {resp.status_code} (tentativa {attempt+1})")
                     time.sleep(backoff)
@@ -104,8 +136,10 @@ class TcuHttpClient:
         for attempt in range(max_retries):
             self._throttle()
             try:
-                with httpx.Client(timeout=30, headers=self.headers, follow_redirects=True) as client:
+                with httpx.Client(timeout=30, headers=self.headers, cookies=self.cookies,
+                                  follow_redirects=True) as client:
                     resp = client.request(method, url, **kwargs)
+                    self.cookies = client.cookies   # persiste cookies do WAF
                 if resp.status_code == 429 or resp.status_code >= 500:
                     time.sleep(backoff)
                     backoff *= 2
@@ -255,22 +289,29 @@ PESQUISA_PROC_URL = "https://pesquisa.apps.tcu.gov.br/rest/publico/base/processo
 # Registro COMPLETO do processo (mesma base/params do resumido, porém com todos os
 # campos — inclusive RESPONSÁVEIS / INTERESSADOS com nome + CPF mascarado).
 PESQUISA_PROC_DOC_URL = "https://pesquisa.apps.tcu.gov.br/rest/publico/base/processo/documento"
-BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
-              "(KHTML, like Gecko) Version/17.0 Safari/605.1.15")
+# UA de navegador real (Chrome/macOS), como no cURL capturado do site.
+BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36")
+# UUID de sessão (o app Angular envia no header 'uuid'); um por processo basta.
+SESSION_UUID = str(_uuid.uuid4())
 
 
 def _pesquisa_headers(referer: str) -> dict:
     return {
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "pt-BR,pt;q=0.9",
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
         "User-Agent": BROWSER_UA,
         "Origin": "https://pesquisa.apps.tcu.gov.br",
         "Referer": referer,
         "Sec-Fetch-Site": "same-origin",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Dest": "empty",
+        "sec-ch-ua": '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"macOS"',
         "origem": "angular",
         "todas-bases": "false",
+        "uuid": SESSION_UUID,
     }
 
 
@@ -301,6 +342,7 @@ def fetch_pesquisa_processos(client: "TcuHttpClient", data_iso: str, *,
     referer = (f"https://pesquisa.apps.tcu.gov.br/{ref_path}/processo/*/"
                + urllib.parse.quote(urllib.parse.quote(filtro, safe=""), safe=""))
     headers = _pesquisa_headers(referer)
+    client.prime(PESQUISA_PROC_URL, referer=referer)  # cookies do firewall F5
 
     diag = {"url": base_url, "filtro": filtro, "status": None, "full": full,
             "count": 0, "total": None, "sample": None, "raw_sample": None, "error": None,
@@ -361,6 +403,54 @@ def fetch_pesquisa_processos(client: "TcuHttpClient", data_iso: str, *,
     return documentos, diag
 
 
+def fetch_processo_detail(client: "TcuHttpClient", data_iso: str, index: int, *,
+                          filtro_campo: str = "DTAUTUACAO") -> tuple[Optional[dict], dict]:
+    """Busca o registro COMPLETO de UM processo (com RESPONSÁVEIS/INTERESSADOS),
+    pela POSIÇÃO na lista — exatamente como o site do TCU faz:
+    documento?termo=*&filtro=<data>&ordenacao=<...>&quantidade=1&inicio=<index>.
+
+    Retorna (item, diagnóstico). item=None se não vier nada.
+    """
+    import urllib.parse
+    d = _yyyymmdd(data_iso)
+    filtro = f"{filtro_campo}:[{d} to {d}]"
+    referer = ("https://pesquisa.apps.tcu.gov.br/documento/processo/*/"
+               + urllib.parse.quote(urllib.parse.quote(filtro, safe=""), safe=""))
+    headers = _pesquisa_headers(referer)
+    client.prime(PESQUISA_PROC_URL, referer=referer)
+    params = {
+        "termo": "*", "filtro": filtro,
+        "ordenacao": "DTAUTUACAOORDENACAO desc, NUMEROCOMZEROS desc,KEY asc",
+        "quantidade": 1, "inicio": index,
+    }
+    diag = {"index": index, "status": None, "http_status": None, "body_len": None,
+            "content_encoding": None, "error": None, "raw_sample": None}
+    raw = client.fetch_raw("GET", PESQUISA_PROC_DOC_URL, params=params, headers=headers, max_retries=1)
+    if raw is None:
+        diag["error"] = "Sem resposta"
+        return None, diag
+    http_status, resp_headers, content = raw
+    text = content.decode("utf-8", "replace") if isinstance(content, (bytes, bytearray)) else str(content or "")
+    diag.update(http_status=http_status, body_len=len(text),
+                content_encoding=(resp_headers or {}).get("content-encoding"))
+    if http_status != 200:
+        diag["error"] = f"HTTP {http_status}"
+        diag["raw_sample"] = text[:300]
+        return None, diag
+    try:
+        data = json.loads(text) if text.strip() else None
+    except json.JSONDecodeError:
+        data = None
+    if not data:
+        diag["error"] = f"Corpo não-JSON (tamanho={len(text)}, encoding={diag['content_encoding'] or 'nenhum'})."
+        diag["raw_sample"] = text[:300]
+        return None, diag
+    docs = (data or {}).get("documentos") or _extract_list(data)
+    item = docs[0] if docs else None
+    diag["status"] = "ok" if item else "vazio"
+    return item, diag
+
+
 def fetch_processos_listing(client: "TcuHttpClient", settings, *,
                             data_inicio: Optional[str] = None,
                             data_fim: Optional[str] = None) -> tuple[list, dict]:
@@ -373,11 +463,11 @@ def fetch_processos_listing(client: "TcuHttpClient", settings, *,
     dfim = data_fim or di
     custom_url = getattr(settings, "autuados_listing_url", None)
 
-    if not custom_url:  # caminho padrão: Pesquisa Integrada
+    if not custom_url:  # caminho padrão: Pesquisa Integrada (lista resumida, rápida)
         campo = getattr(settings, "autuados_filtro_campo", None) or "DTAUTUACAO"
-        # Por padrão busca o registro completo (com responsáveis/interessados).
-        full = getattr(settings, "autuados_fetch_responsaveis", True)
-        return fetch_pesquisa_processos(client, di, filtro_campo=campo, full=full)
+        # A lista vem do resumido; os responsáveis são buscados 1 a 1 no registro
+        # completo (fetch_processo_detail), como o próprio site do TCU faz.
+        return fetch_pesquisa_processos(client, di, filtro_campo=campo)
 
     # caminho customizado (URL/corpo com marcadores de data)
     url = _subst_datas(custom_url, di, dfim)
@@ -557,50 +647,60 @@ def _probe_responsaveis(docs: list) -> dict:
     return {"com_responsaveis": com_resp, "exemplo_responsaveis": exemplo}
 
 
-def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional[str] = None) -> dict:
-    """Diagnóstico RÁPIDO e completo da fonte de processos (botão "Testar fonte").
+def _n_cookies(client) -> Optional[int]:
+    try:
+        return len(client.cookies)
+    except Exception:
+        return None
 
-    Roda algumas tentativas leves (1 tentativa cada, sem back-off longo) e devolve
-    o corpo/erro de cada uma, para revelar exatamente onde está o problema:
-      - registro COMPLETO (documento) com 8 itens e com 1 item (como o site faz);
-      - registro RESUMIDO (documentosResumidos), que confirma se a base responde.
+
+def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional[str] = None) -> dict:
+    """Diagnóstico RÁPIDO da fonte de processos (botão "Testar fonte").
+
+    Reproduz o caminho REAL do sistema (com priming de cookies do firewall):
+      1) LISTA de processos (documentosResumidos) — confirma base + firewall;
+      2) REGISTRO COMPLETO do 1º processo (documento, quantidade=1) — confirma a
+         captura dos RESPONSÁVEIS, como o site do TCU faz.
+    Devolve o detalhe de cada tentativa (status/HTTP/tamanho/corpo/cookies).
     """
     di = data_str or date.today().strftime("%Y-%m-%d")
     campo = (getattr(settings, "autuados_filtro_campo", None) or "DTAUTUACAO")
     custom_url = getattr(settings, "autuados_listing_url", None)
-
-    if custom_url:  # fonte customizada: caminho normal
-        docs, diag = fetch_processos_listing(client, settings, data_inicio=di, data_fim=di)
-        diag.update(_probe_responsaveis(docs))
-        diag["campos_retornados"] = list(docs[0].keys()) if docs and isinstance(docs[0], dict) else []
-        return diag
-
-    quer_resp = getattr(settings, "autuados_fetch_responsaveis", True)
     attempts = []
 
-    def run(label, full, qty):
-        docs, d = fetch_pesquisa_processos(client, di, filtro_campo=campo, full=full,
-                                           page_size=qty, max_total=qty, max_retries=1)
-        rp = _probe_responsaveis(docs)
-        attempts.append({
-            "label": label, "status": d.get("status"), "count": d.get("count"),
-            "total": d.get("total"), "error": d.get("error"),
-            "http_status": d.get("http_status"), "content_encoding": d.get("content_encoding"),
-            "body_len": d.get("body_len"), "raw_sample": d.get("raw_sample"),
-            "campos": (list(docs[0].keys()) if docs and isinstance(docs[0], dict) else []),
-            **rp,
-        })
-        return docs
+    # 1) LISTA (resumido) — base + WAF
+    docs, dl = fetch_pesquisa_processos(client, di, filtro_campo=campo, full=False,
+                                        page_size=8, max_total=8, max_retries=1)
+    attempts.append({
+        "label": "Lista de processos (resumido)", "status": dl.get("status"),
+        "count": dl.get("count"), "total": dl.get("total"), "error": dl.get("error"),
+        "http_status": dl.get("http_status"), "content_encoding": dl.get("content_encoding"),
+        "body_len": dl.get("body_len"), "raw_sample": dl.get("raw_sample"),
+        "campos": (list(docs[0].keys()) if docs and isinstance(docs[0], dict) else []),
+        "com_responsaveis": 0, "exemplo_responsaveis": None,
+    })
 
-    if quer_resp:
-        run("Registro completo (documento, 8 itens)", True, 8)
-        run("Registro completo (documento, 1 item — como o site)", True, 1)
-    run("Registro resumido (documentosResumidos, 8 itens)", False, 8)
+    # 2) DETALHE (registro completo do 1º processo) — responsáveis
+    exemplo = None
+    com_resp = 0
+    det, dd = fetch_processo_detail(client, di, 0, filtro_campo=campo)
+    if det:
+        f = extract_processo_fields(det)
+        if f.get("responsaveis"):
+            com_resp = 1
+            exemplo = {"numero": f.get("numero"),
+                       "responsaveis": [r["nome"] for r in f["responsaveis"] if r.get("nome")][:12]}
+    attempts.append({
+        "label": "Registro completo do 1º processo (responsáveis)", "status": dd.get("status"),
+        "count": 1 if det else 0, "total": None, "error": dd.get("error"),
+        "http_status": dd.get("http_status"), "content_encoding": dd.get("content_encoding"),
+        "body_len": dd.get("body_len"), "raw_sample": dd.get("raw_sample"),
+        "campos": (list(det.keys()) if isinstance(det, dict) else []),
+        "com_responsaveis": com_resp, "exemplo_responsaveis": exemplo,
+    })
 
-    # Escolhe o melhor resultado para o resumo no topo.
     best = next((a for a in attempts if a["com_responsaveis"]), None) \
-        or next((a for a in attempts if a["count"]), None) \
-        or (attempts[0] if attempts else {"status": "erro", "error": "sem tentativas"})
+        or next((a for a in attempts if a["count"]), None) or attempts[0]
 
     return {
         "status": best.get("status") or ("ok" if best.get("count") else "erro"),
@@ -608,10 +708,12 @@ def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional
         "count": best.get("count", 0),
         "total": best.get("total"),
         "error": best.get("error"),
-        "com_responsaveis": best.get("com_responsaveis", 0),
-        "exemplo_responsaveis": best.get("exemplo_responsaveis"),
+        "com_responsaveis": sum(a["com_responsaveis"] for a in attempts),
+        "exemplo_responsaveis": next((a["exemplo_responsaveis"] for a in attempts if a["exemplo_responsaveis"]), None),
         "campos_retornados": best.get("campos", []),
-        "diagnostics": attempts,   # detalhamento de cada tentativa
+        "cookies_firewall": _n_cookies(client),
+        "custom_url_configurada": bool(custom_url),
+        "diagnostics": attempts,
     }
 
 

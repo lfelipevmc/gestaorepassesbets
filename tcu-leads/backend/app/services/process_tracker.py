@@ -107,11 +107,16 @@ def fetch_and_register_autuados(db: Session, client: "src.TcuHttpClient", settin
     di = detection_date.strftime("%Y-%m-%d")
     items, diag = src.fetch_processos_listing(client, settings, data_inicio=di, data_fim=di)
     # Se o filtro é por DATA DE AUTUAÇÃO, todo processo retornado foi autuado nesse dia
-    filtro_campo = (getattr(settings, "autuados_filtro_campo", None) or "DTAUTUACAO").upper()
-    is_autuacao_filter = filtro_campo == "DTAUTUACAO"
+    campo_raw = (getattr(settings, "autuados_filtro_campo", None) or "DTAUTUACAO")
+    is_autuacao_filter = campo_raw.upper() == "DTAUTUACAO"
+    quer_resp = getattr(settings, "autuados_fetch_responsaveis", True)
+    # O índice do detalhe só alinha quando usamos a Pesquisa Integrada padrão.
+    usa_padrao = not getattr(settings, "autuados_listing_url", None)
+    MAX_DETALHES = 200   # teto de segurança de buscas de detalhe por execução
+    detalhes_feitos = com_resp = 0
     novos = 0
     leads_criados = 0
-    for item in items:
+    for idx, item in enumerate(items):
         fields = src.extract_processo_fields(item)
         numero = fields.get("numero")
         if not numero:
@@ -126,13 +131,27 @@ def fetch_and_register_autuados(db: Session, client: "src.TcuHttpClient", settin
         if not is_new or not tp:
             continue
         novos += 1
+        # Enriquecimento com RESPONSÁVEIS (registro completo, 1 a 1 — como o site),
+        # só para processos novos e quando não vieram na lista.
+        if (quer_resp and usa_padrao and not fields.get("responsaveis")
+                and detalhes_feitos < MAX_DETALHES):
+            detalhes_feitos += 1
+            detail, _d = src.fetch_processo_detail(client, di, idx, filtro_campo=campo_raw)
+            if detail:
+                dfields = src.extract_processo_fields(detail)
+                # confere que a posição ainda aponta para o mesmo processo
+                if dfields.get("numero") == numero and dfields.get("responsaveis"):
+                    fields["responsaveis"] = dfields["responsaveis"]
+                    tp.responsaveis_json = json.dumps(dfields["responsaveis"], ensure_ascii=False)
+                    com_resp += 1
         if settings.autuados_create_leads:
             lead = _create_autuado_lead(db, tp, detection_date, fields)
             if lead:
                 tp.lead_id = lead.id
                 leads_criados += 1
     db.commit()
-    return {"fetched": len(items), "novos": novos, "leads_criados": leads_criados, "diag": diag}
+    return {"fetched": len(items), "novos": novos, "leads_criados": leads_criados,
+            "com_responsaveis": com_resp, "detalhes_buscados": detalhes_feitos, "diag": diag}
 
 
 def _parse_any_date(v):
