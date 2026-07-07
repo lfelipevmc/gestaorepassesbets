@@ -15,42 +15,15 @@ export function formatCurrency(value: number | null | undefined): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export function formatMonth(dateStr: string | null | undefined): string {
-  if (!dateStr) return "-";
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+// Data relativa amigável ("hoje", "há 3 dias", "em 5 dias")
+export function relativeDays(dateStr: string | null | undefined): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr.length <= 10 ? dateStr + "T00:00:00" : dateStr);
+  const today = new Date();
+  const diff = Math.round((d.getTime() - new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()) / 86400000);
+  if (diff === 0) return "hoje";
+  if (diff === 1) return "amanhã";
+  if (diff === -1) return "ontem";
+  if (diff > 0) return `em ${diff} dias`;
+  return `há ${Math.abs(diff)} dias`;
 }
-
-export const STATUS_LABELS: Record<string, string> = {
-  active: "Ativo",
-  suspended: "Suspenso",
-  cancelled: "Cancelado",
-  pending: "Inadimplente",
-  paid: "Adimplente",
-  report_pending: "Pend. de Relatório",
-  overdue: "Em Atraso",
-  partial: "Parcial",
-  not_sports: "Não explora esporte",
-  judicialized: "Judicializado",
-  open: "Aberto",
-  collecting: "Cobrando",
-  checking: "Verificando",
-  closed: "Fechado",
-};
-
-export const STATUS_COLORS: Record<string, string> = {
-  active: "text-success bg-success/10",
-  paid: "text-success bg-success/10",
-  report_pending: "text-warning bg-warning/10",
-  open: "text-blue-400 bg-blue-400/10",
-  collecting: "text-primary bg-primary/10",
-  suspended: "text-warning bg-warning/10",
-  partial: "text-warning bg-warning/10",
-  checking: "text-warning bg-warning/10",
-  cancelled: "text-danger bg-danger/10",
-  overdue: "text-danger bg-danger/10",
-  pending: "text-muted bg-muted/10",
-  closed: "text-muted bg-muted/10",
-  not_sports: "text-slate-300 bg-slate-500/10",
-  judicialized: "text-purple-300 bg-purple-500/10",
-};

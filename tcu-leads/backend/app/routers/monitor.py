@@ -34,9 +34,29 @@ def stats(db: Session = Depends(get_db), current_user: User = Depends(get_curren
     by_tema = dict(db.query(TcuLead.tema, func.count(TcuLead.id))
                    .filter(TcuLead.tema.isnot(None)).group_by(TcuLead.tema).all())
     by_status = dict(db.query(TcuLead.status, func.count(TcuLead.id)).group_by(TcuLead.status).all())
+    by_categoria = dict(db.query(TcuLead.categoria, func.count(TcuLead.id))
+                        .filter(TcuLead.categoria.isnot(None)).group_by(TcuLead.categoria).all())
+    by_origem = dict(db.query(TcuLead.source_kind, func.count(TcuLead.id)).group_by(TcuLead.source_kind).all())
     valor_total = db.query(func.coalesce(func.sum(TcuLead.valor_debito), 0)).scalar() or 0
 
+    # Tendência dos últimos 7 dias (leads criados por dia)
+    from datetime import timedelta
+    dia0 = today - timedelta(days=6)
+    criados = dict(
+        db.query(func.date(TcuLead.created_at), func.count(TcuLead.id))
+        .filter(func.date(TcuLead.created_at) >= dia0.isoformat())
+        .group_by(func.date(TcuLead.created_at)).all()
+    )
+    novos_por_dia = []
+    for i in range(7):
+        d = dia0 + timedelta(days=i)
+        key = d.isoformat()
+        novos_por_dia.append({"data": key, "qtd": int(criados.get(key, 0) or 0)})
+
+    com_responsavel = db.query(TcuLead).filter(TcuLead.responsavel_nome.isnot(None)).count()
+
     autuados_hoje = db.query(TrackedProcess).filter(TrackedProcess.detection_date == today).count()
+    autuados_semana = db.query(TrackedProcess).filter(TrackedProcess.detection_date >= (today - timedelta(days=7))).count()
     processos_total = db.query(TrackedProcess).count()
 
     last_run = db.query(TcuMonitorRun).order_by(TcuMonitorRun.started_at.desc()).first()
@@ -44,10 +64,14 @@ def stats(db: Session = Depends(get_db), current_user: User = Depends(get_curren
     return {
         "total": total, "novos": novos, "oportunidades": oportunidades,
         "em_atendimento": em_atendimento, "valor_total_debito": float(valor_total),
-        "autuados_hoje": autuados_hoje, "processos_total": processos_total,
+        "com_responsavel": com_responsavel,
+        "autuados_hoje": autuados_hoje, "autuados_semana": autuados_semana, "processos_total": processos_total,
         "by_type": {(k.value if hasattr(k, "value") else str(k)): v for k, v in by_type.items()},
         "by_tema": by_tema,
         "by_status": {(k.value if hasattr(k, "value") else str(k)): v for k, v in by_status.items()},
+        "by_categoria": by_categoria,
+        "by_origem": {(k.value if hasattr(k, "value") else str(k)): v for k, v in by_origem.items()},
+        "novos_por_dia": novos_por_dia,
         "prazos_proximos": [
             {"id": l.id, "responsavel": l.responsavel_nome, "processo": l.numero_processo,
              "prazo_final": l.prazo_final.isoformat() if l.prazo_final else None,

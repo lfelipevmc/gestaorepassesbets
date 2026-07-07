@@ -7,21 +7,12 @@ import Header from "@/components/layout/Header";
 import { getLead, updateLead, addLeadNote, enrichLead } from "@/lib/api";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { getUser } from "@/lib/auth";
+import { useToast } from "@/components/ui/Toast";
+import {
+  ACT_LABELS, TEMA_LABELS, LEAD_STATUS_ORDER as STATUS_OPTIONS,
+  LEAD_STATUS_LABELS as STATUS_LABELS, LEAD_STATUS_COLORS,
+} from "@/lib/tcu";
 
-const ACT_LABELS: Record<string, string> = {
-  citacao: "Citação (débito)", audiencia: "Audiência (justificativa)", notificacao: "Notificação",
-  acordao_condenatorio: "Acórdão condenatório", edital: "Edital / Pauta", outro: "Outro",
-};
-const TEMA_LABELS: Record<string, string> = {
-  educacao_fnde: "Educação / FNDE", saude: "Saúde", assistencia_social: "Assistência Social / FNAS",
-  infraestrutura: "Infraestrutura / DNIT", cultura_fnc: "Cultura / FNC", previdencia: "Previdência / INSS",
-  licitacoes: "Licitações", convenios: "Convênios", outro: "Outro",
-};
-const STATUS_OPTIONS = ["novo", "qualificado", "em_analise", "contatado", "em_atendimento", "descartado"];
-const STATUS_LABELS: Record<string, string> = {
-  novo: "Novo", qualificado: "Qualificado", em_analise: "Em análise",
-  contatado: "Contatado", em_atendimento: "Em atendimento", descartado: "Descartado",
-};
 const SOURCE_LABELS: Record<string, string> = {
   btcu_deliberacoes: "BTCU — Deliberações", acordaos_api: "API de Acórdãos",
   pauta_sessao: "Pauta de sessão", processo_autuado: "Processo autuado", ingestao_manual: "Ingestão manual",
@@ -46,37 +37,36 @@ export default function LeadDetail() {
   const [noteText, setNoteText] = useState("");
   const [lgpdBasis, setLgpdBasis] = useState("");
   const [showRaw, setShowRaw] = useState(false);
-  const [msg, setMsg] = useState("");
+  const toast = useToast();
 
-  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
   const load = useCallback(() => {
     setLoading(true);
     getLead(Number(id))
       .then(r => { setLead(r.data); setLgpdBasis(r.data.legitimate_interest_basis || ""); })
-      .catch(() => flash("Lead não encontrado."))
+      .catch(() => toast("Lead não encontrado.", "error"))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, toast]);
   useEffect(() => { load(); }, [load]);
 
   async function patch(data: any, note?: string) {
     setSaving(true);
-    try { await updateLead(Number(id), data); if (note) flash(note); load(); }
-    catch { flash("Erro ao salvar."); }
+    try { await updateLead(Number(id), data); if (note) toast(note, "success"); load(); }
+    catch { toast("Erro ao salvar.", "error"); }
     finally { setSaving(false); }
   }
   async function submitNote() {
     if (!noteText.trim()) return;
-    await addLeadNote(Number(id), { body: noteText });
-    setNoteText(""); load();
+    try { await addLeadNote(Number(id), { body: noteText }); setNoteText(""); load(); toast("Anotação adicionada.", "success"); }
+    catch { toast("Erro ao anotar.", "error"); }
   }
   async function enrich() {
     setSaving(true);
-    try { await enrichLead(Number(id)); flash("Enriquecimento concluído."); load(); }
-    catch (e: any) { flash(e.response?.data?.detail || "Falha no enriquecimento."); }
+    try { await enrichLead(Number(id)); toast("Enriquecimento concluído.", "success"); load(); }
+    catch (e: any) { toast(e.response?.data?.detail || "Falha no enriquecimento.", "error"); }
     finally { setSaving(false); }
   }
 
-  if (loading) return <AppShell><div className="text-muted">Carregando...</div></AppShell>;
+  if (loading) return <AppShell><div className="space-y-4"><div className="card h-24 animate-pulse" /><div className="card h-40 animate-pulse" /></div></AppShell>;
   if (!lead) return <AppShell><div className="text-muted">Lead não encontrado. <Link href="/leads" className="text-primary">Voltar</Link></div></AppShell>;
 
   const enr = lead.enrichment;
@@ -89,8 +79,6 @@ export default function LeadDetail() {
         subtitle={<>{ACT_LABELS[lead.act_type] || lead.act_type} · {SOURCE_LABELS[lead.source_kind] || lead.source_kind}</>}
         actions={<Link href="/leads" className="btn-secondary">← Voltar</Link>}
       />
-
-      {msg && <div className="mb-4 bg-primary/10 border border-primary/30 text-primary rounded-lg px-4 py-3 text-sm">{msg}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -214,9 +202,14 @@ export default function LeadDetail() {
           <div className="card">
             <h3 className="font-semibold text-white text-sm mb-3">Qualificação (CRM)</h3>
             <label className="label">Status</label>
-            <select className="input mb-3" value={lead.status} disabled={saving} onChange={e => patch({ status: e.target.value }, "Status atualizado.")}>
-              {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-            </select>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {STATUS_OPTIONS.map(sName => (
+                <button key={sName} disabled={saving} onClick={() => patch({ status: sName }, `Status: ${STATUS_LABELS[sName]}.`)}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${lead.status === sName ? `${LEAD_STATUS_COLORS[sName]} border-current font-medium` : "border-surface-border text-muted hover:text-slate-300"}`}>
+                  {STATUS_LABELS[sName]}
+                </button>
+              ))}
+            </div>
             <label className="label">Responsável interno</label>
             <div className="flex items-center gap-2 mb-3">
               <span className="text-sm text-slate-300 flex-1">{lead.assignee_id ? (lead.assignee_id === me?.id ? "Você" : `Usuário #${lead.assignee_id}`) : "Não atribuído"}</span>

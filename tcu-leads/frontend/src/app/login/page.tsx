@@ -20,7 +20,7 @@ export default function LoginPage() {
       localStorage.setItem("token", res.data.access_token);
       const me = await getMe();
       setAuth(res.data.access_token, me.data);
-      router.push("/leads");
+      router.push("/painel");
     } catch (err: any) {
       setError(err.response?.data?.detail || "E-mail ou senha inválidos");
     } finally {
