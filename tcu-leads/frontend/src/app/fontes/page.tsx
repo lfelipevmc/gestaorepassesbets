@@ -9,6 +9,7 @@ import {
   testSavedSource, testSourceAdhoc, runExternal,
 } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
 
 const KIND_LABELS: Record<string, string> = { rss: "Feed RSS/Atom", webpage: "Página (HTML)" };
 const CATEGORIA_LABELS: Record<string, string> = {
@@ -30,7 +31,7 @@ const EXEMPLOS = [
 export default function FontesPage() {
   const [sources, setSources] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [msg, setMsg] = useState("");
+  const toast = useToast();
   const [running, setRunning] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<any>(EMPTY);
@@ -38,7 +39,7 @@ export default function FontesPage() {
   const [testId, setTestId] = useState<number | null>(null);
   const [testResult, setTestResult] = useState<any>(null);
 
-  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 5000); };
+  const flash = (m: string) => toast(m, /erro|falha|inválid|informe|não/i.test(m) ? "error" : "success");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -142,9 +143,9 @@ export default function FontesPage() {
         O DOU é configurado em <Link href="/config" className="underline">Configuração</Link>. Ferramenta interna de inteligência a partir de fontes públicas — sem contato automático com terceiros.</p>
       </div>
 
-      {msg && <div className="mb-4 bg-primary/10 border border-primary/30 text-primary rounded-lg px-4 py-3 text-sm">{msg}</div>}
-
-      {loading ? <div className="text-muted">Carregando...</div> : sources.length === 0 ? (
+      {loading ? (
+        <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="card h-20 animate-pulse" />)}</div>
+      ) : sources.length === 0 ? (
         <div className="card">
           <p className="text-center py-6 text-muted">Nenhuma fonte cadastrada. Clique em <strong className="text-slate-300">Nova fonte</strong> para começar.</p>
           <div className="grid md:grid-cols-3 gap-3 mt-2">

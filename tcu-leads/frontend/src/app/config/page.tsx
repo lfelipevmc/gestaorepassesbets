@@ -5,6 +5,7 @@ import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import { getSettings, updateSettings, getRuns, cleanupNoise, clearAutuadosSource, testSourceProcessos, testDou } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
 
 const RUN_STATUS: Record<string, string> = {
   running: "text-blue-300 bg-blue-500/10", success: "text-success bg-success/10",
@@ -28,7 +29,7 @@ export default function ConfigPage() {
   const [runs, setRuns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
+  const toast = useToast();
   const [testResult, setTestResult] = useState<any>(null);
   const [testing, setTesting] = useState(false);
   const [testDate, setTestDate] = useState("");
@@ -78,7 +79,7 @@ export default function ConfigPage() {
   }
 
   const [loadError, setLoadError] = useState(false);
-  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
+  const flash = (m: string) => toast(m, /erro|falha|inválid|não foi|not/i.test(m) ? "error" : "success");
   const load = () => {
     setLoading(true);
     setLoadError(false);
@@ -118,7 +119,6 @@ export default function ConfigPage() {
         subtitle="Fontes do TCU e do Radar Externo (DOU), agendamento e detecção de autuados"
         actions={<button onClick={save} disabled={saving} className="btn-primary">{saving ? "Salvando..." : "Salvar"}</button>}
       />
-      {msg && <div className="mb-4 bg-primary/10 border border-primary/30 text-primary rounded-lg px-4 py-3 text-sm">{msg}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card">

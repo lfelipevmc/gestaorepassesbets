@@ -4,7 +4,7 @@ import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import { getProcesses, getProcessStats } from "@/lib/api";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatDate, formatDateTime, relativeDays } from "@/lib/utils";
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
@@ -89,10 +89,13 @@ export default function ProcessosPage() {
         </select>
       </div>
 
-      {loading ? <div className="text-muted">Carregando...</div> : rows.length === 0 ? (
-        <div className="card text-center py-12 text-muted">
-          Nenhum processo detectado neste período. A detecção depende da fonte de listagem de processos estar configurada
-          (<Link href="/config" className="text-primary">Configuração</Link>) ou de processos vistos nas demais fontes.
+      {loading ? (
+        <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="card h-12 animate-pulse" />)}</div>
+      ) : rows.length === 0 ? (
+        <div className="card text-center py-12">
+          <p className="text-4xl mb-2">📁</p>
+          <p className="text-slate-300 font-medium">Nenhum processo detectado neste período</p>
+          <p className="text-muted text-sm mt-1">Ative a detecção em <Link href="/config" className="text-primary">Configuração</Link> e faça uma coleta — ou escolha outro período acima.</p>
         </div>
       ) : (
         <div className="card p-0 overflow-x-auto">
@@ -126,7 +129,7 @@ export default function ProcessosPage() {
                       <div className="text-[11px] text-muted truncate">{r.assunto || ""}</div>
                     </td>
                     <td className="table-td">{r.uf || <span className="text-muted">—</span>}</td>
-                    <td className="table-td">{r.detection_date ? formatDate(r.detection_date) : formatDateTime(r.first_seen_at)}</td>
+                    <td className="table-td whitespace-nowrap" title={r.detection_date ? formatDate(r.detection_date) : formatDateTime(r.first_seen_at)}>{r.detection_date ? relativeDays(r.detection_date) : formatDateTime(r.first_seen_at)}</td>
                     <td className="table-td">
                       {r.lead_id ? <Link href={`/leads/${r.lead_id}`} className="text-primary text-xs hover:underline">ver lead →</Link>
                         : <span className="text-muted text-xs">—</span>}
