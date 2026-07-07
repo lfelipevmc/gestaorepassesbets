@@ -31,6 +31,7 @@ export default function ConfigPage() {
   const [msg, setMsg] = useState("");
   const [testResult, setTestResult] = useState<any>(null);
   const [testing, setTesting] = useState(false);
+  const [testDate, setTestDate] = useState("");
   const [cleaning, setCleaning] = useState(false);
   const [douResult, setDouResult] = useState<any>(null);
   const [douTesting, setDouTesting] = useState(false);
@@ -69,7 +70,7 @@ export default function ConfigPage() {
     setTesting(true);
     setTestResult(null);
     try {
-      const r = await testSourceProcessos();
+      const r = await testSourceProcessos(testDate ? { data: testDate } : undefined);
       setTestResult(r.data);
     } catch (e: any) {
       setTestResult({ error: e.response?.data?.detail || "Falha ao testar." });
@@ -165,11 +166,13 @@ export default function ConfigPage() {
             </div>
           )}
 
-          <div className="mt-4 flex items-center gap-2">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <button onClick={handleTest} disabled={testing} className="btn-secondary text-xs">
               {testing ? "Testando..." : "🔌 Testar fonte (a partir do servidor)"}
             </button>
-            <span className="text-xs text-muted">Salve antes de testar. Testa a data de hoje.</span>
+            <input type="date" className="input max-w-[11rem] text-xs" value={testDate}
+                   onChange={e => setTestDate(e.target.value)} />
+            <span className="text-xs text-muted">Vazio = hoje. Para conferir, escolha um dia com processos (ex.: um dia útil recente).</span>
           </div>
           {testResult && (
             <div className={`mt-2 rounded-lg p-3 text-xs border ${testResult.status === "erro" || (testResult.error && !testResult.count) ? "border-danger/30 bg-danger/5 text-danger" : "border-success/30 bg-success/5 text-success"}`}>
