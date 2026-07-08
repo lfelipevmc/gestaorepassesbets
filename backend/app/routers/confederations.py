@@ -152,7 +152,10 @@ from pydantic import BaseModel as _BM
 
 
 class _OperatorNoteIn(_BM):
-    notes: str = ""
+    notes: str | None = None
+    extra_notes: str | None = None
+    conclusion: str | None = None        # inadimplente|adimplente|consignacao|sem_obrigacao|endr
+    conclusion_auto: bool = False        # True = voltar ao cálculo automático
 
 
 @router.get("/{id}/operators-overview")
@@ -167,17 +170,15 @@ def operators_overview(id: int, db: Session = Depends(get_db), current_user: Use
     if current_user.role == "confederation_viewer" and current_user.confederation_id != id:
         raise HTTPException(status_code=403, detail="Acesso negado")
 
-    notes_map = {
-        i.operator_id: i.notes
+    infos = {
+        i.operator_id: i
         for i in db.query(OperatorConfederationInfo).filter(OperatorConfederationInfo.confederation_id == id).all()
     }
     today = _date.today()
     month_start = _date(today.year, today.month, 1)
-    endr_ids = {
-        a.operator_id for a in db.query(EndrAssociation).filter(
-            EndrAssociation.reference_month == month_start, EndrAssociation.is_associated == True
-        ).all()
-    }
+    from ..services.status_service import effective_conclusions, get_endr_set
+    effective = effective_conclusions(db, id, month_start)
+    endr_ids = get_endr_set(db, month_start)
 
     out = []
     for op in db.query(BettingOperator).order_by(BettingOperator.company_name).all():
@@ -199,7 +200,10 @@ def operators_overview(id: int, db: Session = Depends(get_db), current_user: Use
             "phone": phones[0] if phones else None,
             "brands": [b.name for b in op.brands],
             "endr_current_month": op.id in endr_ids,
-            "notes": notes_map.get(op.id) or "",
+            "notes": (infos.get(op.id).notes if infos.get(op.id) else "") or "",
+            "extra_notes": (infos.get(op.id).extra_notes if infos.get(op.id) else "") or "",
+            "conclusion": effective.get(op.id, "inadimplente"),
+            "conclusion_manual": bool(infos.get(op.id).conclusion_manual) if infos.get(op.id) else False,
         })
     return out
 
@@ -218,10 +222,27 @@ def save_operator_note(
     if not info:
         info = OperatorConfederationInfo(confederation_id=id, operator_id=operator_id)
         db.add(info)
-    info.notes = data.notes
+    changes = []
+    if data.notes is not None:
+        info.notes = data.notes
+        changes.append("anotações")
+    if data.extra_notes is not None:
+        info.extra_notes = data.extra_notes
+        changes.append("anotações adicionais")
+    if data.conclusion_auto:
+        info.conclusion = None
+        info.conclusion_manual = False
+        changes.append("conclusão: automática")
+    elif data.conclusion is not None:
+        from ..services.status_service import CONCLUSIONS
+        if data.conclusion not in CONCLUSIONS:
+            raise HTTPException(status_code=400, detail="Conclusão inválida")
+        info.conclusion = data.conclusion
+        info.conclusion_manual = True
+        changes.append(f"conclusão: {data.conclusion} (manual)")
     info.updated_by_id = current_user.id
     db.commit()
     log_action(db=db, action="OPERATOR_CONF_NOTE", entity_type="BettingOperator", entity_id=operator_id,
                user_id=current_user.id, confederation_id=id,
-               description=f"Anotação da confederação atualizada ({len(data.notes)} caracteres)")
-    return {"ok": True, "notes": info.notes}
+               description="Relação operador×confederação: " + (", ".join(changes) or "sem alterações"))
+    return {"ok": True}

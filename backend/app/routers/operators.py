@@ -146,8 +146,6 @@ def add_brand(id: int, data: BrandCreate, db: Session = Depends(get_db), current
     op = db.query(BettingOperator).get(id)
     if not op:
         raise HTTPException(status_code=404, detail="Operador não encontrado")
-    if len(op.brands) >= 3:
-        raise HTTPException(status_code=400, detail="Limite de 3 marcas por agente operador atingido")
     brand = OperatorBrand(operator_id=id, **data.model_dump())
     db.add(brand)
     db.commit()
@@ -438,10 +436,11 @@ def operator_compliance_score(
 def operator_monthly_history(
     id: int,
     months: int = 12,
+    end: Optional[str] = None,   # "YYYY-MM" — fim da janela (navegação no histórico desde jan/2025)
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Histórico mês a mês (últimos N meses) do operador: valor recebido e situação por mês."""
+    """Histórico mês a mês do operador (janela navegável desde jan/2025)."""
     from ..models.payment import Payment, PaymentStatus, DirectPayment
     from ..models.collection import CollectionCycle
     from datetime import date
@@ -451,6 +450,12 @@ def operator_monthly_history(
         raise HTTPException(404, "Operador não encontrado")
 
     today = date.today()
+    if end:
+        try:
+            y, m = end.split("-")
+            today = date(int(y), int(m), 1)
+        except Exception:
+            pass
     # mapa cycle_id -> reference_month
     cycle_map = {c.id: c.reference_month for c in db.query(CollectionCycle).all()}
 
@@ -495,3 +500,98 @@ def operator_monthly_history(
         })
 
     return {"history": history}
+
+
+@router.get("/{id}/confederation-summary")
+def operator_confederation_summary(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Visão consolidada do relacionamento financeiro do operador com CADA confederação
+    (substitui a visão por ciclo de cobrança): total recebido, último pagamento, relatório
+    do último pagamento e situação atual (Conclusão)."""
+    from ..models.confederation import Confederation
+    from ..services.status_service import effective_conclusions, get_paid_map, LABELS_PT, month_start
+    from datetime import date as _date
+
+    op = db.query(BettingOperator).get(id)
+    if not op:
+        raise HTTPException(404, "Operador não encontrado")
+
+    cur = _date.today().replace(day=1)
+    out = []
+    for conf in db.query(Confederation).order_by(Confederation.acronym).all():
+        if current_user.role == "confederation_viewer" and current_user.confederation_id != conf.id:
+            continue
+        all_paid = get_paid_map(db, conf.id, None)   # todos os meses (total consolidado)
+        pm = all_paid.get(id, {})
+        conclusion = effective_conclusions(db, conf.id, cur).get(id, "inadimplente")
+        out.append({
+            "confederation_id": conf.id,
+            "acronym": conf.acronym,
+            "name": conf.name,
+            "received_total": pm.get("total", 0.0),
+            "last_payment_date": pm.get("last_date").isoformat() if pm.get("last_date") else None,
+            "last_payment_amount": pm.get("last_amount"),
+            "report_url": pm.get("report_url"),
+            "status": conclusion,
+            "status_label": LABELS_PT.get(conclusion),
+        })
+    return out
+
+
+@router.get("/export/pdf")
+def export_operators_pdf(
+    status: Optional[OperatorStatus] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Exporta a relação de agentes operadores cadastrados em PDF."""
+    from fastapi.responses import StreamingResponse
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    import io
+    from datetime import datetime as _dt
+
+    q = db.query(BettingOperator)
+    if status:
+        q = q.filter(BettingOperator.status == status)
+    ops = q.order_by(BettingOperator.company_name).all()
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), topMargin=1*cm, bottomMargin=1*cm, leftMargin=1*cm, rightMargin=1*cm)
+    styles = getSampleStyleSheet()
+    small = styles["BodyText"]; small.fontSize = 7; small.leading = 9
+
+    el = [Paragraph("Agentes Operadores — Base Cadastral", styles["Title"]),
+          Paragraph(f"{len(ops)} operadores · Gerado em {_dt.now().strftime('%d/%m/%Y %H:%M')}", styles["Normal"]),
+          Spacer(1, 0.4*cm)]
+    data = [["Razão Social", "Nome Fantasia", "CNPJ", "Autorização", "Status", "E-mail principal", "Marcas"]]
+    for op in ops:
+        emails = [c.value for c in op.contacts if c.type == ContactType.email and c.value]
+        for r in op.responsibles:
+            if r.email:
+                emails.append(r.email)
+        data.append([
+            Paragraph(op.company_name or "—", small),
+            Paragraph(op.fantasy_name or "—", small),
+            op.cnpj or "—",
+            op.authorization_number or op.mf_license_number or "—",
+            (op.status.value if hasattr(op.status, "value") else str(op.status)),
+            Paragraph(emails[0] if emails else "—", small),
+            Paragraph(", ".join(b.name for b in op.brands) or "—", small),
+        ])
+    t = Table(data, colWidths=[6.5*cm, 4*cm, 3.4*cm, 2.4*cm, 1.8*cm, 5*cm, 4.6*cm], repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e293b")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 7),
+        ("GRID", (0, 0), (-1, -1), 0.3, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f1f5f9")]),
+    ]))
+    el.append(t)
+    doc.build(el)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": "attachment; filename=agentes_operadores.pdf"})

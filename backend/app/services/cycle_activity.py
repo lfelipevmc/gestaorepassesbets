@@ -67,20 +67,24 @@ def generate_cycle_activity_pdf(db: Session, cycle_id: int) -> bytes:
     small = ParagraphStyle("small", parent=styles["BodyText"], fontSize=7, leading=9)
     meta = ParagraphStyle("meta", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#475569"))
 
-    payments = db.query(Payment).filter(Payment.cycle_id == cycle_id).all()
-    op_ids = [p.operator_id for p in payments]
-    op_map = {o.id: o for o in db.query(BettingOperator).filter(BettingOperator.id.in_(op_ids)).all()} if op_ids else {}
+    # Ciclo-espelho: linhas vêm da base central + Conclusão da confederação
+    from .status_service import effective_conclusions, get_paid_map, LABELS_PT as _LB
+    _eff = effective_conclusions(db, cycle.confederation_id, cycle.reference_month)
+    _paid = get_paid_map(db, cycle.confederation_id, cycle.reference_month)
+    _ops = db.query(BettingOperator).filter(BettingOperator.status == "active").order_by(BettingOperator.company_name).all()
+    op_map = {o.id: o for o in _ops}
+    payments = []  # legado (ciclos antigos podem ter Payment rows; consolidamos pela base central)
 
     events = db.query(CollectionEvent).filter(CollectionEvent.cycle_id == cycle_id).order_by(CollectionEvent.performed_at).all()
     emails = db.query(EmailMessage).filter(EmailMessage.cycle_id == cycle_id).all()
 
-    total = len(payments)
-    adimplentes = len([p for p in payments if p.status in (PaymentStatus.paid, PaymentStatus.report_pending)])
-    inadimplentes = len([p for p in payments if p.status == PaymentStatus.overdue])
-    pendentes = len([p for p in payments if p.status == PaymentStatus.pending])
-    not_sports = len([p for p in payments if p.status == PaymentStatus.not_sports])
-    judicial = len([p for p in payments if p.status == PaymentStatus.judicialized])
-    total_recebido = sum(float(p.amount_paid or 0) for p in payments)
+    total = len(_ops)
+    adimplentes = sum(1 for o in _ops if _eff.get(o.id) == "adimplente")
+    inadimplentes = sum(1 for o in _ops if _eff.get(o.id) == "inadimplente")
+    pendentes = 0
+    not_sports = sum(1 for o in _ops if _eff.get(o.id) == "sem_obrigacao")
+    judicial = sum(1 for o in _ops if _eff.get(o.id) == "consignacao")
+    total_recebido = sum(v.get("total", 0.0) for v in _paid.values())
 
     notif_sent = len([e for e in events if e.event_type == EventType.notification_sent])
     phone_contacts = len([e for e in events if e.event_type == EventType.phone_contact])
@@ -130,17 +134,16 @@ def generate_cycle_activity_pdf(db: Session, cycle_id: int) -> bytes:
 
     # Situação por agente operador
     el.append(Paragraph("Situação por agente operador", h2))
-    rows = [["Agente Operador", "Situação", "Valor devido", "Recebido", "Relatório"]]
-    for p in payments:
-        op = op_map.get(p.operator_id)
+    rows = [["Agente Operador", "Situação", "Recebido no mês", "Relatório"]]
+    for o in _ops:
+        pm = _paid.get(o.id, {})
         rows.append([
-            Paragraph((op.fantasy_name or op.company_name if op else f"#{p.operator_id}")[:45], small),
-            STATUS_PT.get(getattr(p.status, "value", ""), getattr(p.status, "value", "—")),
-            _brl(p.amount_due) if p.amount_due else "—",
-            _brl(p.amount_paid) if p.amount_paid else "—",
-            "Sim" if p.report_received else "Não",
+            Paragraph((o.fantasy_name or o.company_name)[:45], small),
+            _LB.get(_eff.get(o.id, "inadimplente"), "—"),
+            _brl(pm.get("total")) if pm.get("total") else "—",
+            "Sim" if pm.get("report_url") else "Não",
         ])
-    t2 = Table(rows, colWidths=[6.5 * cm, 3.2 * cm, 3 * cm, 3 * cm, 1.8 * cm], repeatRows=1)
+    t2 = Table(rows, colWidths=[7.5 * cm, 4.2 * cm, 3.5 * cm, 2.3 * cm], repeatRows=1)
     t2.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e293b")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),

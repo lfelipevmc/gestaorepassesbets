@@ -56,10 +56,20 @@ def financial_summary(
     receita_endr = sum(_f(e.amount_received) for e in endr_payments)
     receita_total = receita_direct + receita_endr
 
-    # adimplência
-    paid = len([p for p in payments if p.status == PaymentStatus.paid])
-    report_pending = len([p for p in payments if p.status == PaymentStatus.report_pending])
-    overdue = len([p for p in payments if p.status in (PaymentStatus.pending, PaymentStatus.overdue)])
+    # adimplência: pela Conclusão efetiva (SSOT) do mês corrente
+    from ..services.status_service import effective_conclusions
+    from datetime import date as _date
+    _cur = _date.today().replace(day=1)
+    if confederation_id:
+        _eff = effective_conclusions(db, confederation_id, month or _cur)
+        _vals = list(_eff.values())
+    else:
+        _vals = []
+        for _c in db.query(Confederation).all():
+            _vals += list(effective_conclusions(db, _c.id, month or _cur).values())
+    paid = _vals.count("adimplente")
+    report_pending = 0
+    overdue = _vals.count("inadimplente")
 
     # repasses (Fase 2)
     total_a_repassar = sum(_f(r.amount_received) for r in redistributions)

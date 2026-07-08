@@ -35,22 +35,13 @@ def get_or_create_cycle(db, confederation_id: int, reference_month: date) -> Col
         CollectionCycle.reference_month == reference_month
     ).first()
     if not cycle:
+        # Ciclo-espelho: NÃO cria lista própria de operadores (usa a base central + Conclusão)
         cycle = CollectionCycle(
             confederation_id=confederation_id,
             reference_month=reference_month,
             status=CycleStatus.open
         )
         db.add(cycle)
-        db.flush()
-        operators = db.query(BettingOperator).filter(BettingOperator.status == OperatorStatus.active).all()
-        for op in operators:
-            payment = Payment(
-                cycle_id=cycle.id,
-                operator_id=op.id,
-                confederation_id=confederation_id,
-                status=PaymentStatus.pending
-            )
-            db.add(payment)
         db.commit()
         db.refresh(cycle)
     return cycle
@@ -85,23 +76,12 @@ def job_send_first_notifications():
             cycle.status = CycleStatus.collecting
             db.commit()
 
-            pending_payments = db.query(Payment).filter(
-                Payment.cycle_id == cycle.id,
-                Payment.status == PaymentStatus.pending
-            ).all()
-
-            for payment in pending_payments:
-                op = db.query(BettingOperator).get(payment.operator_id)
-                if is_endr_associated(db, op.id, ref_month):
-                    event = CollectionEvent(
-                        cycle_id=cycle.id,
-                        operator_id=op.id,
-                        event_type=EventType.manual_note,
-                        channel=EventChannel.system,
-                        notes="Operador associado ao ENDR — cobrança suspensa neste mês",
-                    )
-                    db.add(event)
-                    db.commit()
+            from .status_service import effective_conclusions
+            eff = effective_conclusions(db, conf.id, ref_month)
+            inadimplentes = [oid for oid, v in eff.items() if v == "inadimplente"]
+            for op_id in inadimplentes:
+                op = db.query(BettingOperator).get(op_id)
+                if not op or op.status != OperatorStatus.active:
                     continue
                 send_collection_notification(
                     db=db,
@@ -146,29 +126,16 @@ def job_send_second_notifications():
             if not cycle:
                 continue
 
-            overdue = db.query(Payment).filter(
-                Payment.cycle_id == cycle.id,
-                Payment.status == PaymentStatus.pending
-            ).all()
-
-            for payment in overdue:
-                op = db.query(BettingOperator).get(payment.operator_id)
-                if is_endr_associated(db, op.id, ref_month):
-                    event = CollectionEvent(
-                        cycle_id=cycle.id,
-                        operator_id=op.id,
-                        event_type=EventType.manual_note,
-                        channel=EventChannel.system,
-                        notes="Operador associado ao ENDR — cobrança suspensa neste mês",
-                    )
-                    db.add(event)
+            from .status_service import effective_conclusions
+            eff = effective_conclusions(db, conf.id, ref_month)
+            for op_id in [oid for oid, v in eff.items() if v == "inadimplente"]:
+                op = db.query(BettingOperator).get(op_id)
+                if not op or op.status != OperatorStatus.active:
                     continue
                 send_collection_notification(
                     db=db, cycle_id=cycle.id, operator=op, confederation=conf,
                     reference_month=ref_month.strftime("%m/%Y"), notification_number=2,
                 )
-                payment.status = PaymentStatus.overdue
-
             db.commit()
 
         log_action(db=db, action="AUTO_NOTIFICATION_2", description=f"2ª rodada de notificações automáticas")

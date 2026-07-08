@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey, Text, Date
+from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey, Text, Date, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -38,6 +38,7 @@ class CollectionCycle(Base):
     confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=False)
     reference_month = Column(Date, nullable=False)
     status = Column(Enum(CycleStatus), default=CycleStatus.open)
+    archived = Column(Boolean, default=False)   # arquivado pelo admin: some das telas, histórico preservado
     template_id = Column(Integer, ForeignKey("message_templates.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

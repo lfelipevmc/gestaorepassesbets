@@ -180,6 +180,13 @@ class OperatorConfederationInfo(Base):
     operator_id = Column(Integer, ForeignKey("betting_operators.id"), nullable=False)
     confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=False)
     notes = Column(Text, nullable=True)
+    extra_notes = Column(Text, nullable=True)   # Anotações Adicionais
+    # Conclusão (situação do operador PERANTE esta confederação):
+    # inadimplente | adimplente | consignacao | sem_obrigacao | endr
+    # O sistema calcula automaticamente (pagamento->adimplente; ENDR do mês->endr; senão inadimplente);
+    # se conclusion_manual=True, o valor definido pelo usuário prevalece.
+    conclusion = Column(String(30), nullable=True)
+    conclusion_manual = Column(Boolean, default=False)
     updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

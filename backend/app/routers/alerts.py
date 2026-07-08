@@ -124,6 +124,51 @@ def get_alerts(
     return {"alerts": alerts, "total": len(alerts)}
 
 
+@router.get("/inadimplencia-history")
+def inadimplencia_history(
+    start: str = "2025-01",   # "YYYY-MM" — início da janela
+    months: int = 6,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Nº de operadores inadimplentes por confederação, mês a mês (janela navegável desde jan/2025).
+    Classificação pela Conclusão efetiva (SSOT): exclui ENDR do mês, quem recebeu na competência
+    e situações manuais (consignação/sem obrigação/adimplente)."""
+    from ..services.status_service import effective_conclusions
+
+    try:
+        y, m = start.split("-")
+        cur = date(int(y), int(m), 1)
+    except Exception:
+        cur = date(2025, 1, 1)
+    if cur < date(2025, 1, 1):
+        cur = date(2025, 1, 1)
+
+    confs = db.query(Confederation).order_by(Confederation.acronym).all()
+    if current_user.role == "confederation_viewer":
+        confs = [c for c in confs if c.id == current_user.confederation_id]
+
+    today_m = date.today().replace(day=1)
+    labels, series = [], {c.acronym: [] for c in confs}
+    mm = cur
+    for _ in range(months):
+        if mm > today_m:
+            break
+        labels.append(mm.strftime("%m/%Y"))
+        for c in confs:
+            eff = effective_conclusions(db, c.id, mm)
+            series[c.acronym].append(sum(1 for v in eff.values() if v == "inadimplente"))
+        mm = date(mm.year + (1 if mm.month == 12 else 0), 1 if mm.month == 12 else mm.month + 1, 1)
+
+    return {
+        "labels": labels,
+        "series": [{"acronym": k, "confederation_id": next(c.id for c in confs if c.acronym == k), "data": v} for k, v in series.items()],
+        "window_start": cur.strftime("%Y-%m"),
+        "min_month": "2025-01",
+        "max_month": today_m.strftime("%Y-%m"),
+    }
+
+
 @router.get("/transparency")
 def transparency(
     confederation_id: int = None,
@@ -158,6 +203,12 @@ def transparency(
         ).count()
         pays = db.query(Payment).filter(Payment.cycle_id.in_(cycle_ids)).all()
         recuperado = sum(float(p.amount_paid or 0) for p in pays)
+    # Recebimentos centrais (base única) da competência corrente
+    from ..models.payment import DirectPayment as _DP
+    dq = db.query(_DP).filter(_DP.reference_month == ref)
+    if confederation_id:
+        dq = dq.filter(_DP.confederation_id == confederation_id)
+    recuperado += sum(float(d.amount_received or 0) for d in dq.all())
 
     return {
         "month": ref.strftime("%m/%Y"),

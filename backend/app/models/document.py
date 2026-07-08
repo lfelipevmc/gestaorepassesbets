@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey, Text, BigInteger
+from sqlalchemy import Column, Integer, String, DateTime, Date, Enum, ForeignKey, Text, BigInteger
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -36,6 +36,7 @@ class Document(Base):
     file_name = Column(String, nullable=False)
     file_size = Column(BigInteger, nullable=True)
     description = Column(Text, nullable=True)
+    reference_month = Column(Date, nullable=True)   # competência a que o documento se refere (relatórios, ENDR)
     uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 

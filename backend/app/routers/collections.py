@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -12,11 +12,12 @@ from ..models.confederation import Confederation
 from ..models.document import Document, DocumentType, DocumentCategory
 from ..models.user import User
 from ..schemas.collection import CycleCreate, CycleOut, EventCreate, EventOut
-from ..core.auth import get_current_user, require_office
+from ..core.auth import get_current_user, require_office, require_admin
 from ..services.audit_service import log_action
 from ..services.notification_service import send_collection_notification, render_placeholders
 from ..services.email_service import send_email
 from ..services.scheduler import is_endr_associated
+from ..services.status_service import effective_conclusions, get_paid_map, LABELS_PT, month_start
 
 router = APIRouter(prefix="/api/collections", tags=["collections"])
 
@@ -44,8 +45,11 @@ class SpaLetterRequest(BaseModel):
 
 
 @router.get("/", response_model=List[CycleOut])
-def list_cycles(confederation_id: Optional[int] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def list_cycles(confederation_id: Optional[int] = None, include_archived: bool = False,
+                db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     q = db.query(CollectionCycle)
+    if not include_archived:
+        q = q.filter(CollectionCycle.archived == False)
     if current_user.role == "confederation_viewer":
         q = q.filter(CollectionCycle.confederation_id == current_user.confederation_id)
     elif confederation_id:
@@ -62,14 +66,10 @@ def create_cycle(data: CycleCreate, db: Session = Depends(get_db), current_user:
     if existing:
         raise HTTPException(status_code=400, detail="Ciclo já existe para esse mês e confederação")
 
+    # O ciclo NÃO cria lista própria de operadores: ele espelha a relação da confederação
+    # (Agentes Operadores = base central; ver endpoint /board). Nada é duplicado no banco.
     cycle = CollectionCycle(confederation_id=data.confederation_id, reference_month=data.reference_month, template_id=data.template_id)
     db.add(cycle)
-    db.flush()
-
-    operators = db.query(BettingOperator).filter(BettingOperator.status == OperatorStatus.active).all()
-    for op in operators:
-        db.add(Payment(cycle_id=cycle.id, operator_id=op.id, confederation_id=data.confederation_id, status=PaymentStatus.pending))
-
     db.commit()
     db.refresh(cycle)
     log_action(db=db, action="CREATE", entity_type="CollectionCycle", entity_id=cycle.id, user_id=current_user.id,
@@ -130,31 +130,24 @@ def _find_occasion_template(db: Session, confederation_id: int, notification_num
 
 @router.get("/{id}/notification-preview")
 def notification_preview(id: int, notification_number: int = 1, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
-    """Tela de revisão: separa quem pagou, quem está no ENDR e quem receberá a notificação."""
+    """Revisão do envio. Classificação vem da Conclusão de cada operador PERANTE a confederação
+    do ciclo (SSOT): apenas INADIMPLENTES vêm pré-selecionados; ENDR, Adimplentes, Consignação
+    e Sem Obrigação ficam disponíveis para inclusão manual."""
     cycle = db.query(CollectionCycle).get(id)
     if not cycle:
         raise HTTPException(status_code=404, detail="Ciclo não encontrado")
     conf = db.query(Confederation).get(cycle.confederation_id)
 
-    payments = db.query(Payment).filter(Payment.cycle_id == cycle.id).all()
-    op_ids = [p.operator_id for p in payments]
-    operators = {o.id: o for o in db.query(BettingOperator).filter(BettingOperator.id.in_(op_ids)).all()} if op_ids else {}
+    conclusions = effective_conclusions(db, cycle.confederation_id, cycle.reference_month)
+    operators = {o.id: o for o in db.query(BettingOperator).filter(BettingOperator.status == OperatorStatus.active).all()}
 
-    paid, endr, recipients = [], [], []
-    for op_id in op_ids:
-        op = operators.get(op_id)
-        if not op:
-            continue
+    groups = {"inadimplente": [], "adimplente": [], "endr": [], "consignacao": [], "sem_obrigacao": []}
+    for op_id, op in operators.items():
         info = {"operator_id": op.id, "label": _operator_label(op), "cnpj": op.cnpj,
-                "authorization_number": op.authorization_number, "emails": _operator_emails(op)}
-        if _has_paid(db, cycle, op_id):
-            paid.append(info)
-        elif is_endr_associated(db, op_id, cycle.reference_month):
-            endr.append(info)
-        else:
-            recipients.append(info)
+                "authorization_number": op.authorization_number or op.mf_license_number,
+                "emails": _operator_emails(op)}
+        groups.setdefault(conclusions.get(op_id, "inadimplente"), groups["inadimplente"]).append(info)
 
-    # mensagem padrão (template da ocasião) com placeholders preservados para edição
     tmpl = _find_occasion_template(db, cycle.confederation_id, notification_number)
     if tmpl:
         subject, body = tmpl.subject, tmpl.body
@@ -173,9 +166,13 @@ def notification_preview(id: int, notification_number: int = 1, db: Session = De
         "notification_number": notification_number,
         "deadline_days": deadline_days,
         "deadline": deadline,
-        "paid": paid,
-        "endr": endr,
-        "recipients": recipients,
+        # pré-selecionados: somente inadimplentes
+        "recipients": groups["inadimplente"],
+        # disponíveis para inclusão manual (não selecionados por padrão)
+        "paid": groups["adimplente"],
+        "endr": groups["endr"],
+        "consignacao": groups["consignacao"],
+        "sem_obrigacao": groups["sem_obrigacao"],
         "message": {"subject": subject, "body": body},
     }
 
@@ -269,9 +266,9 @@ def generate_spa_letter(id: int, data: SpaLetterRequest, db: Session = Depends(g
                 "razao_social": op.company_name,
             })
 
-    # contagem de associados ao ENDR (para o parágrafo do ofício)
-    payments = db.query(Payment).filter(Payment.cycle_id == cycle.id).all()
-    endr_count = sum(1 for p in payments if is_endr_associated(db, p.operator_id, cycle.reference_month))
+    # contagem de associados ao ENDR na competência (fonte: aba ENDR)
+    from ..services.status_service import get_endr_set
+    endr_count = len(get_endr_set(db, cycle.reference_month))
 
     try:
         result = generate_spa_letter_docx(
@@ -310,6 +307,147 @@ def download_spa_letter(id: int, document_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     return FileResponse(doc.file_path, filename=doc.file_name,
                         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+@router.get("/{id}/board")
+def cycle_board(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Quadro do ciclo (ESPELHO): não há lista própria — as linhas são os agentes operadores da
+    base central, com a Conclusão da confederação e os recebimentos da competência. A única
+    informação operacional própria do ciclo são as Ações (Contactar / Registrar recebimento)."""
+    cycle = db.query(CollectionCycle).get(id)
+    if not cycle:
+        raise HTTPException(status_code=404, detail="Ciclo não encontrado")
+    conf = db.query(Confederation).get(cycle.confederation_id)
+    if current_user.role == "confederation_viewer" and current_user.confederation_id != conf.id:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+
+    conclusions = effective_conclusions(db, conf.id, cycle.reference_month)
+    paid = get_paid_map(db, conf.id, cycle.reference_month)
+    from ..models.operator import OperatorConfederationInfo
+    infos = {i.operator_id: i for i in db.query(OperatorConfederationInfo).filter(
+        OperatorConfederationInfo.confederation_id == conf.id).all()}
+
+    rows = []
+    for op in db.query(BettingOperator).filter(BettingOperator.status == OperatorStatus.active).order_by(BettingOperator.company_name).all():
+        pm = paid.get(op.id, {})
+        info = infos.get(op.id)
+        rows.append({
+            "operator_id": op.id,
+            "label": _operator_label(op),
+            "company_name": op.company_name,
+            "cnpj": op.cnpj,
+            "authorization": op.authorization_number or op.mf_license_number,
+            "emails": _operator_emails(op),
+            "conclusion": conclusions.get(op.id, "inadimplente"),
+            "conclusion_label": LABELS_PT.get(conclusions.get(op.id, "inadimplente")),
+            "conclusion_manual": bool(info.conclusion_manual) if info else False,
+            "received_total": pm.get("total", 0.0),
+            "last_payment_date": pm.get("last_date").isoformat() if pm.get("last_date") else None,
+            "last_payment_amount": pm.get("last_amount"),
+            "report_url": pm.get("report_url"),
+            "notes": (info.notes if info else "") or "",
+        })
+
+    counts = {}
+    for r in rows:
+        counts[r["conclusion"]] = counts.get(r["conclusion"], 0) + 1
+    return {
+        "cycle": {"id": cycle.id, "status": cycle.status.value if hasattr(cycle.status, "value") else cycle.status,
+                  "reference_month": cycle.reference_month.isoformat(), "archived": bool(cycle.archived)},
+        "confederation": {"id": conf.id, "acronym": conf.acronym, "name": conf.name},
+        "rows": rows,
+        "counts": counts,
+        "total": len(rows),
+    }
+
+
+@router.post("/{id}/archive")
+def archive_cycle(id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """Arquiva o ciclo (somente admin). Ele some das listas, mas o histórico é preservado."""
+    cycle = db.query(CollectionCycle).get(id)
+    if not cycle:
+        raise HTTPException(status_code=404, detail="Ciclo não encontrado")
+    cycle.archived = True
+    db.commit()
+    log_action(db=db, action="ARCHIVE_CYCLE", entity_type="CollectionCycle", entity_id=id,
+               user_id=current_user.id, confederation_id=cycle.confederation_id,
+               description=f"Ciclo {cycle.reference_month.strftime('%m/%Y')} arquivado (histórico preservado)")
+    return {"ok": True}
+
+
+class CycleReceiptIn(BaseModel):
+    operator_id: int
+    amount: float
+    received_date: date
+    notes: Optional[str] = None
+
+
+@router.post("/{id}/receipts")
+def register_cycle_receipt(id: int, data: CycleReceiptIn, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Registra um recebimento a partir do ciclo — gravado na BASE CENTRAL (recebimento do
+    operador × confederação × competência), sem criar estrutura própria do ciclo."""
+    cycle = db.query(CollectionCycle).get(id)
+    if not cycle:
+        raise HTTPException(status_code=404, detail="Ciclo não encontrado")
+    dp = DirectPayment(
+        operator_id=data.operator_id, confederation_id=cycle.confederation_id,
+        reference_month=cycle.reference_month, amount_received=data.amount,
+        received_date=data.received_date, notes=data.notes, registered_by_id=current_user.id,
+    )
+    db.add(dp)
+    db.add(CollectionEvent(
+        cycle_id=id, operator_id=data.operator_id,
+        event_type=EventType.payment_confirmed, channel=EventChannel.system,
+        notes=f"Recebimento registrado: R$ {data.amount:,.2f} em {data.received_date.strftime('%d/%m/%Y')}",
+        performed_by_id=current_user.id,
+    ))
+    db.commit()
+    log_action(db=db, action="CYCLE_RECEIPT", entity_type="DirectPayment", entity_id=dp.id,
+               user_id=current_user.id, confederation_id=cycle.confederation_id,
+               new_values={"operator_id": data.operator_id, "amount": str(data.amount)})
+    return {"ok": True, "receipt_id": dp.id}
+
+
+@router.post("/{id}/receipts/{operator_id}/report")
+async def upload_cycle_report(id: int, operator_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Anexa o relatório de apuração do operador para a competência do ciclo.
+    Se houver recebimento na competência, o arquivo é vinculado a ele; senão, fica como
+    documento do operador com a competência marcada."""
+    import os, uuid, shutil
+    cycle = db.query(CollectionCycle).get(id)
+    if not cycle:
+        raise HTTPException(status_code=404, detail="Ciclo não encontrado")
+    updir = "/app/uploads/reports"
+    os.makedirs(updir, exist_ok=True)
+    ext = os.path.splitext(file.filename or "relatorio.pdf")[1].lower()
+    fname = f"cyc{id}_op{operator_id}_{uuid.uuid4().hex}{ext}"
+    path = os.path.join(updir, fname)
+    with open(path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    url = f"/uploads/reports/{fname}"
+
+    dp = db.query(DirectPayment).filter(
+        DirectPayment.operator_id == operator_id,
+        DirectPayment.confederation_id == cycle.confederation_id,
+        DirectPayment.reference_month == cycle.reference_month,
+    ).order_by(DirectPayment.received_date.desc()).first()
+    if dp:
+        dp.report_file_url = url
+    db.add(Document(
+        operator_id=operator_id, confederation_id=cycle.confederation_id, cycle_id=id,
+        title=f"Relatório {cycle.reference_month.strftime('%m/%Y')} — competência",
+        document_type=DocumentType.ggr_report, category=DocumentCategory.documento_oficial,
+        file_path=path, file_name=file.filename or fname,
+        file_size=os.path.getsize(path), reference_month=cycle.reference_month,
+        uploaded_by_id=current_user.id,
+    ))
+    db.add(CollectionEvent(
+        cycle_id=id, operator_id=operator_id, event_type=EventType.report_received,
+        channel=EventChannel.system, notes="Relatório da competência anexado",
+        performed_by_id=current_user.id,
+    ))
+    db.commit()
+    return {"ok": True, "report_url": url}
 
 
 @router.get("/{id}/emails")
@@ -411,50 +549,4 @@ def add_event(id: int, data: EventCreate, db: Session = Depends(get_db), current
     return event
 
 
-@router.post("/{id}/send-notifications")
-def send_notifications(id: int, notification_number: int = 1, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
-    from ..models.confederation import Confederation
-    cycle = db.query(CollectionCycle).get(id)
-    if not cycle:
-        raise HTTPException(status_code=404, detail="Ciclo não encontrado")
-    confederation = db.query(Confederation).get(cycle.confederation_id)
 
-    pending = db.query(Payment).filter(
-        Payment.cycle_id == id,
-        Payment.status.in_([PaymentStatus.pending, PaymentStatus.overdue])
-    ).all()
-
-    from ..services.scheduler import is_endr_associated
-    from ..models.collection import CollectionEvent, EventType, EventChannel
-
-    sent = 0
-    failed = 0
-    skipped_endr = 0
-    for payment in pending:
-        op = db.query(BettingOperator).get(payment.operator_id)
-        if is_endr_associated(db, op.id, cycle.reference_month):
-            event = CollectionEvent(
-                cycle_id=id,
-                operator_id=op.id,
-                event_type=EventType.manual_note,
-                channel=EventChannel.system,
-                notes="Operador associado ao ENDR — cobrança suspensa neste mês",
-                performed_by_id=current_user.id,
-            )
-            db.add(event)
-            db.commit()
-            skipped_endr += 1
-            continue
-        success = send_collection_notification(
-            db=db, cycle_id=id, operator=op, confederation=confederation,
-            reference_month=cycle.reference_month.strftime("%m/%Y"),
-            notification_number=notification_number,
-            performed_by_id=current_user.id,
-            calculated_amount=float(payment.amount_due) if payment.amount_due else None
-        )
-        if success:
-            sent += 1
-        else:
-            failed += 1
-
-    return {"sent": sent, "failed": failed, "skipped_endr": skipped_endr, "total": len(pending)}

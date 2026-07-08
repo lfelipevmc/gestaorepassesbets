@@ -52,12 +52,11 @@ def tasks_today(db: Session = Depends(get_db), current_user: User = Depends(get_
     cyc_q = db.query(CollectionCycle).filter(CollectionCycle.status.in_([CycleStatus.open, CycleStatus.collecting]))
     if conf_scope:
         cyc_q = cyc_q.filter(CollectionCycle.confederation_id == conf_scope)
+    from ..services.status_service import effective_conclusions
     for cycle in cyc_q.all():
         conf = confs.get(cycle.confederation_id)
-        pendentes = db.query(Payment).filter(
-            Payment.cycle_id == cycle.id,
-            Payment.status.in_([PaymentStatus.pending, PaymentStatus.overdue]),
-        ).count()
+        _eff = effective_conclusions(db, cycle.confederation_id, cycle.reference_month)
+        pendentes = sum(1 for v in _eff.values() if v == "inadimplente")
         if pendentes == 0:
             continue
         sent1 = db.query(CollectionEvent).filter(
@@ -117,16 +116,15 @@ def tasks_today(db: Session = Depends(get_db), current_user: User = Depends(get_
         cutoff = today - timedelta(days=7)
         sugest = []
         for cycle in cyc_q.all():
-            pend = db.query(Payment).filter(
-                Payment.cycle_id == cycle.id, Payment.status.in_([PaymentStatus.pending, PaymentStatus.overdue]),
-            ).all()
-            for p in pend[:200]:
+            _effc = effective_conclusions(db, cycle.confederation_id, cycle.reference_month)
+            pend_ids = [oid for oid, v in _effc.items() if v == "inadimplente"][:200]
+            for _oid in pend_ids:
                 last = db.query(CollectionEvent).filter(
-                    CollectionEvent.cycle_id == cycle.id, CollectionEvent.operator_id == p.operator_id,
+                    CollectionEvent.cycle_id == cycle.id, CollectionEvent.operator_id == _oid,
                 ).order_by(CollectionEvent.performed_at.desc()).first()
                 if last and last.performed_at and last.performed_at.date() >= cutoff:
                     continue  # já contatado nos últimos 7 dias
-                op = db.query(BettingOperator).get(p.operator_id)
+                op = db.query(BettingOperator).get(_oid)
                 if not op:
                     continue
                 sugest.append({"operator_id": op.id, "label": op.fantasy_name or op.company_name,
