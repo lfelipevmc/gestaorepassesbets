@@ -15,7 +15,7 @@ import {
   researchContacts, getContactSuggestions, approveSuggestion, rejectSuggestion,
   getDirectPayments, createDirectPayment, deleteDirectPayment, updateDirectPayment,
   getConfederations, uploadDocument, downloadDocument,
-  getOperatorMonthlyHistory, getOperatorComplianceScore,
+  getOperatorMonthlyHistory, getOperatorComplianceScore, getOperatorConfSummary,
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 
@@ -57,9 +57,11 @@ export default function OperatorDetailPage() {
   const [audit, setAudit] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Histórico (12 meses) + score
+  // Histórico (12 meses, janela navegável desde jan/2025) + score + consolidado por confederação
   const [monthlyHistory, setMonthlyHistory] = useState<any[]>([]);
+  const [histEnd, setHistEnd] = useState<string>("");  // "YYYY-MM" (vazio = mês atual)
   const [complianceScore, setComplianceScore] = useState<any>(null);
+  const [confSummary, setConfSummary] = useState<any[]>([]);
 
   // Contacts
   const [showAddContact, setShowAddContact] = useState(false);
@@ -85,9 +87,6 @@ export default function OperatorDetailPage() {
   const [savingResp, setSavingResp] = useState(false);
 
   // ENDR
-  const [showEndrModal, setShowEndrModal] = useState(false);
-  const [endrForm, setEndrForm] = useState<{ year: string; months: string[]; is_associated: boolean; notes: string }>({ year: String(new Date().getFullYear()), months: [], is_associated: true, notes: "" });
-  const [savingEndr, setSavingEndr] = useState(false);
 
   // Contact Research
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -203,11 +202,34 @@ export default function OperatorDetailPage() {
 
   useEffect(() => {
     if (tab === 5) fetchSuggestions();
-    if (tab === 6 && monthlyHistory.length === 0) {
-      getOperatorMonthlyHistory(numId, 12).then(r => setMonthlyHistory(r.data.history || [])).catch(() => {});
+    if (tab === 6) {
+      loadHistory(histEnd);
       getOperatorComplianceScore(numId).then(r => setComplianceScore(r.data)).catch(() => {});
+      getOperatorConfSummary(numId).then(r => setConfSummary(r.data)).catch(() => {});
     }
   }, [tab]);
+
+  function loadHistory(end: string) {
+    getOperatorMonthlyHistory(numId, 12, end || undefined)
+      .then(r => setMonthlyHistory(r.data.history || []))
+      .catch(() => {});
+  }
+
+  function shiftHistory(deltaMonths: number) {
+    // calcula nova janela a partir do fim atual
+    const base = histEnd || new Date().toISOString().slice(0, 7);
+    const [y, m] = base.split("-").map(Number);
+    let ny = y, nm = m + deltaMonths;
+    while (nm <= 0) { nm += 12; ny -= 1; }
+    while (nm > 12) { nm -= 12; ny += 1; }
+    const minY = 2025, maxD = new Date();
+    let next = `${ny}-${String(nm).padStart(2, "0")}`;
+    const maxS = `${maxD.getFullYear()}-${String(maxD.getMonth() + 1).padStart(2, "0")}`;
+    if (next > maxS) next = maxS;
+    if (ny < minY || (ny === minY && nm < 12)) next = "2025-12";  // janela mínima termina em dez/2025 (12 meses desde jan/2025)
+    setHistEnd(next);
+    loadHistory(next);
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -330,38 +352,7 @@ export default function OperatorDetailPage() {
     fetchData();
   }
 
-  async function handleAddEndr(e: React.FormEvent) {
-    e.preventDefault();
-    if (endrForm.months.length === 0) { alert("Selecione ao menos um mês."); return; }
-    setSavingEndr(true);
-    let ok = 0, fail = 0;
-    // Registra uma associação por mês selecionado (múltipla escolha)
-    for (const ym of endrForm.months) {
-      try {
-        await addEndrAssociation(numId, {
-          reference_month: `${ym}-01`,
-          is_associated: endrForm.is_associated,
-          notes: endrForm.notes || undefined,
-        });
-        ok++;
-      } catch { fail++; }
-    }
-    setSavingEndr(false);
-    setShowEndrModal(false);
-    setEndrForm(f => ({ ...f, months: [], notes: "" }));
-    fetchData();
-    if (fail > 0) alert(`${ok} mês(es) registrado(s); ${fail} falhou(aram) — possivelmente já existiam.`);
-  }
 
-  function toggleEndrMonth(ym: string) {
-    setEndrForm(f => ({ ...f, months: f.months.includes(ym) ? f.months.filter(m => m !== ym) : [...f.months, ym] }));
-  }
-
-  async function handleDeleteEndr(assocId: number) {
-    if (!confirm("Remover esta associação ENDR?")) return;
-    await deleteEndrAssociation(numId, assocId);
-    fetchData();
-  }
 
   async function handleSaveDirectPayment(e: React.FormEvent) {
     e.preventDefault();
@@ -583,10 +574,9 @@ export default function OperatorDetailPage() {
       {tab === 1 && (
         <div className="max-w-3xl">
           <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-muted">Até 3 marcas por agente operador. {brands.length}/3 cadastradas.</p>
+            <p className="text-sm text-muted">{brands.length} marca(s) cadastrada(s) — sem limite de quantidade.</p>
             <button
               onClick={openNewBrand}
-              disabled={brands.length >= 3}
               className="btn-primary disabled:opacity-40 disabled:cursor-not-allowed"
             >
               + Adicionar Marca
@@ -737,9 +727,9 @@ export default function OperatorDetailPage() {
             <p>Se o agente operador estiver associado ao ENDR (Escritório Nacional de Rateios) em determinado mês, não será cobrado naquele mês. As notificações automáticas serão suspensas para os meses marcados como associado.</p>
           </div>
 
-          <div className="flex justify-end gap-2 mb-4">
-            <a href="/endr" className="btn-secondary">Abrir página ENDR</a>
-            <button onClick={() => setShowEndrModal(true)} className="btn-primary">+ Registrar Associação</button>
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <p className="text-xs text-muted">Consulta — as associações ENDR são gerenciadas exclusivamente na <span className="text-slate-200">aba ENDR</span> (fonte única).</p>
+            <a href="/endr" className="btn-primary">Gerenciar na aba ENDR</a>
           </div>
 
           {endrAssocs.length === 0 ? (
@@ -753,7 +743,6 @@ export default function OperatorDetailPage() {
                     <th className="table-th">Status</th>
                     <th className="table-th">Observações</th>
                     <th className="table-th">Registrado em</th>
-                    <th className="table-th"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -769,9 +758,7 @@ export default function OperatorDetailPage() {
                       </td>
                       <td className="table-td text-muted">{assoc.notes || "-"}</td>
                       <td className="table-td text-muted">{formatDate(assoc.created_at)}</td>
-                      <td className="table-td">
-                        <button onClick={() => handleDeleteEndr(assoc.id)} className="text-danger text-xs hover:underline">Remover</button>
-                      </td>
+
                     </tr>
                   ))}
                 </tbody>
@@ -779,57 +766,6 @@ export default function OperatorDetailPage() {
             </div>
           )}
 
-          <Modal isOpen={showEndrModal} onClose={() => setShowEndrModal(false)} title="Registrar Associação ENDR">
-            <form onSubmit={handleAddEndr} className="space-y-4">
-              <div>
-                <label className="label">Ano</label>
-                <select className="input max-w-[140px]" value={endrForm.year} onChange={e => setEndrForm(f => ({ ...f, year: e.target.value }))}>
-                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(y => (
-                    <option key={y} value={String(y)}>{y}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="label">Meses * <span className="text-muted font-normal">(marque todos os meses da associação)</span></label>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {MONTHS_PT.map((m, i) => {
-                    const ym = `${endrForm.year}-${String(i + 1).padStart(2, "0")}`;
-                    const checked = endrForm.months.includes(ym);
-                    return (
-                      <label key={ym} className={`flex items-center gap-1.5 text-xs px-2 py-1.5 rounded-lg border cursor-pointer ${checked ? "bg-primary/15 text-primary border-primary/30" : "border-surface-border text-slate-300 hover:bg-surface"}`}>
-                        <input type="checkbox" checked={checked} onChange={() => toggleEndrMonth(ym)} />
-                        {m.slice(0, 3)}
-                      </label>
-                    );
-                  })}
-                </div>
-                {endrForm.months.length > 0 && (
-                  <p className="text-xs text-muted mt-1.5">{endrForm.months.length} mês(es) selecionado(s): {endrForm.months.sort().map(ym => { const [y, mo] = ym.split("-"); return `${mo}/${y}`; }).join(", ")}</p>
-                )}
-              </div>
-              <div>
-                <label className="label">Status</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" checked={endrForm.is_associated} onChange={() => setEndrForm(f => ({ ...f, is_associated: true }))} />
-                    <span className="text-sm text-slate-300">Associado</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" checked={!endrForm.is_associated} onChange={() => setEndrForm(f => ({ ...f, is_associated: false }))} />
-                    <span className="text-sm text-slate-300">Não associado</span>
-                  </label>
-                </div>
-              </div>
-              <div>
-                <label className="label">Observações</label>
-                <textarea className="input h-20 resize-none" value={endrForm.notes} onChange={e => setEndrForm(f => ({ ...f, notes: e.target.value }))} />
-              </div>
-              <div className="flex gap-3 justify-end pt-2">
-                <button type="button" onClick={() => setShowEndrModal(false)} className="btn-secondary">Cancelar</button>
-                <button type="submit" disabled={savingEndr} className="btn-primary">{savingEndr ? "Salvando..." : "Registrar"}</button>
-              </div>
-            </form>
-          </Modal>
         </div>
       )}
 
@@ -1059,8 +995,16 @@ export default function OperatorDetailPage() {
           <div className="card">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="font-semibold text-white">Histórico dos Últimos 12 Meses</h3>
-                <p className="text-xs text-muted mt-0.5">Situação mês a mês e índice de adimplência do operador.</p>
+                <div className="flex items-center gap-3">
+                  <h3 className="font-semibold text-white">Histórico de 12 Meses</h3>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => shiftHistory(-12)} className="px-2 py-0.5 text-xs border border-surface-border rounded hover:bg-surface text-slate-300" title="12 meses anteriores">«</button>
+                    <button onClick={() => shiftHistory(-1)} className="px-2 py-0.5 text-xs border border-surface-border rounded hover:bg-surface text-slate-300" title="Mês anterior">‹</button>
+                    <button onClick={() => shiftHistory(1)} className="px-2 py-0.5 text-xs border border-surface-border rounded hover:bg-surface text-slate-300" title="Próximo mês">›</button>
+                    <button onClick={() => { setHistEnd(""); loadHistory(""); }} className="px-2 py-0.5 text-xs border border-surface-border rounded hover:bg-surface text-slate-300" title="Voltar para hoje">Hoje</button>
+                  </div>
+                </div>
+                <p className="text-xs text-muted mt-0.5">Situação mês a mês — navegue no histórico desde janeiro/2025.{histEnd ? ` Janela terminando em ${histEnd.split("-")[1]}/${histEnd.split("-")[0]}.` : ""}</p>
               </div>
               {complianceScore && complianceScore.score !== null && (
                 <div className="text-right">
@@ -1164,36 +1108,43 @@ export default function OperatorDetailPage() {
             </div>
           </div>
 
-          {/* Pagamentos via Ciclos de Cobrança */}
+          {/* Visão consolidada por confederação (substitui a segmentação por ciclo de cobrança) */}
           <div className="card">
-            <h3 className="font-semibold text-white mb-4">Pagamentos via Ciclos de Cobrança</h3>
+            <h3 className="font-semibold text-white mb-1">Pagamentos por Confederação</h3>
+            <p className="text-xs text-muted mb-4">Visão consolidada do relacionamento financeiro deste operador com cada confederação (sem segmentação por ciclo).</p>
             <div className="overflow-hidden rounded-lg border border-surface-border">
               <table className="w-full">
                 <thead className="bg-surface">
                   <tr>
-                    <th className="table-th">Ciclo</th>
                     <th className="table-th">Confederação</th>
-                    <th className="table-th">Valor Devido</th>
-                    <th className="table-th">Valor Recebido</th>
+                    <th className="table-th">Valor Recebido (total)</th>
+                    <th className="table-th">Último Pagamento</th>
+                    <th className="table-th">Valor do Último</th>
                     <th className="table-th">Relatório</th>
-                    <th className="table-th">Data Pagamento</th>
                     <th className="table-th">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {payments.length === 0 ? (
-                    <tr><td colSpan={7} className="table-td text-center text-muted py-8">Nenhum pagamento via ciclo registrado</td></tr>
-                  ) : payments.map(p => {
-                    const conf = confederations.find((c: any) => c.id === p.confederation_id);
+                  {confSummary.length === 0 ? (
+                    <tr><td colSpan={6} className="table-td text-center text-muted py-8">Carregando...</td></tr>
+                  ) : confSummary.map((c: any) => {
+                    const cls: Record<string, string> = {
+                      adimplente: "text-success bg-success/10", inadimplente: "text-danger bg-danger/10",
+                      endr: "text-green-400 bg-green-900/30", consignacao: "text-warning bg-warning/10",
+                      sem_obrigacao: "text-slate-300 bg-slate-500/10",
+                    };
                     return (
-                      <tr key={p.id}>
-                        <td className="table-td text-muted">#{p.cycle_id}</td>
-                        <td className="table-td">{conf?.acronym || `#${p.confederation_id}`}</td>
-                        <td className="table-td">{formatCurrency(p.amount_due)}</td>
-                        <td className="table-td">{formatCurrency(p.amount_paid)}</td>
-                        <td className="table-td">{p.report_received ? <span className="text-success text-xs">✓</span> : <span className="text-muted text-xs">—</span>}</td>
-                        <td className="table-td">{formatDate(p.payment_date)}</td>
-                        <td className="table-td"><Badge status={p.status} /></td>
+                      <tr key={c.confederation_id}>
+                        <td className="table-td font-medium text-white">{c.acronym}</td>
+                        <td className="table-td text-success font-medium">{formatCurrency(c.received_total)}</td>
+                        <td className="table-td">{c.last_payment_date ? formatDate(c.last_payment_date) : "—"}</td>
+                        <td className="table-td">{c.last_payment_amount ? formatCurrency(c.last_payment_amount) : "—"}</td>
+                        <td className="table-td">
+                          {c.report_url
+                            ? <a href={(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000") + c.report_url} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline">Ver / Baixar</a>
+                            : <span className="text-xs text-muted">—</span>}
+                        </td>
+                        <td className="table-td"><span className={"px-2 py-0.5 rounded-full text-xs " + (cls[c.status] || "text-muted bg-surface")}>{c.status_label}</span></td>
                       </tr>
                     );
                   })}

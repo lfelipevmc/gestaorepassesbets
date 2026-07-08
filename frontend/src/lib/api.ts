@@ -213,8 +213,8 @@ export const getAlerts = () => api.get('/api/alerts/');
 export const getComplianceHistory = (params?: any) => api.get('/api/alerts/compliance-history', { params });
 
 // ---- Histórico e score do operador ----
-export const getOperatorMonthlyHistory = (id: number, months = 12) =>
-  api.get(`/api/operators/${id}/monthly-history`, { params: { months } });
+export const getOperatorMonthlyHistory = (id: number, months = 12, end?: string) =>
+  api.get(`/api/operators/${id}/monthly-history`, { params: { months, end: end || undefined } });
 export const getOperatorComplianceScore = (id: number) =>
   api.get(`/api/operators/${id}/compliance-score`);
 
@@ -270,3 +270,15 @@ export const saveConfOperatorNote = (id: number, operatorId: number, notes: stri
 
 // ---- Relatório do repasse ENDR (competência + operadores, definidos depois) ----
 export const registerEndrReport = (id: number, data: any) => api.post(`/api/payments/endr/${id}/register-report`, data);
+
+// ---- SSOT: ciclo-espelho, conclusão, histórico consolidado ----
+export const getCycleBoard = (id: number) => api.get(`/api/collections/${id}/board`);
+export const archiveCycle = (id: number) => api.post(`/api/collections/${id}/archive`);
+export const registerCycleReceipt = (id: number, data: any) => api.post(`/api/collections/${id}/receipts`, data);
+export const uploadCycleReceiptReport = (id: number, operatorId: number, formData: FormData) =>
+  api.post(`/api/collections/${id}/receipts/${operatorId}/report`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+export const getOperatorConfSummary = (id: number) => api.get(`/api/operators/${id}/confederation-summary`);
+export const exportOperatorsPdf = (params?: any) => api.get("/api/operators/export/pdf", { params, responseType: "blob" });
+export const getInadimplenciaHistory = (params?: any) => api.get("/api/alerts/inadimplencia-history", { params });
+export const saveConfOperatorInfo = (id: number, operatorId: number, data: any) =>
+  api.put(`/api/confederations/${id}/operators/${operatorId}/note`, data);

@@ -5,7 +5,7 @@ import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import Badge from "@/components/ui/Badge";
 import Modal from "@/components/ui/Modal";
-import { getOperators, createOperator, importOperators, getSyncStatus, researchAllOperators, getOffice, updateOffice } from "@/lib/api";
+import { getOperators, createOperator, importOperators, getSyncStatus, researchAllOperators, getOffice, updateOffice, exportOperatorsPdf } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import { formatDate, formatDateTime } from "@/lib/utils";
 
@@ -221,6 +221,14 @@ export default function OperadoresPage() {
             <button onClick={() => setShowImport(true)} className="btn-secondary">
               Importar Planilha
             </button>
+            <button onClick={async () => {
+              try {
+                const r = await exportOperatorsPdf({ status: statusFilter || undefined });
+                const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+                const a = document.createElement("a"); a.href = url; a.download = "agentes_operadores.pdf"; a.click();
+                URL.revokeObjectURL(url);
+              } catch { alert("Erro ao gerar PDF."); }
+            }} className="btn-secondary">⬇ PDF</button>
             <button onClick={() => setShowCreate(true)} className="btn-primary">
               + Novo Operador
             </button>

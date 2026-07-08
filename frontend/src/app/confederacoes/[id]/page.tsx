@@ -13,7 +13,7 @@ import {
 } from "@/lib/api";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { getUser } from "@/lib/auth";
-import { getConfOperatorsOverview, saveConfOperatorNote, registerEndrReport } from "@/lib/api";
+import { getConfOperatorsOverview, saveConfOperatorInfo, registerEndrReport } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const TABS = ["Visão Geral", "Cadastro", "Ciclos de Cobrança", "Receitas por Mês", "Repasses ENDR", "Regras de Rateio"];
@@ -979,20 +979,29 @@ function RuleModal({ confId, rule, onClose, onSaved }: any) {
 }
 
 /* ---------- Visão Geral: operadores + anotações específicas desta confederação ---------- */
-const OV_COLS: { key: string; label: string }[] = [
-  { key: "razao", label: "Razão Social" },
-  { key: "fantasia", label: "Nome Fantasia" },
-  { key: "cnpj", label: "CNPJ" },
-  { key: "status", label: "Status" },
-  { key: "autorizacao", label: "Autorização" },
-  { key: "email", label: "E-mail" },
-  { key: "phone", label: "Telefone" },
-  { key: "brands", label: "Marcas" },
-  { key: "endr", label: "ENDR mês atual" },
+const OV_COLS: { key: string; label: string; width: number }[] = [
+  { key: "razao", label: "Razão Social", width: 200 },
+  { key: "fantasia", label: "Nome Fantasia", width: 140 },
+  { key: "cnpj", label: "CNPJ", width: 140 },
+  { key: "status", label: "Status", width: 90 },
+  { key: "autorizacao", label: "Autorização", width: 110 },
+  { key: "email", label: "E-mail", width: 170 },
+  { key: "phone", label: "Telefone", width: 120 },
+  { key: "brands", label: "Marcas", width: 150 },
+  { key: "endr", label: "ENDR", width: 90 },
+];
+
+const CONCLUSOES: { value: string; label: string; cls: string }[] = [
+  { value: "inadimplente", label: "Inadimplente", cls: "text-danger bg-danger/10 border-danger/30" },
+  { value: "adimplente", label: "Adimplente", cls: "text-success bg-success/10 border-success/30" },
+  { value: "consignacao", label: "Consignação em Pagamento", cls: "text-warning bg-warning/10 border-warning/30" },
+  { value: "sem_obrigacao", label: "Sem Obrigação Corrente", cls: "text-slate-300 bg-slate-500/10 border-slate-500/30" },
+  { value: "endr", label: "ENDR", cls: "text-green-400 bg-green-900/30 border-green-700/40" },
 ];
 
 function ConfOverview({ confId, sigla }: { confId: number; sigla: string }) {
   const storageKey = `confOverviewCols_${confId}`;
+  const widthKey = `confOverviewColW_${confId}`;
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -1002,8 +1011,14 @@ function ConfOverview({ confId, sigla }: { confId: number; sigla: string }) {
     }
     return ["razao", "fantasia", "cnpj", "status", "endr"];
   });
+  const [colW, setColW] = useState<Record<string, number>>(() => {
+    if (typeof window !== "undefined") {
+      try { return JSON.parse(localStorage.getItem(widthKey) || "{}"); } catch { /* noop */ }
+    }
+    return {};
+  });
   const [showCols, setShowCols] = useState(false);
-  const [noteEdit, setNoteEdit] = useState<any>(null);  // { operator_id, label, notes }
+  const [noteEdit, setNoteEdit] = useState<any>(null);  // { operator_id, label, notes, extra_notes }
   const [savingNote, setSavingNote] = useState(false);
 
   function load() {
@@ -1019,10 +1034,37 @@ function ConfOverview({ confId, sigla }: { confId: number; sigla: string }) {
     });
   }
 
+  // Redimensionamento livre das colunas (arrastar a borda direita do cabeçalho)
+  function startResize(e: React.MouseEvent, key: string) {
+    e.preventDefault(); e.stopPropagation();
+    const th = (e.target as HTMLElement).closest("th");
+    const startX = e.clientX;
+    const startW = th ? th.offsetWidth : 140;
+    function onMove(ev: MouseEvent) {
+      const w = Math.max(60, startW + (ev.clientX - startX));
+      setColW(prev => {
+        const next = { ...prev, [key]: w };
+        try { localStorage.setItem(widthKey, JSON.stringify(next)); } catch { /* noop */ }
+        return next;
+      });
+    }
+    function onUp() { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); }
+    window.addEventListener("mousemove", onMove); window.addEventListener("mouseup", onUp);
+  }
+  const wOf = (key: string, def: number) => colW[key] || def;
+
+  async function setConclusion(r: any, value: string) {
+    try {
+      if (value === "__auto__") await saveConfOperatorInfo(confId, r.operator_id, { conclusion_auto: true });
+      else await saveConfOperatorInfo(confId, r.operator_id, { conclusion: value });
+      load();
+    } catch (err: any) { alert(err.response?.data?.detail || "Erro ao salvar conclusão"); }
+  }
+
   async function saveNote() {
     setSavingNote(true);
     try {
-      await saveConfOperatorNote(confId, noteEdit.operator_id, noteEdit.notes || "");
+      await saveConfOperatorInfo(confId, noteEdit.operator_id, { notes: noteEdit.notes || "", extra_notes: noteEdit.extra_notes || "" });
       setNoteEdit(null);
       load();
     } catch (err: any) {
@@ -1034,13 +1076,18 @@ function ConfOverview({ confId, sigla }: { confId: number; sigla: string }) {
     if (!search) return true;
     const t = search.toLowerCase();
     return r.company_name?.toLowerCase().includes(t) || (r.fantasy_name || "").toLowerCase().includes(t) ||
-      (r.cnpj || "").includes(t) || (r.notes || "").toLowerCase().includes(t);
+      (r.cnpj || "").includes(t) || (r.notes || "").toLowerCase().includes(t) || (r.extra_notes || "").toLowerCase().includes(t);
   });
+
+  const ResizeHandle = ({ k }: { k: string }) => (
+    <span onMouseDown={e => startResize(e, k)} title="Arraste para ajustar a largura"
+      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-primary/50" />
+  );
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted">Todos os agentes operadores do cadastro central, com as <span className="text-slate-200">anotações específicas da {sigla}</span> sobre cada um.</p>
+        <p className="text-sm text-muted">Dados cadastrais e ENDR são <span className="text-slate-200">consulta da base central</span> (edite-os em Agentes Operadores / ENDR). Aqui você edita apenas o que é específico da {sigla}: <span className="text-slate-200">Anotações, Anotações Adicionais e Conclusão</span>.</p>
         <div className="flex gap-2">
           <input className="input max-w-xs" placeholder="Buscar por nome, CNPJ ou anotação..." value={search} onChange={e => setSearch(e.target.value)} />
           <div className="relative">
@@ -1053,7 +1100,7 @@ function ConfOverview({ confId, sigla }: { confId: number; sigla: string }) {
                     {c.label}
                   </label>
                 ))}
-                <p className="text-[10px] text-muted px-2 pt-1">A coluna de anotações é sempre exibida.</p>
+                <p className="text-[10px] text-muted px-2 pt-1">Anotações e Conclusão são sempre exibidas.</p>
               </div>
             )}
           </div>
@@ -1061,39 +1108,61 @@ function ConfOverview({ confId, sigla }: { confId: number; sigla: string }) {
       </div>
 
       <div className="card p-0 overflow-x-auto">
-        <table className="w-full text-sm">
+        <table style={{ tableLayout: "fixed", minWidth: "100%" }} className="text-sm">
           <thead className="bg-surface">
             <tr>
-              {OV_COLS.filter(c => cols.includes(c.key)).map(c => <th key={c.key} className="table-th">{c.label}</th>)}
-              <th className="table-th">Anotações ({sigla})</th>
-              <th className="table-th"></th>
+              {OV_COLS.filter(c => cols.includes(c.key)).map(c => (
+                <th key={c.key} className="table-th relative select-none" style={{ width: wOf(c.key, c.width) }}>
+                  <span className="block truncate pr-2">{c.label}</span><ResizeHandle k={c.key} />
+                </th>
+              ))}
+              <th className="table-th relative select-none" style={{ width: wOf("conclusao", 190) }}>
+                <span className="block truncate pr-2">Conclusão</span><ResizeHandle k="conclusao" />
+              </th>
+              <th className="table-th relative select-none" style={{ width: wOf("notes", 200) }}>
+                <span className="block truncate pr-2">Anotações ({sigla})</span><ResizeHandle k="notes" />
+              </th>
+              <th className="table-th relative select-none" style={{ width: wOf("extra", 180) }}>
+                <span className="block truncate pr-2">Anotações Adicionais</span><ResizeHandle k="extra" />
+              </th>
+              <th className="table-th" style={{ width: 80 }}></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={cols.length + 2} className="table-td text-center text-muted py-8">Carregando...</td></tr>
+              <tr><td colSpan={cols.length + 4} className="table-td text-center text-muted py-8">Carregando...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={cols.length + 2} className="table-td text-center text-muted py-8">Nenhum operador encontrado</td></tr>
-            ) : filtered.map(r => (
-              <tr key={r.operator_id} className="border-b border-surface-border/50 hover:bg-surface-border/20 align-top">
-                {cols.includes("razao") && <td className="table-td text-white font-medium">{r.company_name}</td>}
-                {cols.includes("fantasia") && <td className="table-td">{r.fantasy_name || "—"}</td>}
-                {cols.includes("cnpj") && <td className="table-td font-mono text-xs">{r.cnpj || "—"}</td>}
-                {cols.includes("status") && <td className="table-td capitalize text-muted">{r.status}</td>}
-                {cols.includes("autorizacao") && <td className="table-td text-xs">{r.authorization || <span className="text-warning">—</span>}</td>}
-                {cols.includes("email") && <td className="table-td text-xs">{r.email || <span className="text-danger">sem e-mail</span>}</td>}
-                {cols.includes("phone") && <td className="table-td text-xs">{r.phone || "—"}</td>}
-                {cols.includes("brands") && <td className="table-td text-xs text-muted">{r.brands?.join(", ") || "—"}</td>}
-                {cols.includes("endr") && <td className="table-td">{r.endr_current_month ? <span className="text-xs text-green-400 bg-green-900/30 px-2 py-0.5 rounded-full">ENDR</span> : <span className="text-xs text-muted">—</span>}</td>}
-                <td className="table-td text-xs text-slate-300 max-w-xs">
-                  {r.notes ? <span className="whitespace-pre-line">{r.notes}</span> : <span className="text-muted">—</span>}
-                </td>
-                <td className="table-td">
-                  <button onClick={() => setNoteEdit({ operator_id: r.operator_id, label: r.fantasy_name || r.company_name, notes: r.notes || "" })}
-                    className="text-primary text-xs hover:underline whitespace-nowrap">{r.notes ? "Editar" : "+ Anotar"}</button>
-                </td>
-              </tr>
-            ))}
+              <tr><td colSpan={cols.length + 4} className="table-td text-center text-muted py-8">Nenhum operador encontrado</td></tr>
+            ) : filtered.map(r => {
+              const conc = CONCLUSOES.find(c => c.value === r.conclusion) || CONCLUSOES[0];
+              return (
+                <tr key={r.operator_id} className="border-b border-surface-border/50 hover:bg-surface-border/20 align-top">
+                  {cols.includes("razao") && <td className="table-td text-white font-medium break-words">{r.company_name}</td>}
+                  {cols.includes("fantasia") && <td className="table-td break-words">{r.fantasy_name || "—"}</td>}
+                  {cols.includes("cnpj") && <td className="table-td font-mono text-xs">{r.cnpj || "—"}</td>}
+                  {cols.includes("status") && <td className="table-td capitalize text-muted">{r.status}</td>}
+                  {cols.includes("autorizacao") && <td className="table-td text-xs">{r.authorization || <span className="text-warning">—</span>}</td>}
+                  {cols.includes("email") && <td className="table-td text-xs break-words">{r.email || <span className="text-danger">sem e-mail</span>}</td>}
+                  {cols.includes("phone") && <td className="table-td text-xs">{r.phone || "—"}</td>}
+                  {cols.includes("brands") && <td className="table-td text-xs text-muted break-words">{r.brands?.join(", ") || "—"}</td>}
+                  {cols.includes("endr") && <td className="table-td">{r.endr_current_month ? <span className="text-xs text-green-400 bg-green-900/30 px-2 py-0.5 rounded-full">ENDR</span> : <span className="text-xs text-muted">—</span>}</td>}
+                  <td className="table-td">
+                    <select value={r.conclusion} onChange={e => setConclusion(r, e.target.value)}
+                      className={"w-full text-xs rounded-lg px-2 py-1.5 border bg-surface-card focus:outline-none " + conc.cls}>
+                      {CONCLUSOES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                      {r.conclusion_manual && <option value="__auto__">↺ Voltar ao automático</option>}
+                    </select>
+                    {r.conclusion_manual && <p className="text-[10px] text-muted mt-0.5">definida manualmente</p>}
+                  </td>
+                  <td className="table-td text-xs text-slate-300"><span className="whitespace-pre-line break-words">{r.notes || <span className="text-muted">—</span>}</span></td>
+                  <td className="table-td text-xs text-slate-300"><span className="whitespace-pre-line break-words">{r.extra_notes || <span className="text-muted">—</span>}</span></td>
+                  <td className="table-td">
+                    <button onClick={() => setNoteEdit({ operator_id: r.operator_id, label: r.fantasy_name || r.company_name, notes: r.notes || "", extra_notes: r.extra_notes || "" })}
+                      className="text-primary text-xs hover:underline whitespace-nowrap">{(r.notes || r.extra_notes) ? "Editar" : "+ Anotar"}</button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -1102,10 +1171,17 @@ function ConfOverview({ confId, sigla }: { confId: number; sigla: string }) {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-surface-card border border-surface-border rounded-xl p-6 w-full max-w-lg space-y-4">
             <h3 className="font-semibold text-white">Anotações da {sigla} — {noteEdit.label}</h3>
-            <p className="text-xs text-muted">Especificidades da relação desta confederação com este agente operador (acordos, tratativas, contatos dedicados, particularidades jurídicas...). Cada confederação tem as suas.</p>
-            <textarea rows={6} className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
-              placeholder={"Ex.: Acordo de parcelamento firmado em 03/2026; contato preferencial: jurídico da marca X..."}
-              value={noteEdit.notes} onChange={e => setNoteEdit((s: any) => ({ ...s, notes: e.target.value }))} />
+            <div>
+              <label className="block text-xs text-muted mb-1">Anotações</label>
+              <textarea rows={4} className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                placeholder={"Especificidades da relação desta confederação com este operador..."}
+                value={noteEdit.notes} onChange={e => setNoteEdit((s: any) => ({ ...s, notes: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-xs text-muted mb-1">Anotações Adicionais</label>
+              <textarea rows={3} className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                value={noteEdit.extra_notes} onChange={e => setNoteEdit((s: any) => ({ ...s, extra_notes: e.target.value }))} />
+            </div>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setNoteEdit(null)} className="px-4 py-2 text-sm text-muted border border-surface-border rounded-lg hover:bg-surface-border transition-colors">Cancelar</button>
               <button onClick={saveNote} disabled={savingNote} className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 disabled:opacity-50 transition-colors">{savingNote ? "Salvando..." : "Salvar"}</button>

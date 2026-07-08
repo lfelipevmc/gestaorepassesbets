@@ -7,8 +7,9 @@ import Badge from "@/components/ui/Badge";
 import Modal from "@/components/ui/Modal";
 import {
   getCollections, createCollection, getConfederations, getTemplates,
-  createTemplate, updateTemplate, deleteTemplate,
+  createTemplate, updateTemplate, deleteTemplate, archiveCycle,
 } from "@/lib/api";
+import { getUser } from "@/lib/auth";
 import { formatDate } from "@/lib/utils";
 
 const TABS = ["Ciclos", "Modelos de Cobrança"];
@@ -41,6 +42,7 @@ function yearOptions() {
 }
 
 export default function CobrancasPage() {
+  const me = getUser();
   const [tab, setTab] = useState(0);
   const [cycles, setCycles] = useState<any[]>([]);
   const [confederations, setConfederations] = useState<any[]>([]);
@@ -181,49 +183,57 @@ export default function CobrancasPage() {
             )}
           </div>
 
-          <div className="space-y-8">
-            {Object.entries(byConf).map(([confId, confCycles]) => {
-              const conf = confederations.find(c => c.id.toString() === confId);
-              const byMonth: Record<string, any[]> = {};
-              confCycles.forEach(c => { (byMonth[c.reference_month] = byMonth[c.reference_month] || []).push(c); });
-              const months = Object.keys(byMonth).sort().reverse();
-              return (
-                <div key={confId}>
-                  <h2 className="font-semibold text-white mb-3">{conf?.name || `Confederação #${confId}`} <span className="text-muted text-sm">({conf?.acronym})</span></h2>
-                  <div className="space-y-4">
-                    {months.map(m => (
-                      <div key={m}>
-                        <p className="text-xs uppercase tracking-wide text-muted mb-1.5 capitalize">{monthLabel(m)}</p>
-                        <div className="card p-0 overflow-hidden">
-                          <table className="w-full">
-                            <thead className="bg-surface">
-                              <tr>
-                                <th className="table-th">Ciclo</th>
-                                <th className="table-th">Status</th>
-                                <th className="table-th">Criado em</th>
-                                <th className="table-th"></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {byMonth[m].map(c => (
-                                <tr key={c.id} className="hover:bg-surface-light/30">
-                                  <td className="table-td font-medium text-white">#{c.id}</td>
-                                  <td className="table-td"><Badge status={c.status} /></td>
-                                  <td className="table-td text-muted">{formatDate(c.created_at)}</td>
-                                  <td className="table-td">
-                                    <Link href={`/cobrancas/${c.id}`} className="text-primary text-xs hover:underline">Abrir ciclo</Link>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+          <div className="space-y-6">
+            {confederations
+              .slice()
+              .sort((a, b) => a.acronym.localeCompare(b.acronym))
+              .filter(conf => byConf[conf.id.toString()]?.length)
+              .map(conf => {
+                const confCycles = (byConf[conf.id.toString()] || []).slice().sort((a: any, b: any) => b.reference_month.localeCompare(a.reference_month));
+                return (
+                  <div key={conf.id} className="card p-0 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-surface-border bg-surface flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 bg-primary/15 rounded-lg flex items-center justify-center"><span className="text-primary font-bold text-xs">{conf.acronym}</span></div>
+                        <div>
+                          <p className="font-semibold text-white text-sm">{conf.name}</p>
+                          <p className="text-[11px] text-muted">{confCycles.length} ciclo(s)</p>
                         </div>
                       </div>
-                    ))}
+                    </div>
+                    <table className="w-full">
+                      <thead>
+                        <tr>
+                          <th className="table-th">Competência</th>
+                          <th className="table-th">Status</th>
+                          <th className="table-th">Criado em</th>
+                          <th className="table-th text-right pr-4">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {confCycles.map((c: any) => (
+                          <tr key={c.id} className="hover:bg-surface-light/30 border-t border-surface-border/50">
+                            <td className="table-td font-medium text-white capitalize">{monthLabel(c.reference_month)}</td>
+                            <td className="table-td"><Badge status={c.status} /></td>
+                            <td className="table-td text-muted">{formatDate(c.created_at)}</td>
+                            <td className="table-td text-right pr-4">
+                              <div className="inline-flex gap-3">
+                                <Link href={`/cobrancas/${c.id}`} className="text-primary text-xs hover:underline">Abrir ciclo</Link>
+                                {me?.role === "admin" && (
+                                  <button onClick={async () => {
+                                    if (!confirm(`Arquivar o ciclo ${monthLabel(c.reference_month)} da ${conf.acronym}? O histórico fica preservado.`)) return;
+                                    try { await archiveCycle(c.id); fetchAll(); } catch (e: any) { alert(e.response?.data?.detail || "Erro ao arquivar"); }
+                                  }} className="text-danger text-xs hover:underline" title="Somente admin — histórico preservado">Arquivar</button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
             {filtered.length === 0 && <div className="card text-center py-12 text-muted">Nenhum ciclo de cobrança encontrado</div>}
           </div>
         </>
