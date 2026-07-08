@@ -140,3 +140,215 @@ def tasks_today(db: Session = Depends(get_db), current_user: User = Depends(get_
 
     tasks.sort(key=lambda t: t["priority"])
     return {"tasks": tasks, "generated_at": today.isoformat()}
+
+
+# ======================== Painel "A Fazer" (board por categorias) ========================
+
+from pydantic import BaseModel as _BM
+from typing import Optional as _Opt
+from ..models.todo import AdminReminder, TaskCheck
+from ..services.audit_service import log_action
+
+
+class _CheckIn(_BM):
+    key: str
+    done: bool = True
+
+
+class _ReminderIn(_BM):
+    title: str
+    notes: _Opt[str] = None
+    due_date: _Opt[date] = None
+
+
+@router.get("/board")
+def tasks_board(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Painel inteligente de atividades: pendências operacionais agrupadas por categoria,
+    com chave estável por item (checkbox persistente) e prioridade."""
+    from ..services.status_service import effective_conclusions
+    from ..models.payment import DirectPayment
+    from ..models.operator import OperatorConfederationInfo
+
+    today = date.today()
+    cur = today.replace(day=1)
+    ym = cur.strftime("%Y-%m")
+    checked = {c.task_key for c in db.query(TaskCheck).all()}
+    confs = db.query(Confederation).order_by(Confederation.acronym).all()
+    ops = db.query(BettingOperator).filter(BettingOperator.status == "active").all()
+
+    def item(key, title, detail, link, priority, due=None):
+        return {"key": key, "title": title, "detail": detail, "link": link,
+                "priority": priority, "due": due, "done": key in checked}
+
+    cats = []
+
+    # 1) Cronograma dos ciclos de cobrança
+    items = []
+    cycles = db.query(CollectionCycle).filter(
+        CollectionCycle.archived == False,
+        CollectionCycle.status.in_([CycleStatus.open, CycleStatus.collecting, CycleStatus.checking]),
+    ).all()
+    for cy in cycles:
+        conf = next((c for c in confs if c.id == cy.confederation_id), None)
+        if not conf:
+            continue
+        eff = effective_conclusions(db, conf.id, cy.reference_month)
+        inad = sum(1 for v in eff.values() if v == "inadimplente")
+        sent = db.query(CollectionEvent).filter(
+            CollectionEvent.cycle_id == cy.id, CollectionEvent.event_type == EventType.notification_sent).count()
+        ref = cy.reference_month.strftime("%m/%Y")
+        d1, d2 = conf.first_notification_day or 12, conf.second_notification_day or 22
+        if sent == 0:
+            items.append(item(f"cyc1:{cy.id}", f"1ª notificação — {conf.acronym} ({ref})",
+                              f"{inad} inadimplente(s). Dia programado: {d1}.", f"/cobrancas/{cy.id}",
+                              1 if today.day >= d1 else 2, f"dia {d1}"))
+        elif inad > 0:
+            items.append(item(f"cyc2:{cy.id}", f"2ª notificação — {conf.acronym} ({ref})",
+                              f"{inad} ainda inadimplente(s) após 1º envio. Dia programado: {d2}.", f"/cobrancas/{cy.id}",
+                              1 if today.day >= d2 else 2, f"dia {d2}"))
+    cats.append({"id": "cronograma", "label": "Cronograma dos ciclos", "icon": "📅", "items": items})
+
+    # 2) Respostas aguardando análise
+    items = []
+    for em in db.query(EmailMessage).filter(EmailMessage.direction == EmailDirection.inbound,
+                                            EmailMessage.matched == False).limit(30).all():
+        items.append(item(f"mail:{em.id}", f"Resposta a conciliar: {em.subject or '(sem assunto)'}",
+                          f"De {em.from_addr or '—'}", "/financeiro", 1))
+    cats.append({"id": "respostas", "label": "Respostas aguardando análise", "icon": "📨", "items": items})
+
+    # 3) Contatos desatualizados/incompletos + 8) inconsistências cadastrais
+    contatos, inconsist = [], []
+    for op in ops:
+        emails = [c for c in op.contacts if c.type == ContactType.email and c.value] + [r for r in op.responsibles if r.email]
+        phones = [c for c in op.contacts if c.type in (ContactType.phone, ContactType.whatsapp) and c.value] + [r for r in op.responsibles if r.phone]
+        problems = []
+        if not emails:
+            problems.append("sem e-mail")
+        if not phones:
+            problems.append("sem telefone")
+        if problems:
+            contatos.append(item(f"contact:{op.id}", op.fantasy_name or op.company_name,
+                                 "Atualizar contatos: " + ", ".join(problems) + ".",
+                                 f"/operadores/{op.id}", 2))
+        probs2 = []
+        digits = "".join(ch for ch in (op.cnpj or "") if ch.isdigit())
+        if not op.cnpj:
+            probs2.append("CNPJ ausente")
+        elif len(digits) != 14:
+            probs2.append("CNPJ inválido")
+        if not (op.authorization_number or op.mf_license_number):
+            probs2.append("sem nº de autorização")
+        if probs2:
+            inconsist.append(item(f"incons:{op.id}", op.fantasy_name or op.company_name,
+                                  "Inconsistências: " + ", ".join(probs2) + ".",
+                                  f"/operadores/{op.id}", 3))
+    cats.append({"id": "contatos", "label": "Contatos a atualizar", "icon": "📇", "items": contatos[:40]})
+
+    # 4) Relatórios pendentes (recebeu na competência mas sem relatório anexado)
+    items = []
+    for conf in confs:
+        dps = db.query(DirectPayment).filter(DirectPayment.confederation_id == conf.id,
+                                             DirectPayment.reference_month == cur).all()
+        seen = set()
+        for d in dps:
+            if d.report_file_url or d.operator_id in seen:
+                continue
+            seen.add(d.operator_id)
+            op = next((o for o in ops if o.id == d.operator_id), None)
+            items.append(item(f"report:{d.operator_id}:{conf.id}:{ym}",
+                              f"Cobrar relatório — {(op.fantasy_name or op.company_name) if op else d.operator_id} ({conf.acronym})",
+                              f"Pagou a competência {cur.strftime('%m/%Y')} mas o relatório de apuração não foi anexado.",
+                              f"/operadores/{d.operator_id}", 2))
+    cats.append({"id": "relatorios", "label": "Relatórios a cobrar", "icon": "📄", "items": items})
+
+    # 5) Agentes em tratativas (Consignação em Pagamento — acompanhamento)
+    items = []
+    infos = db.query(OperatorConfederationInfo).filter(
+        OperatorConfederationInfo.conclusion_manual == True,
+        OperatorConfederationInfo.conclusion == "consignacao").all()
+    for i in infos:
+        op = next((o for o in ops if o.id == i.operator_id), None)
+        conf = next((c for c in confs if c.id == i.confederation_id), None)
+        if op and conf:
+            items.append(item(f"tratativa:{op.id}:{conf.id}:{ym}",
+                              f"{op.fantasy_name or op.company_name} × {conf.acronym}",
+                              (i.notes or "Em tratativa (consignação em pagamento).")[:140],
+                              f"/confederacoes/{conf.id}", 2))
+    cats.append({"id": "tratativas", "label": "Agentes em tratativas", "icon": "🤝", "items": items})
+
+    # 6) Lembretes do administrador
+    items = []
+    for r in db.query(AdminReminder).filter(AdminReminder.done == False).order_by(AdminReminder.due_date.asc().nullslast()).all():
+        overdue = r.due_date and r.due_date < today
+        items.append({"key": f"reminder:{r.id}", "title": r.title, "detail": r.notes or "",
+                      "link": None, "priority": 0 if overdue else 1,
+                      "due": r.due_date.strftime("%d/%m/%Y") if r.due_date else None,
+                      "done": False, "reminder_id": r.id})
+    cats.append({"id": "lembretes", "label": "Lembretes", "icon": "📌", "items": items})
+
+    # 7) Fechamento do mês
+    items = []
+    import calendar
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    if today.day >= last_day - 4:
+        items.append(item(f"fechamento:{ym}", "Inclusão final dos pagamentos do mês",
+                          f"O mês encerra em {last_day - today.day} dia(s). Confira se todos os recebimentos e relatórios de {today.strftime('%m/%Y')} foram lançados.",
+                          "/financeiro", 0, f"até {last_day}/{today.month:02d}"))
+    cats.append({"id": "fechamento", "label": "Fechamento do mês", "icon": "⏳", "items": items})
+
+    cats.append({"id": "inconsistencias", "label": "Inconsistências cadastrais", "icon": "⚠️", "items": inconsist[:40]})
+
+    total = sum(len(c["items"]) for c in cats)
+    pend = sum(1 for c in cats for i in c["items"] if not i["done"])
+    return {"categories": cats, "total": total, "pending": pend, "generated_at": today.isoformat()}
+
+
+@router.post("/check")
+def check_task(data: _CheckIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Marca/desmarca uma tarefa automática (checkbox persistente)."""
+    existing = db.query(TaskCheck).filter(TaskCheck.task_key == data.key).first()
+    if data.done and not existing:
+        db.add(TaskCheck(task_key=data.key, checked_by_id=current_user.id))
+    elif not data.done and existing:
+        db.delete(existing)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/reminders")
+def list_reminders(include_done: bool = False, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    q = db.query(AdminReminder)
+    if not include_done:
+        q = q.filter(AdminReminder.done == False)
+    return [{"id": r.id, "title": r.title, "notes": r.notes,
+             "due_date": r.due_date.isoformat() if r.due_date else None, "done": r.done}
+            for r in q.order_by(AdminReminder.due_date.asc().nullslast()).all()]
+
+
+@router.post("/reminders")
+def create_reminder(data: _ReminderIn, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    r = AdminReminder(title=data.title, notes=data.notes, due_date=data.due_date, created_by_id=current_user.id)
+    db.add(r)
+    db.commit()
+    log_action(db=db, action="CREATE_REMINDER", entity_type="AdminReminder", entity_id=r.id, user_id=current_user.id)
+    return {"ok": True, "id": r.id}
+
+
+@router.patch("/reminders/{rid}")
+def toggle_reminder(rid: int, done: bool = True, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    r = db.query(AdminReminder).get(rid)
+    if not r:
+        from fastapi import HTTPException
+        raise HTTPException(404, "Lembrete não encontrado")
+    r.done = done
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/reminders/{rid}")
+def delete_reminder(rid: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    r = db.query(AdminReminder).get(rid)
+    if r:
+        db.delete(r)
+        db.commit()
+    return {"ok": True}

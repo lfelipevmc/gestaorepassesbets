@@ -282,3 +282,10 @@ export const exportOperatorsPdf = (params?: any) => api.get("/api/operators/expo
 export const getInadimplenciaHistory = (params?: any) => api.get("/api/alerts/inadimplencia-history", { params });
 export const saveConfOperatorInfo = (id: number, operatorId: number, data: any) =>
   api.put(`/api/confederations/${id}/operators/${operatorId}/note`, data);
+
+// ---- Painel A Fazer (board) ----
+export const getTasksBoard = () => api.get("/api/tasks/board");
+export const checkTask = (key: string, done: boolean) => api.post("/api/tasks/check", { key, done });
+export const createReminder = (data: any) => api.post("/api/tasks/reminders", data);
+export const toggleReminder = (id: number, done: boolean) => api.patch(`/api/tasks/reminders/${id}?done=${done}`);
+export const deleteReminder = (id: number) => api.delete(`/api/tasks/reminders/${id}`);
