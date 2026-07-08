@@ -705,57 +705,68 @@ def _probe_responsaveis(docs: list) -> dict:
     return {"com_responsaveis": com_resp, "exemplo_responsaveis": exemplo}
 
 
-def _n_cookies(client) -> Optional[int]:
+def _n_firewall_cookies(client) -> int:
+    """Conta os cookies do firewall F5 (nome começa com 'TS')."""
     try:
-        return len(client.cookies)
+        return len([n for n in client.cookie_names() if str(n).upper().startswith("TS")])
     except Exception:
-        return None
+        return 0
 
 
 def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional[str] = None) -> dict:
     """Diagnóstico RÁPIDO da fonte de processos (botão "Testar fonte").
 
-    Reproduz o caminho REAL do sistema (com priming de cookies do firewall):
-      1) LISTA de processos (documentosResumidos) — confirma base + firewall;
-      2) REGISTRO COMPLETO do 1º processo (documento, quantidade=1) — confirma a
-         captura dos RESPONSÁVEIS, como o site do TCU faz.
-    Devolve o detalhe de cada tentativa (status/HTTP/tamanho/corpo/cookies).
+    Reproduz o caminho REAL do sistema (lista + registro completo). Além do filtro
+    configurado, roda uma tentativa de VALIDAÇÃO por "qualquer movimentação"
+    (DTATUALIZACAO), que costuma ter muitos processos — se ela vier cheia e com
+    responsáveis, prova que a captação funciona ponta a ponta (e que um filtro de
+    autuados vazio é apenas ausência de autuados naquela data).
     """
     di = data_str or date.today().strftime("%Y-%m-%d")
     campo = (getattr(settings, "autuados_filtro_campo", None) or "DTAUTUACAO")
     custom_url = getattr(settings, "autuados_listing_url", None)
     attempts = []
 
-    # 1) LISTA (resumido) — base + WAF
-    docs, dl = fetch_pesquisa_processos(client, di, filtro_campo=campo, full=False,
-                                        page_size=8, max_total=8, max_retries=1)
-    attempts.append({
-        "label": "Lista de processos (resumido)", "status": dl.get("status"),
-        "count": dl.get("count"), "total": dl.get("total"), "error": dl.get("error"),
-        "http_status": dl.get("http_status"), "content_encoding": dl.get("content_encoding"),
-        "body_len": dl.get("body_len"), "raw_sample": dl.get("raw_sample"),
-        "campos": (list(docs[0].keys()) if docs and isinstance(docs[0], dict) else []),
-        "com_responsaveis": 0, "exemplo_responsaveis": None,
-    })
+    def add_list(campo_x, label):
+        docs, d = fetch_pesquisa_processos(client, di, filtro_campo=campo_x, full=False,
+                                           page_size=8, max_total=8, max_retries=1)
+        attempts.append({
+            "label": label, "status": d.get("status"), "count": d.get("count"),
+            "total": d.get("total"), "error": d.get("error"),
+            "http_status": d.get("http_status"), "content_encoding": d.get("content_encoding"),
+            "body_len": d.get("body_len"), "raw_sample": d.get("raw_sample"),
+            "campos": (list(docs[0].keys()) if docs and isinstance(docs[0], dict) else []),
+            "com_responsaveis": 0, "exemplo_responsaveis": None,
+        })
+        return docs
 
-    # 2) DETALHE (registro completo do 1º processo) — responsáveis
-    exemplo = None
-    com_resp = 0
-    det, dd = fetch_processo_detail(client, di, 0, filtro_campo=campo)
-    if det:
-        f = extract_processo_fields(det)
-        if f.get("responsaveis"):
-            com_resp = 1
-            exemplo = {"numero": f.get("numero"),
-                       "responsaveis": [r["nome"] for r in f["responsaveis"] if r.get("nome")][:12]}
-    attempts.append({
-        "label": "Registro completo do 1º processo (responsáveis)", "status": dd.get("status"),
-        "count": 1 if det else 0, "total": None, "error": dd.get("error"),
-        "http_status": dd.get("http_status"), "content_encoding": dd.get("content_encoding"),
-        "body_len": dd.get("body_len"), "raw_sample": dd.get("raw_sample"),
-        "campos": (list(det.keys()) if isinstance(det, dict) else []),
-        "com_responsaveis": com_resp, "exemplo_responsaveis": exemplo,
-    })
+    def add_detail(campo_x, label):
+        det, dd = fetch_processo_detail(client, di, 0, filtro_campo=campo_x)
+        cr, ex = 0, None
+        if det:
+            f = extract_processo_fields(det)
+            if f.get("responsaveis"):
+                cr = 1
+                ex = {"numero": f.get("numero"),
+                      "responsaveis": [r["nome"] for r in f["responsaveis"] if r.get("nome")][:12]}
+        attempts.append({
+            "label": label, "status": dd.get("status"), "count": 1 if det else 0, "total": None,
+            "error": dd.get("error"), "http_status": dd.get("http_status"),
+            "content_encoding": dd.get("content_encoding"), "body_len": dd.get("body_len"),
+            "raw_sample": dd.get("raw_sample"),
+            "campos": (list(det.keys()) if isinstance(det, dict) else []),
+            "com_responsaveis": cr, "exemplo_responsaveis": ex,
+        })
+
+    # 1) filtro configurado (por padrão, autuados)
+    add_list(campo, "Lista de processos (resumido)")
+    add_detail(campo, "Registro completo do 1º processo (responsáveis)")
+
+    # 2) validação por "qualquer movimentação" (se o configurado não for esse)
+    if campo.upper() != "DTATUALIZACAO":
+        docs_val = add_list("DTATUALIZACAO", "Validação — qualquer movimentação (lista)")
+        if docs_val:
+            add_detail("DTATUALIZACAO", "Validação — responsáveis (qualquer movimentação)")
 
     best = next((a for a in attempts if a["com_responsaveis"]), None) \
         or next((a for a in attempts if a["count"]), None) or attempts[0]
@@ -769,7 +780,7 @@ def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional
         "com_responsaveis": sum(a["com_responsaveis"] for a in attempts),
         "exemplo_responsaveis": next((a["exemplo_responsaveis"] for a in attempts if a["exemplo_responsaveis"]), None),
         "campos_retornados": best.get("campos", []),
-        "cookies_firewall": _n_cookies(client),
+        "cookies_firewall": _n_firewall_cookies(client),
         "cookies_nomes": client.cookie_names() if hasattr(client, "cookie_names") else [],
         "custom_url_configurada": bool(custom_url),
         "diagnostics": attempts,
