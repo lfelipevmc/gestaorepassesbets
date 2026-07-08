@@ -5,10 +5,24 @@ import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import Badge from "@/components/ui/Badge";
 import Modal from "@/components/ui/Modal";
-import { getOperators, createOperator, syncFromMF, importOperators, getSyncStatus, researchAllOperators } from "@/lib/api";
+import { getOperators, createOperator, importOperators, getSyncStatus, researchAllOperators, getOffice, updateOffice } from "@/lib/api";
+import { getUser } from "@/lib/auth";
 import { formatDate, formatDateTime } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
+
+// Colunas disponíveis na tabela (o admin define quais aparecem, em Colunas)
+const COLUMN_DEFS: { key: string; label: string; width: number }[] = [
+  { key: "razao", label: "Razão Social", width: 220 },
+  { key: "fantasia", label: "Nome Fantasia", width: 160 },
+  { key: "cnpj", label: "CNPJ", width: 150 },
+  { key: "status", label: "Status", width: 100 },
+  { key: "autorizacao", label: "Autorização", width: 120 },
+  { key: "contatos", label: "Contatos", width: 130 },
+  { key: "marcas", label: "Marcas", width: 180 },
+  { key: "endr", label: "ENDR mês atual", width: 130 },
+];
+const DEFAULT_COLS = COLUMN_DEFS.map(c => c.key);
 
 function currentMonthStart() {
   const now = new Date();
@@ -25,11 +39,19 @@ export default function OperadoresPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [researchingAll, setResearchingAll] = useState(false);
   const [page, setPage] = useState(0);
   const [syncInfo, setSyncInfo] = useState<any>(null);
+  const me = getUser();
+  const [visibleCols, setVisibleCols] = useState<string[]>(DEFAULT_COLS);
+  const [showColsModal, setShowColsModal] = useState(false);
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    if (typeof window !== "undefined") {
+      try { return JSON.parse(localStorage.getItem("opColWidths") || "{}"); } catch { /* noop */ }
+    }
+    return {};
+  });
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importCategory, setImportCategory] = useState("autorizada");
   const [form, setForm] = useState({
@@ -88,22 +110,51 @@ export default function OperadoresPage() {
     }
   }
 
-  async function handleSync() {
-    setSyncing(true);
-    try {
-      await syncFromMF();
-      alert("Sincronização iniciada em segundo plano");
-      fetchSyncInfo();
-    } finally {
-      setSyncing(false);
-    }
+  // Colunas visíveis: definidas pelo admin, valem para todos (salvas no cadastro do Escritório)
+  useEffect(() => {
+    getOffice().then(r => {
+      const csv = r.data?.operators_table_columns;
+      if (csv) setVisibleCols(csv.split(",").map((s: string) => s.trim()).filter((k: string) => DEFAULT_COLS.includes(k)));
+    }).catch(() => {});
+  }, []);
+
+  async function saveCols(cols: string[]) {
+    setVisibleCols(cols);
+    setShowColsModal(false);
+    try { await updateOffice({ operators_table_columns: cols.join(",") }); } catch { /* noop */ }
   }
 
+  // Redimensionamento de colunas (arrastar a borda direita do cabeçalho)
+  function startResize(e: React.MouseEvent, key: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    const th = (e.target as HTMLElement).closest("th");
+    const startX = e.clientX;
+    const startW = th ? th.offsetWidth : (colWidths[key] || 150);
+    function onMove(ev: MouseEvent) {
+      const w = Math.max(70, startW + (ev.clientX - startX));
+      setColWidths(prev => {
+        const next = { ...prev, [key]: w };
+        try { localStorage.setItem("opColWidths", JSON.stringify(next)); } catch { /* noop */ }
+        return next;
+      });
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  const colWidth = (key: string) => colWidths[key] || COLUMN_DEFS.find(c => c.key === key)?.width || 150;
+
   async function handleResearchAll() {
+    if (!confirm("Pesquisar contatos de TODOS os operadores ativos? A pesquisa roda em segundo plano e pode levar vários minutos. As sugestões aparecem na aba 'Pesquisa de Contatos' de cada operador.")) return;
     setResearchingAll(true);
     try {
       await researchAllOperators();
-      alert("Pesquisa iniciada para todos os operadores. Resultados disponíveis em alguns minutos.");
+      alert("Pesquisa em andamento (segundo plano). Abra um operador → 'Pesquisa de Contatos' → Pendentes para revisar as sugestões conforme forem chegando.");
     } catch (err: any) {
       alert(err.response?.data?.detail || "Erro ao iniciar pesquisa");
     } finally {
@@ -159,14 +210,16 @@ export default function OperadoresPage() {
         }
         actions={
           <>
-            <button onClick={handleResearchAll} disabled={researchingAll} className="btn-secondary">
-              {researchingAll ? "Iniciando..." : "Pesquisar Todos"}
+            {me?.role === "admin" && (
+              <button onClick={() => setShowColsModal(true)} className="btn-secondary" title="Definir as colunas da tabela">
+                ⚙ Colunas
+              </button>
+            )}
+            <button onClick={handleResearchAll} disabled={researchingAll} className="btn-secondary" title="Pesquisa contatos de todos os operadores (Receita Federal, web e IA)">
+              {researchingAll ? "Iniciando..." : "Pesquisar Contatos (todos)"}
             </button>
             <button onClick={() => setShowImport(true)} className="btn-secondary">
               Importar Planilha
-            </button>
-            <button onClick={handleSync} disabled={syncing} className="btn-secondary">
-              {syncing ? "Sincronizando..." : "Sincronizar MF"}
             </button>
             <button onClick={() => setShowCreate(true)} className="btn-primary">
               + Novo Operador
@@ -203,64 +256,75 @@ export default function OperadoresPage() {
         </select>
       </div>
 
-      {/* Table */}
-      <div className="card p-0 overflow-hidden">
-        <table className="w-full">
+      {/* Table (colunas configuráveis e redimensionáveis) */}
+      <div className="card p-0 overflow-x-auto">
+        <table style={{ tableLayout: "fixed", minWidth: "100%" }}>
           <thead className="bg-surface">
             <tr>
-              <th className="table-th">Razão Social</th>
-              <th className="table-th">Nome Fantasia</th>
-              <th className="table-th">CNPJ</th>
-              <th className="table-th">Status</th>
-              <th className="table-th">Autorização</th>
-              <th className="table-th">Contatos</th>
-              <th className="table-th">Marcas</th>
-              <th className="table-th">ENDR mês atual</th>
-              <th className="table-th"></th>
+              {COLUMN_DEFS.filter(c => visibleCols.includes(c.key)).map(c => (
+                <th key={c.key} className="table-th relative select-none" style={{ width: colWidth(c.key) }}>
+                  <span className="block truncate pr-2">{c.label}</span>
+                  <span
+                    onMouseDown={e => startResize(e, c.key)}
+                    title="Arraste para ajustar a largura"
+                    className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-primary/50"
+                  />
+                </th>
+              ))}
+              <th className="table-th" style={{ width: 100 }}></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} className="table-td text-center text-muted py-8">Carregando...</td></tr>
+              <tr><td colSpan={visibleCols.length + 1} className="table-td text-center text-muted py-8">Carregando...</td></tr>
             ) : paginated.length === 0 ? (
-              <tr><td colSpan={9} className="table-td text-center text-muted py-8">Nenhum operador encontrado</td></tr>
+              <tr><td colSpan={visibleCols.length + 1} className="table-td text-center text-muted py-8">Nenhum operador encontrado</td></tr>
             ) : paginated.map(op => (
-              <tr key={op.id} className="hover:bg-surface-light/30 transition-colors">
-                <td className="table-td font-medium text-white">{op.company_name}</td>
-                <td className="table-td">{op.fantasy_name || "-"}</td>
-                <td className="table-td font-mono text-xs">{op.cnpj || "-"}</td>
-                <td className="table-td"><Badge status={op.status} /></td>
-                <td className="table-td">
-                  {op.authorization_number ? (
-                    <span className="text-xs text-slate-300">{op.authorization_number}</span>
-                  ) : (
-                    <span className="text-xs text-warning bg-warning/10 px-2 py-0.5 rounded">Sem autorização</span>
-                  )}
-                </td>
-                <td className="table-td">
-                  {(() => {
-                    const hasPrimaryEmail = op.contacts?.some((c: any) => c.type === "email" && c.is_primary);
-                    return hasPrimaryEmail ? (
-                      <span className="text-xs bg-surface px-2 py-1 rounded-full">{op.contacts.length} contatos</span>
-                    ) : op.contacts?.length > 0 ? (
-                      <span className="text-xs bg-warning/10 text-warning px-2 py-1 rounded-full" title="Sem e-mail primário">⚠ sem e-mail</span>
+              <tr key={op.id} className="hover:bg-surface-light/30 transition-colors align-top">
+                {visibleCols.includes("razao") && <td className="table-td font-medium text-white break-words">{op.company_name}</td>}
+                {visibleCols.includes("fantasia") && <td className="table-td break-words">{op.fantasy_name || "-"}</td>}
+                {visibleCols.includes("cnpj") && <td className="table-td font-mono text-xs">{op.cnpj || "-"}</td>}
+                {visibleCols.includes("status") && <td className="table-td"><Badge status={op.status} /></td>}
+                {visibleCols.includes("autorizacao") && (
+                  <td className="table-td">
+                    {(op.authorization_number || op.mf_license_number) ? (
+                      <span className="text-xs text-slate-300">{op.authorization_number || op.mf_license_number}</span>
                     ) : (
-                      <span className="text-xs bg-danger/10 text-danger px-2 py-1 rounded-full">sem contato</span>
-                    );
-                  })()}
-                </td>
-                <td className="table-td">
-                  {op.brands?.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {op.brands.map((b: any) => (
-                        <span key={b.id} className="text-xs bg-surface px-2 py-1 rounded-full text-slate-300">{b.name}</span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-xs text-muted">—</span>
-                  )}
-                </td>
-                <td className="table-td">{getEndrBadge(op)}</td>
+                      <span className="text-xs text-warning bg-warning/10 px-2 py-0.5 rounded">Sem autorização</span>
+                    )}
+                  </td>
+                )}
+                {visibleCols.includes("contatos") && (
+                  <td className="table-td">
+                    {(() => {
+                      const hasEmail =
+                        op.contacts?.some((c: any) => c.type === "email" && c.value) ||
+                        op.responsibles?.some((r: any) => r.email);
+                      const total = (op.contacts?.length || 0) + (op.responsibles?.length || 0);
+                      return hasEmail ? (
+                        <span className="text-xs bg-surface px-2 py-1 rounded-full">{total} contato{total !== 1 ? "s" : ""}</span>
+                      ) : total > 0 ? (
+                        <span className="text-xs bg-warning/10 text-warning px-2 py-1 rounded-full" title="Nenhum e-mail cadastrado (contatos ou responsáveis)">⚠ sem e-mail</span>
+                      ) : (
+                        <span className="text-xs bg-danger/10 text-danger px-2 py-1 rounded-full">sem contato</span>
+                      );
+                    })()}
+                  </td>
+                )}
+                {visibleCols.includes("marcas") && (
+                  <td className="table-td">
+                    {op.brands?.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {op.brands.map((b: any) => (
+                          <span key={b.id} className="text-xs bg-surface px-2 py-1 rounded-full text-slate-300">{b.name}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted">—</span>
+                    )}
+                  </td>
+                )}
+                {visibleCols.includes("endr") && <td className="table-td">{getEndrBadge(op)}</td>}
                 <td className="table-td">
                   <Link href={`/operadores/${op.id}`} className="text-primary text-xs hover:underline">
                     Ver detalhes
@@ -271,6 +335,11 @@ export default function OperadoresPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Modal: configurar colunas (admin) */}
+      <Modal isOpen={showColsModal} onClose={() => setShowColsModal(false)} title="Colunas da tabela">
+        <ColsConfig current={visibleCols} onSave={saveCols} onCancel={() => setShowColsModal(false)} />
+      </Modal>
 
       {/* Pagination */}
       {totalPages > 1 && (
@@ -370,5 +439,31 @@ export default function OperadoresPage() {
         </form>
       </Modal>
     </AppShell>
+  );
+}
+
+/* Configuração das colunas visíveis (definida pelo admin, vale para todos os usuários) */
+function ColsConfig({ current, onSave, onCancel }: { current: string[]; onSave: (cols: string[]) => void; onCancel: () => void }) {
+  const [sel, setSel] = useState<string[]>(current);
+  function toggle(key: string) {
+    setSel(s => s.includes(key) ? s.filter(k => k !== key) : [...s, key]);
+  }
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted">Marque as informações que devem aparecer na tabela de Agentes Operadores. A configuração vale para todos os usuários.</p>
+      <div className="grid grid-cols-2 gap-2">
+        {COLUMN_DEFS.map(c => (
+          <label key={c.key} className="flex items-center gap-2 text-sm text-slate-200 p-2 rounded-lg border border-surface-border hover:bg-surface cursor-pointer">
+            <input type="checkbox" checked={sel.includes(c.key)} onChange={() => toggle(c.key)} />
+            {c.label}
+          </label>
+        ))}
+      </div>
+      <p className="text-xs text-muted">Dica: a largura de cada coluna pode ser ajustada arrastando a borda direita do cabeçalho.</p>
+      <div className="flex gap-3 justify-end">
+        <button onClick={onCancel} className="btn-secondary">Cancelar</button>
+        <button onClick={() => onSave(sel.length ? COLUMN_DEFS.map(c => c.key).filter(k => sel.includes(k)) : COLUMN_DEFS.map(c => c.key))} className="btn-primary">Salvar</button>
+      </div>
+    </div>
   );
 }

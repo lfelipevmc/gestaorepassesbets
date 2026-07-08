@@ -6,7 +6,7 @@ import os, shutil, uuid
 from ..database import get_db
 from ..models.payment import Payment, PaymentStatus, ENDRPayment, ENDRPaymentBetLink, DirectPayment
 from ..models.user import User
-from ..schemas.payment import PaymentOut, PaymentDeclareValue, PaymentConfirm, PaymentRegisterReport, ENDRPaymentOut, ENDRPaymentCreate, DirectPaymentCreate, DirectPaymentOut
+from ..schemas.payment import PaymentOut, PaymentDeclareValue, PaymentConfirm, PaymentRegisterReport, ENDRPaymentOut, ENDRPaymentCreate, DirectPaymentCreate, DirectPaymentUpdate, DirectPaymentOut
 from ..core.auth import get_current_user, require_office
 from ..services.audit_service import log_action
 from decimal import Decimal
@@ -353,6 +353,30 @@ def create_direct_payment(
                new_values={"amount": str(data.amount_received), "confederation_id": data.confederation_id,
                            "reference_month": str(data.reference_month)},
                user_id=current_user.id)
+    return payment
+
+
+@router.patch("/direct/{operator_id}/{payment_id}", response_model=DirectPaymentOut)
+def update_direct_payment(
+    operator_id: int, payment_id: int,
+    data: DirectPaymentUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_office)
+):
+    """Atualiza um lançamento avulso — em especial para definir o mês de competência
+    depois que o relatório da Bet é recebido."""
+    payment = db.query(DirectPayment).filter(DirectPayment.id == payment_id, DirectPayment.operator_id == operator_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+    payload = data.model_dump(exclude_unset=True)
+    old = {"reference_month": str(payment.reference_month)}
+    for k, v in payload.items():
+        setattr(payment, k, v)
+    db.commit()
+    db.refresh(payment)
+    log_action(db=db, action="UPDATE_DIRECT_PAYMENT", entity_type="DirectPayment", entity_id=payment_id,
+               old_values=old, new_values={k: str(v) for k, v in payload.items()},
+               user_id=current_user.id, confederation_id=payment.confederation_id)
     return payment
 
 

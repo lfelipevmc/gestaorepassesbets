@@ -98,9 +98,14 @@ class ENDRPaymentCreate(BaseModel):
 
 class DirectPaymentCreate(BaseModel):
     confederation_id: int
-    reference_month: date
+    reference_month: Optional[date] = None   # pode ser definido depois, ao receber o relatório
     amount_received: Decimal
     received_date: date
+    notes: Optional[str] = None
+
+
+class DirectPaymentUpdate(BaseModel):
+    reference_month: Optional[date] = None
     notes: Optional[str] = None
 
 
@@ -108,7 +113,7 @@ class DirectPaymentOut(BaseModel):
     id: int
     operator_id: int
     confederation_id: int
-    reference_month: date
+    reference_month: Optional[date] = None
     amount_received: Decimal
     received_date: date
     notes: Optional[str]

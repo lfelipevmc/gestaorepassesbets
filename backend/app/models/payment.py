@@ -104,7 +104,9 @@ class DirectPayment(Base):
     id = Column(Integer, primary_key=True)
     operator_id = Column(Integer, ForeignKey("betting_operators.id"), nullable=False)
     confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=False)
-    reference_month = Column(Date, nullable=False)   # mês de competência (a que se refere o repasse)
+    # Mês de competência: pode ser desconhecido no ato do recebimento (só se sabe com o relatório
+    # da Bet). Nulo = "a definir"; o usuário informa depois via edição do lançamento.
+    reference_month = Column(Date, nullable=True)
     amount_received = Column(Numeric(15, 2), nullable=False)
     received_date = Column(Date, nullable=False)     # data em que o valor foi recebido (regime de caixa)
     notes = Column(Text, nullable=True)

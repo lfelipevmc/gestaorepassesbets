@@ -18,4 +18,6 @@ class OfficeSettings(Base):
     logo_url = Column(String(500), nullable=True)
     signature_name = Column(String(200), nullable=True)   # nome de quem assina as comunicações
     notes = Column(Text, nullable=True)
+    # Colunas visíveis na tabela de Agentes Operadores (CSV de chaves), definido pelo admin
+    operators_table_columns = Column(String(500), nullable=True)
     updated_at = Column(DateTime, onupdate=func.now())

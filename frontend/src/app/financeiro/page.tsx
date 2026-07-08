@@ -116,7 +116,7 @@ export default function FinanceiroPage() {
     try {
       await createDirectPayment(Number(directForm.operator_id), {
         confederation_id: Number(directForm.confederation_id),
-        reference_month: directForm.reference_month + "-01",
+        reference_month: directForm.reference_month ? directForm.reference_month + "-01" : null,
         amount_received: parseFloat(directForm.amount_received),
         received_date: directForm.received_date,
         notes: directForm.notes || undefined,
@@ -266,9 +266,9 @@ export default function FinanceiroPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="label">Mês de Referência (competência) *</label>
-                    <input className="input" type="month" required value={directForm.reference_month} onChange={e => setDirectForm(f => ({ ...f, reference_month: e.target.value }))} />
-                    <p className="text-xs text-muted mt-1">Formato mês/ano. Mês ao qual o repasse se refere.</p>
+                    <label className="label">Mês de Referência (competência)</label>
+                    <input className="input" type="month" value={directForm.reference_month} onChange={e => setDirectForm(f => ({ ...f, reference_month: e.target.value }))} />
+                    <p className="text-xs text-muted mt-1">Opcional — se aguarda o relatório da Bet, deixe em branco e defina depois no cadastro da Bet.</p>
                   </div>
                   <div>
                     <label className="label">Data do Recebimento *</label>

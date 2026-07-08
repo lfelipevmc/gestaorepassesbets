@@ -57,8 +57,13 @@ async def upload_document(
     stored_name = f"{uuid.uuid4()}{ext}"
     file_path = os.path.join(settings.UPLOAD_DIR, stored_name)
 
+    content = await file.read()
+    # Qualquer formato é aceito; o tamanho é limitado para não consumir o armazenamento do servidor.
+    MAX_SIZE = 25 * 1024 * 1024  # 25 MB
+    if len(content) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail="Arquivo maior que 25 MB. Compacte ou divida o documento.")
+
     async with aiofiles.open(file_path, "wb") as f:
-        content = await file.read()
         await f.write(content)
 
     doc = Document(

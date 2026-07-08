@@ -30,7 +30,7 @@ export default function EndrPage() {
   const [assocs, setAssocs] = useState<AssocRow[]>([]);
   const [available, setAvailable] = useState<OpOption[]>([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState({ operator_id: "", notes: "" });
+  const [addForm, setAddForm] = useState<{ operator_ids: number[]; months: string[]; notes: string; opFilter: string }>({ operator_ids: [], months: [], notes: "", opFilter: "" });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -62,19 +62,31 @@ export default function EndrPage() {
   }
 
   async function handleAdd() {
-    if (!addForm.operator_id) return;
+    if (addForm.operator_ids.length === 0) return;
+    // Se nenhum mês extra foi marcado, usa o mês em exibição
+    const months = addForm.months.length > 0 ? addForm.months : [month.slice(0, 7)];
     setSaving(true);
-    try {
-      await addEndrMonthly({
-        operator_id: Number(addForm.operator_id),
-        reference_month: month,
-        notes: addForm.notes || null,
-      });
-      setShowAdd(false);
-      setAddForm({ operator_id: "", notes: "" });
-      loadMonthly();
-    } catch { setMsg("Erro ao adicionar associação."); }
+    let ok = 0, fail = 0;
+    for (const opId of addForm.operator_ids) {
+      for (const ym of months) {
+        try {
+          await addEndrMonthly({ operator_id: opId, reference_month: `${ym}-01`, notes: addForm.notes || null });
+          ok++;
+        } catch { fail++; }
+      }
+    }
+    setShowAdd(false);
+    setAddForm({ operator_ids: [], months: [], notes: "", opFilter: "" });
+    loadMonthly();
+    setMsg(`${ok} associação(ões) registrada(s)${fail ? ` · ${fail} falhou(aram) (possivelmente já existiam)` : ""}.`);
     setSaving(false);
+  }
+
+  function toggleOp(id: number) {
+    setAddForm(f => ({ ...f, operator_ids: f.operator_ids.includes(id) ? f.operator_ids.filter(x => x !== id) : [...f.operator_ids, id] }));
+  }
+  function toggleMonth(ym: string) {
+    setAddForm(f => ({ ...f, months: f.months.includes(ym) ? f.months.filter(m => m !== ym) : [...f.months, ym] }));
   }
 
   async function handleRemove(assocId: number) {
@@ -199,37 +211,67 @@ export default function EndrPage() {
         </div>
 
         {showAdd && (
-          <div className="mb-4 bg-surface-border border border-surface-border rounded-lg p-4 flex items-end gap-3">
-            <div className="flex-1">
-              <label className="block text-xs text-muted mb-1">Agente Operador</label>
-              <select
-                className="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                value={addForm.operator_id}
-                onChange={e => setAddForm(f => ({ ...f, operator_id: e.target.value }))}
-              >
-                <option value="">Selecione...</option>
-                {available.map(op => (
-                  <option key={op.id} value={op.id}>
-                    {op.company_name}{op.fantasy_name ? ` (${op.fantasy_name})` : ""}{op.cnpj ? ` — ${op.cnpj}` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="w-64">
-              <label className="block text-xs text-muted mb-1">Observação (opcional)</label>
+          <div className="mb-4 bg-surface-border border border-surface-border rounded-lg p-4 space-y-4">
+            <div>
+              <label className="block text-xs text-muted mb-1">Agentes Operadores <span className="text-slate-400">(marque um ou vários)</span></label>
               <input
-                className="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
-                placeholder="ex: decisão judicial nº..."
-                value={addForm.notes}
-                onChange={e => setAddForm(f => ({ ...f, notes: e.target.value }))}
+                className="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary mb-2"
+                placeholder="Filtrar por nome ou CNPJ..."
+                value={addForm.opFilter}
+                onChange={e => setAddForm(f => ({ ...f, opFilter: e.target.value }))}
               />
+              <div className="max-h-48 overflow-y-auto border border-surface-border rounded-lg divide-y divide-surface-border bg-surface-card">
+                {available
+                  .filter(op => {
+                    const t = addForm.opFilter.toLowerCase();
+                    if (!t) return true;
+                    return op.company_name.toLowerCase().includes(t) || (op.fantasy_name || "").toLowerCase().includes(t) || (op.cnpj || "").includes(t);
+                  })
+                  .map(op => (
+                    <label key={op.id} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-surface cursor-pointer">
+                      <input type="checkbox" checked={addForm.operator_ids.includes(op.id)} onChange={() => toggleOp(op.id)} />
+                      <span className="flex-1">{op.company_name}{op.fantasy_name ? ` (${op.fantasy_name})` : ""}</span>
+                      <span className="text-xs text-muted font-mono">{op.cnpj || ""}</span>
+                    </label>
+                  ))}
+                {available.length === 0 && <p className="px-3 py-2 text-xs text-muted">Todas as bets já estão associadas neste mês.</p>}
+              </div>
+              {addForm.operator_ids.length > 0 && <p className="text-xs text-primary mt-1">{addForm.operator_ids.length} selecionada(s)</p>}
             </div>
-            <button onClick={handleAdd} disabled={saving || !addForm.operator_id} className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 disabled:opacity-50 transition-colors">
-              Adicionar
-            </button>
-            <button onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-muted border border-surface-border rounded-lg hover:bg-surface-border transition-colors">
-              Cancelar
-            </button>
+            <div>
+              <label className="block text-xs text-muted mb-1">Meses <span className="text-slate-400">(vazio = apenas {displayMonth}; marque para incluir vários meses do ano)</span></label>
+              <div className="flex flex-wrap gap-1.5">
+                {Array.from({ length: 12 }, (_, i) => {
+                  const y = month.slice(0, 4);
+                  const ym = `${y}-${String(i + 1).padStart(2, "0")}`;
+                  const label = new Date(`${ym}-15T12:00:00`).toLocaleDateString("pt-BR", { month: "short" });
+                  const checked = addForm.months.includes(ym);
+                  return (
+                    <label key={ym} className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg border cursor-pointer capitalize ${checked ? "bg-primary/15 text-primary border-primary/30" : "border-surface-border text-slate-300 hover:bg-surface"}`}>
+                      <input type="checkbox" checked={checked} onChange={() => toggleMonth(ym)} />
+                      {label}/{y.slice(2)}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <label className="block text-xs text-muted mb-1">Observação (opcional)</label>
+                <input
+                  className="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                  placeholder="ex: lista ENDR de 29/04..."
+                  value={addForm.notes}
+                  onChange={e => setAddForm(f => ({ ...f, notes: e.target.value }))}
+                />
+              </div>
+              <button onClick={handleAdd} disabled={saving || addForm.operator_ids.length === 0} className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 disabled:opacity-50 transition-colors">
+                {saving ? "Registrando..." : "Adicionar"}
+              </button>
+              <button onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-muted border border-surface-border rounded-lg hover:bg-surface-border transition-colors">
+                Cancelar
+              </button>
+            </div>
           </div>
         )}
 

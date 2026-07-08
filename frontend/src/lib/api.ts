@@ -258,3 +258,7 @@ export const getTransparency = (params?: any) => api.get("/api/alerts/transparen
 
 // ---- Análise de GGR ----
 export const getGgrAnalysis = (id: number) => api.get(`/api/payments/${id}/ggr-analysis`);
+
+// ---- Lançamento avulso: edição (definir mês depois) ----
+export const updateDirectPayment = (operatorId: number, paymentId: number, data: any) =>
+  api.patch(`/api/payments/direct/${operatorId}/${paymentId}`, data);

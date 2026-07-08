@@ -26,6 +26,7 @@ class OfficeUpdate(BaseModel):
     city: Optional[str] = None
     signature_name: Optional[str] = None
     notes: Optional[str] = None
+    operators_table_columns: Optional[str] = None
 
 
 class OfficeOut(BaseModel):
@@ -41,6 +42,7 @@ class OfficeOut(BaseModel):
     logo_url: Optional[str] = None
     signature_name: Optional[str] = None
     notes: Optional[str] = None
+    operators_table_columns: Optional[str] = None
 
     class Config:
         from_attributes = True

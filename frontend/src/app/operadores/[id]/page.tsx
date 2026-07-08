@@ -13,8 +13,8 @@ import {
   addResponsible, updateResponsible, deleteResponsible,
   addEndrAssociation, deleteEndrAssociation,
   researchContacts, getContactSuggestions, approveSuggestion, rejectSuggestion,
-  getDirectPayments, createDirectPayment, deleteDirectPayment,
-  getConfederations,
+  getDirectPayments, createDirectPayment, deleteDirectPayment, updateDirectPayment,
+  getConfederations, uploadDocument, downloadDocument,
   getOperatorMonthlyHistory, getOperatorComplianceScore,
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
@@ -86,7 +86,7 @@ export default function OperatorDetailPage() {
 
   // ENDR
   const [showEndrModal, setShowEndrModal] = useState(false);
-  const [endrForm, setEndrForm] = useState({ month: String(new Date().getMonth() + 1).padStart(2, "0"), year: String(new Date().getFullYear()), is_associated: true, notes: "" });
+  const [endrForm, setEndrForm] = useState<{ year: string; months: string[]; is_associated: boolean; notes: string }>({ year: String(new Date().getFullYear()), months: [], is_associated: true, notes: "" });
   const [savingEndr, setSavingEndr] = useState(false);
 
   // Contact Research
@@ -107,6 +107,56 @@ export default function OperatorDetailPage() {
     notes: "",
   });
   const [savingDirect, setSavingDirect] = useState(false);
+  const [defineMonth, setDefineMonth] = useState<any>(null);  // { payment, value } — definir mês de competência depois
+
+  // Upload de documentos do operador
+  const [showDocUpload, setShowDocUpload] = useState(false);
+  const [docForm, setDocForm] = useState({ title: "", document_type: "other", description: "" });
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+
+  async function handleUploadDoc(e: React.FormEvent) {
+    e.preventDefault();
+    if (!docFile) { alert("Selecione um arquivo."); return; }
+    if (docFile.size > 25 * 1024 * 1024) { alert("Arquivo maior que 25 MB. Compacte ou divida o documento."); return; }
+    setUploadingDoc(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", docFile);
+      fd.append("title", docForm.title || docFile.name);
+      fd.append("document_type", docForm.document_type);
+      fd.append("operator_id", String(numId));
+      if (docForm.description) fd.append("description", docForm.description);
+      await uploadDocument(fd);
+      setShowDocUpload(false);
+      setDocForm({ title: "", document_type: "other", description: "" });
+      setDocFile(null);
+      fetchData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao enviar documento");
+    } finally { setUploadingDoc(false); }
+  }
+
+  async function handleDownloadDoc(d: any) {
+    try {
+      const r = await downloadDocument(d.id);
+      const url = URL.createObjectURL(new Blob([r.data]));
+      const a = document.createElement("a"); a.href = url; a.download = d.file_name || "documento"; a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert("Erro ao baixar documento."); }
+  }
+
+  async function handleSaveDefineMonth(e: React.FormEvent) {
+    e.preventDefault();
+    if (!defineMonth?.value) { alert("Selecione o mês."); return; }
+    try {
+      await updateDirectPayment(numId, defineMonth.payment.id, { reference_month: defineMonth.value + "-01" });
+      setDefineMonth(null);
+      fetchData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao definir o mês");
+    }
+  }
 
   const fetchData = () => {
     setLoading(true);
@@ -282,21 +332,29 @@ export default function OperatorDetailPage() {
 
   async function handleAddEndr(e: React.FormEvent) {
     e.preventDefault();
+    if (endrForm.months.length === 0) { alert("Selecione ao menos um mês."); return; }
     setSavingEndr(true);
-    try {
-      const reference_month = `${endrForm.year}-${endrForm.month}-01`;
-      await addEndrAssociation(numId, {
-        reference_month,
-        is_associated: endrForm.is_associated,
-        notes: endrForm.notes || undefined,
-      });
-      setShowEndrModal(false);
-      fetchData();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao salvar associação ENDR");
-    } finally {
-      setSavingEndr(false);
+    let ok = 0, fail = 0;
+    // Registra uma associação por mês selecionado (múltipla escolha)
+    for (const ym of endrForm.months) {
+      try {
+        await addEndrAssociation(numId, {
+          reference_month: `${ym}-01`,
+          is_associated: endrForm.is_associated,
+          notes: endrForm.notes || undefined,
+        });
+        ok++;
+      } catch { fail++; }
     }
+    setSavingEndr(false);
+    setShowEndrModal(false);
+    setEndrForm(f => ({ ...f, months: [], notes: "" }));
+    fetchData();
+    if (fail > 0) alert(`${ok} mês(es) registrado(s); ${fail} falhou(aram) — possivelmente já existiam.`);
+  }
+
+  function toggleEndrMonth(ym: string) {
+    setEndrForm(f => ({ ...f, months: f.months.includes(ym) ? f.months.filter(m => m !== ym) : [...f.months, ym] }));
   }
 
   async function handleDeleteEndr(assocId: number) {
@@ -311,13 +369,13 @@ export default function OperatorDetailPage() {
     try {
       await createDirectPayment(numId, {
         confederation_id: Number(directForm.confederation_id),
-        reference_month: directForm.reference_month + "-01",
+        reference_month: directForm.reference_month ? directForm.reference_month + "-01" : null,
         amount_received: parseFloat(directForm.amount_received),
         received_date: directForm.received_date,
         notes: directForm.notes || undefined,
       });
       setShowDirectModal(false);
-      setDirectForm({ confederation_id: "", reference_month: new Date().toISOString().slice(0, 7), amount_received: "", received_date: new Date().toISOString().slice(0, 10), notes: "" });
+      setDirectForm({ confederation_id: "", reference_month: "", amount_received: "", received_date: new Date().toISOString().slice(0, 10), notes: "" });
       fetchData();
     } catch (err: any) {
       alert(err.response?.data?.detail || "Erro ao registrar lançamento");
@@ -679,7 +737,8 @@ export default function OperatorDetailPage() {
             <p>Se o agente operador estiver associado ao ENDR (Escritório Nacional de Rateios) em determinado mês, não será cobrado naquele mês. As notificações automáticas serão suspensas para os meses marcados como associado.</p>
           </div>
 
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-end gap-2 mb-4">
+            <a href="/endr" className="btn-secondary">Abrir página ENDR</a>
             <button onClick={() => setShowEndrModal(true)} className="btn-primary">+ Registrar Associação</button>
           </div>
 
@@ -722,23 +781,31 @@ export default function OperatorDetailPage() {
 
           <Modal isOpen={showEndrModal} onClose={() => setShowEndrModal(false)} title="Registrar Associação ENDR">
             <form onSubmit={handleAddEndr} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="label">Mês *</label>
-                  <select className="input" value={endrForm.month} onChange={e => setEndrForm(f => ({ ...f, month: e.target.value }))}>
-                    {MONTHS_PT.map((m, i) => (
-                      <option key={i} value={String(i + 1).padStart(2, "0")}>{m}</option>
-                    ))}
-                  </select>
+              <div>
+                <label className="label">Ano</label>
+                <select className="input max-w-[140px]" value={endrForm.year} onChange={e => setEndrForm(f => ({ ...f, year: e.target.value }))}>
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(y => (
+                    <option key={y} value={String(y)}>{y}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Meses * <span className="text-muted font-normal">(marque todos os meses da associação)</span></label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {MONTHS_PT.map((m, i) => {
+                    const ym = `${endrForm.year}-${String(i + 1).padStart(2, "0")}`;
+                    const checked = endrForm.months.includes(ym);
+                    return (
+                      <label key={ym} className={`flex items-center gap-1.5 text-xs px-2 py-1.5 rounded-lg border cursor-pointer ${checked ? "bg-primary/15 text-primary border-primary/30" : "border-surface-border text-slate-300 hover:bg-surface"}`}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleEndrMonth(ym)} />
+                        {m.slice(0, 3)}
+                      </label>
+                    );
+                  })}
                 </div>
-                <div>
-                  <label className="label">Ano *</label>
-                  <select className="input" value={endrForm.year} onChange={e => setEndrForm(f => ({ ...f, year: e.target.value }))}>
-                    {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map(y => (
-                      <option key={y} value={String(y)}>{y}</option>
-                    ))}
-                  </select>
-                </div>
+                {endrForm.months.length > 0 && (
+                  <p className="text-xs text-muted mt-1.5">{endrForm.months.length} mês(es) selecionado(s): {endrForm.months.sort().map(ym => { const [y, mo] = ym.split("-"); return `${mo}/${y}`; }).join(", ")}</p>
+                )}
               </div>
               <div>
                 <label className="label">Status</label>
@@ -1053,7 +1120,7 @@ export default function OperatorDetailPage() {
                 <p className="text-xs text-muted mt-0.5">Valores recebidos registrados manualmente, sem vínculo com ciclo de cobrança.</p>
               </div>
               <button className="btn-primary text-sm" onClick={() => {
-                setDirectForm({ confederation_id: confederations[0]?.id?.toString() || "", reference_month: new Date().toISOString().slice(0, 7), amount_received: "", received_date: new Date().toISOString().slice(0, 10), notes: "" });
+                setDirectForm({ confederation_id: confederations[0]?.id?.toString() || "", reference_month: "", amount_received: "", received_date: new Date().toISOString().slice(0, 10), notes: "" });
                 setShowDirectModal(true);
               }}>+ Novo Lançamento</button>
             </div>
@@ -1077,7 +1144,12 @@ export default function OperatorDetailPage() {
                     return (
                       <tr key={dp.id}>
                         <td className="table-td font-medium">{conf?.acronym || `#${dp.confederation_id}`}</td>
-                        <td className="table-td">{formatMonthBR(dp.reference_month)}</td>
+                        <td className="table-td">
+                          {dp.reference_month ? formatMonthBR(dp.reference_month) : (
+                            <span className="text-xs text-warning bg-warning/10 px-2 py-0.5 rounded">A definir</span>
+                          )}
+                          <button type="button" onClick={() => setDefineMonth({ payment: dp, value: (dp.reference_month || "").slice(0, 7) })} className="block text-[11px] text-primary hover:underline mt-0.5">{dp.reference_month ? "Alterar mês" : "Definir mês"}</button>
+                        </td>
                         <td className="table-td text-success font-medium">{formatCurrency(dp.amount_received)}</td>
                         <td className="table-td">{formatDate(dp.received_date)}</td>
                         <td className="table-td text-muted text-xs">{dp.notes || "—"}</td>
@@ -1148,8 +1220,8 @@ export default function OperatorDetailPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label">Mês de Referência *</label>
-                <input className="input" type="month" required value={directForm.reference_month} onChange={e => setDirectForm(f => ({ ...f, reference_month: e.target.value }))} />
-                <p className="text-xs text-muted mt-1">Mês ao qual o repasse se refere (competência)</p>
+                <input className="input" type="month" value={directForm.reference_month} onChange={e => setDirectForm(f => ({ ...f, reference_month: e.target.value }))} />
+                <p className="text-xs text-muted mt-1">Opcional — se ainda não souber (aguardando o relatório da Bet), deixe em branco e defina depois.</p>
               </div>
               <div>
                 <label className="label">Data do Recebimento *</label>
@@ -1173,33 +1245,91 @@ export default function OperatorDetailPage() {
         </Modal>
       )}
 
+      {/* Modal: definir mês de competência do lançamento avulso */}
+      <Modal isOpen={!!defineMonth} onClose={() => setDefineMonth(null)} title="Definir mês de competência">
+        {defineMonth && (
+          <form onSubmit={handleSaveDefineMonth} className="space-y-4">
+            <p className="text-sm text-muted">Informe a que mês se refere o repasse de {formatCurrency(defineMonth.payment.amount_received)} recebido em {formatDate(defineMonth.payment.received_date)} (conforme o relatório da Bet).</p>
+            <div>
+              <label className="label">Mês de competência *</label>
+              <input className="input" type="month" required value={defineMonth.value} onChange={e => setDefineMonth((s: any) => ({ ...s, value: e.target.value }))} />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button type="button" onClick={() => setDefineMonth(null)} className="btn-secondary">Cancelar</button>
+              <button type="submit" className="btn-primary">Salvar</button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
       {/* Tab 7: Documents */}
       {tab === 7 && (
-        <div className="card p-0 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-surface">
-              <tr>
-                <th className="table-th">Título</th>
-                <th className="table-th">Tipo</th>
-                <th className="table-th">Arquivo</th>
-                <th className="table-th">Tamanho</th>
-                <th className="table-th">Enviado em</th>
-              </tr>
-            </thead>
-            <tbody>
-              {documents.length === 0 ? (
-                <tr><td colSpan={5} className="table-td text-center text-muted py-8">Nenhum documento</td></tr>
-              ) : documents.map((d: any) => (
-                <tr key={d.id}>
-                  <td className="table-td text-white">{d.title}</td>
-                  <td className="table-td capitalize">{d.document_type}</td>
-                  <td className="table-td text-xs font-mono">{d.file_name}</td>
-                  <td className="table-td text-muted">{d.file_size ? `${Math.round(d.file_size / 1024)} KB` : "-"}</td>
-                  <td className="table-td text-muted">{formatDate(d.created_at)}</td>
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <button onClick={() => setShowDocUpload(true)} className="btn-primary">+ Enviar Documento</button>
+          </div>
+          <div className="card p-0 overflow-hidden">
+            <table className="w-full">
+              <thead className="bg-surface">
+                <tr>
+                  <th className="table-th">Título</th>
+                  <th className="table-th">Tipo</th>
+                  <th className="table-th">Arquivo</th>
+                  <th className="table-th">Tamanho</th>
+                  <th className="table-th">Enviado em</th>
+                  <th className="table-th"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {documents.length === 0 ? (
+                  <tr><td colSpan={6} className="table-td text-center text-muted py-8">Nenhum documento</td></tr>
+                ) : documents.map((d: any) => (
+                  <tr key={d.id}>
+                    <td className="table-td text-white">{d.title}</td>
+                    <td className="table-td capitalize">{d.document_type}</td>
+                    <td className="table-td text-xs font-mono">{d.file_name}</td>
+                    <td className="table-td text-muted">{d.file_size ? `${Math.round(d.file_size / 1024)} KB` : "-"}</td>
+                    <td className="table-td text-muted">{formatDate(d.created_at)}</td>
+                    <td className="table-td"><button onClick={() => handleDownloadDoc(d)} className="text-primary text-xs hover:underline">Baixar</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <Modal isOpen={showDocUpload} onClose={() => setShowDocUpload(false)} title="Enviar Documento">
+            <form onSubmit={handleUploadDoc} className="space-y-4">
+              <div>
+                <label className="label">Arquivo * <span className="text-muted font-normal">(qualquer formato, até 25 MB)</span></label>
+                <input type="file" className="input" onChange={e => setDocFile(e.target.files?.[0] || null)} />
+              </div>
+              <div>
+                <label className="label">Título</label>
+                <input className="input" placeholder="Ex.: Procuração 2026 (vazio = nome do arquivo)" value={docForm.title} onChange={e => setDocForm(f => ({ ...f, title: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Tipo</label>
+                <select className="input" value={docForm.document_type} onChange={e => setDocForm(f => ({ ...f, document_type: e.target.value }))}>
+                  <option value="other">Outro</option>
+                  <option value="contract">Contrato</option>
+                  <option value="correspondence">Correspondência</option>
+                  <option value="ggr_report">Relatório GGR</option>
+                  <option value="receipt">Comprovante</option>
+                  <option value="regulation">Regulamento</option>
+                  <option value="notification">Notificação</option>
+                  <option value="report">Relatório</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Descrição</label>
+                <textarea className="input h-16 resize-none" value={docForm.description} onChange={e => setDocForm(f => ({ ...f, description: e.target.value }))} />
+              </div>
+              <div className="flex gap-3 justify-end">
+                <button type="button" onClick={() => setShowDocUpload(false)} className="btn-secondary">Cancelar</button>
+                <button type="submit" disabled={uploadingDoc} className="btn-primary">{uploadingDoc ? "Enviando..." : "Enviar"}</button>
+              </div>
+            </form>
+          </Modal>
         </div>
       )}
 

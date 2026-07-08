@@ -36,15 +36,25 @@ def list_operators(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    from sqlalchemy import func, or_
     q = db.query(BettingOperator)
     if status:
         q = q.filter(BettingOperator.status == status)
     if search:
-        q = q.filter(
-            BettingOperator.company_name.ilike(f"%{search}%") |
-            BettingOperator.fantasy_name.ilike(f"%{search}%") |
-            BettingOperator.cnpj.ilike(f"%{search}%")
-        )
+        term = search.strip()
+        conds = [
+            BettingOperator.company_name.ilike(f"%{term}%"),
+            BettingOperator.fantasy_name.ilike(f"%{term}%"),
+            BettingOperator.cnpj.ilike(f"%{term}%"),
+        ]
+        # CNPJ digitado sem pontuação: compara contra o CNPJ sem máscara
+        digits = "".join(ch for ch in term if ch.isdigit())
+        if len(digits) >= 4:
+            conds.append(func.regexp_replace(func.coalesce(BettingOperator.cnpj, ""), r"\D", "", "g").ilike(f"%{digits}%"))
+        # Busca também pelo nome das marcas vinculadas
+        brand_op_ids = db.query(OperatorBrand.operator_id).filter(OperatorBrand.name.ilike(f"%{term}%")).subquery()
+        conds.append(BettingOperator.id.in_(brand_op_ids))
+        q = q.filter(or_(*conds))
     return q.order_by(BettingOperator.company_name).offset(skip).limit(limit).all()
 
 
