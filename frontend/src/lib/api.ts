@@ -133,6 +133,13 @@ export const getComplianceReport = (cycleId: number) => api.get(`/api/reports/co
 export const downloadExcelReport = (cycleId: number) =>
   api.get(`/api/reports/compliance/${cycleId}/excel`, { responseType: "blob" });
 export const getCrossReport = (params?: any) => api.get("/api/reports/cross", { params });
+export const getConfMonthlyReport = (confederation_id: number, month: string) =>
+  api.get("/api/reports/by-confederation", { params: { confederation_id, month } });
+export const uploadBetReport = (operatorId: number, confederationId: number, form: FormData) =>
+  api.post(`/api/reports/bet-report/${operatorId}/${confederationId}`, form, { headers: { "Content-Type": "multipart/form-data" } });
+export const getEmailHistory = (operatorId: number) => api.get(`/api/documents/email-history/${operatorId}`);
+export const downloadEmailHistory = (operatorId: number) =>
+  api.get(`/api/documents/email-history/${operatorId}/download`, { responseType: "blob" });
 export const downloadCrossExcel = (params?: any) =>
   api.get("/api/reports/cross/excel", { params, responseType: "blob" });
 export const downloadCrossPdf = (params?: any) =>

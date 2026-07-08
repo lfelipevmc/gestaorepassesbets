@@ -6,8 +6,18 @@ import Badge from "@/components/ui/Badge";
 import {
   getConfederations, getCollections, getOperators, getComplianceReport, downloadExcelReport,
   getCrossReport, downloadCrossExcel, downloadCrossPdf, downloadEvidencePdf, downloadCycleActivityPdf,
-  sendMonthlyToOffice,
+  sendMonthlyToOffice, getConfMonthlyReport, uploadBetReport,
 } from "@/lib/api";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+const CONC_BADGE: Record<string, string> = {
+  adimplente: "bg-success/15 text-success",
+  inadimplente: "bg-danger/15 text-danger",
+  endr: "bg-blue-500/15 text-blue-300",
+  consignacao: "bg-warning/15 text-warning",
+  sem_obrigacao: "bg-surface text-muted",
+};
 import { formatCurrency } from "@/lib/utils";
 
 const STATUS_OPTIONS = [
@@ -20,7 +30,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function RelatoriosPage() {
-  const [tab, setTab] = useState<"consolidado" | "ciclo" | "evidencias">("consolidado");
+  const [tab, setTab] = useState<"porconf" | "consolidado" | "ciclo" | "evidencias">("porconf");
   const [confederations, setConfederations] = useState<any[]>([]);
   const [cycles, setCycles] = useState<any[]>([]);
   const [operators, setOperators] = useState<any[]>([]);
@@ -35,15 +45,136 @@ export default function RelatoriosPage() {
       <Header title="Relatórios" subtitle="Adimplência individualizada por confederação, mês e Bet — com visão consolidada e cruzada" />
 
       <div className="flex gap-2 mb-6">
+        <button onClick={() => setTab("porconf")} className={tab === "porconf" ? "btn-primary" : "btn-secondary"}>Por Confederação</button>
         <button onClick={() => setTab("consolidado")} className={tab === "consolidado" ? "btn-primary" : "btn-secondary"}>Consolidado / Cruzado</button>
         <button onClick={() => setTab("ciclo")} className={tab === "ciclo" ? "btn-primary" : "btn-secondary"}>Por Ciclo</button>
         <button onClick={() => setTab("evidencias")} className={tab === "evidencias" ? "btn-primary" : "btn-secondary"}>Evidências (ISO 9001)</button>
       </div>
 
+      {tab === "porconf" && <PorConfederacao confederations={confederations} />}
       {tab === "consolidado" && <Consolidado confederations={confederations} operators={operators} cycles={cycles} />}
       {tab === "ciclo" && <PorCiclo confederations={confederations} cycles={cycles} />}
       {tab === "evidencias" && <Evidencias confederations={confederations} />}
     </AppShell>
+  );
+}
+
+/* ------------------------- Por Confederação (item 13) ------------------------- */
+function PorConfederacao({ confederations }: { confederations: any[] }) {
+  const [confId, setConfId] = useState("");
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [report, setReport] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [uploadingId, setUploadingId] = useState<number | null>(null);
+
+  async function generate(cid = confId, m = month) {
+    if (!cid || !m) return;
+    setLoading(true);
+    try {
+      const r = await getConfMonthlyReport(parseInt(cid), `${m}-01`);
+      setReport(r.data);
+    } catch (e: any) { alert(e.response?.data?.detail || "Erro ao gerar relatório"); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => {
+    if (!confId && confederations.length > 0) { setConfId(String(confederations[0].id)); generate(String(confederations[0].id), month); }
+  }, [confederations]); // eslint-disable-line
+
+  async function handleUpload(operatorId: number, file: File) {
+    if (!confId) return;
+    setUploadingId(operatorId);
+    try {
+      const fd = new FormData();
+      fd.append("month", `${month}-01`);
+      fd.append("file", file);
+      await uploadBetReport(operatorId, parseInt(confId), fd);
+      await generate();
+    } catch (e: any) { alert(e.response?.data?.detail || "Erro ao enviar relatório"); }
+    finally { setUploadingId(null); }
+  }
+
+  const counts = report?.counts || {};
+  return (
+    <>
+      <div className="card mb-6">
+        <p className="text-xs text-muted mb-3">Relatório separado por confederação — cada Bet aparece uma única vez, sem duplicação. Anexe aqui o relatório que a Bet envia para cada confederação paga.</p>
+        <div className="flex gap-3 items-end flex-wrap">
+          <div>
+            <label className="label">Confederação *</label>
+            <select className="input min-w-[180px]" value={confId} onChange={e => setConfId(e.target.value)}>
+              <option value="">Selecione...</option>
+              {confederations.map(c => <option key={c.id} value={c.id}>{c.acronym} — {c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Competência *</label>
+            <input type="month" className="input" value={month} onChange={e => setMonth(e.target.value)} />
+          </div>
+          <button onClick={() => generate()} disabled={!confId || loading} className="btn-primary">{loading ? "Gerando..." : "Gerar"}</button>
+        </div>
+      </div>
+
+      {report && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+            <Stat value={report.total_operators} label="Bets" />
+            <Stat value={counts.adimplente || 0} label="Adimplentes" color="text-success" />
+            <Stat value={counts.inadimplente || 0} label="Inadimplentes" color="text-danger" />
+            <Stat value={(counts.endr || 0) + (counts.consignacao || 0) + (counts.sem_obrigacao || 0)} label="ENDR / Consig. / S. Obrig." color="text-blue-300" />
+            <Stat value={report.reports_received} label="Relatórios anexados" color="text-warning" />
+            <div className="card text-center">
+              <p className="text-2xl font-bold text-success">{formatCurrency(report.total_received)}</p>
+              <p className="text-xs text-muted">Recebido no mês</p>
+            </div>
+          </div>
+
+          <div className="card p-0 overflow-hidden">
+            <div className="p-4 border-b border-surface-border">
+              <h3 className="font-semibold text-white">Bets — {confederations.find(c => String(c.id) === confId)?.acronym} · {month}</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-surface">
+                  <tr>
+                    <th className="table-th">Razão Social</th>
+                    <th className="table-th">CNPJ</th>
+                    <th className="table-th">Conclusão</th>
+                    <th className="table-th">Recebido no mês</th>
+                    <th className="table-th">Último pagamento</th>
+                    <th className="table-th">Relatório da Bet</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.rows.map((r: any) => (
+                    <tr key={r.operator_id} className="hover:bg-surface-light/20">
+                      <td className="table-td font-medium text-white">
+                        <a href={`/operadores/${r.operator_id}`} className="hover:text-primary">{r.company_name}</a>
+                        {r.fantasy_name && <span className="block text-[11px] text-muted">{r.fantasy_name}</span>}
+                      </td>
+                      <td className="table-td font-mono text-xs text-muted">{r.cnpj || "-"}</td>
+                      <td className="table-td"><span className={`text-xs px-2 py-0.5 rounded-full ${CONC_BADGE[r.conclusion] || CONC_BADGE.sem_obrigacao}`}>{r.conclusion_label}</span></td>
+                      <td className="table-td text-success">{r.received_total ? formatCurrency(r.received_total) : "-"}</td>
+                      <td className="table-td text-muted">{r.last_payment_date ? new Date(r.last_payment_date + "T12:00:00").toLocaleDateString("pt-BR") : "-"}</td>
+                      <td className="table-td whitespace-nowrap">
+                        {r.report_url
+                          ? <a href={API_BASE + r.report_url} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline mr-3">Ver</a>
+                          : <span className="text-warning text-xs mr-3">Pendente</span>}
+                        <label className="text-xs text-primary hover:underline cursor-pointer">
+                          {uploadingId === r.operator_id ? "Enviando..." : "⬆ Anexar"}
+                          <input type="file" className="hidden" disabled={uploadingId !== null}
+                            onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(r.operator_id, f); e.target.value = ""; }} />
+                        </label>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </>
   );
 }
 

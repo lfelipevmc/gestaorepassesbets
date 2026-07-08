@@ -92,3 +92,85 @@ def download_document(id: int, db: Session = Depends(get_db), current_user: User
     if not doc or not os.path.exists(doc.file_path):
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     return FileResponse(doc.file_path, filename=doc.file_name)
+
+
+# ============================================================================
+# HISTÓRICO DE E-MAILS POR OPERADOR (item 14)
+# Auditoria: envios e respostas separados por Bet, com download consolidado.
+# ============================================================================
+
+@router.get("/email-history/{operator_id}")
+def email_history(operator_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """Histórico completo de e-mails (enviados e respostas) de um operador."""
+    from ..models.messaging import EmailMessage
+    msgs = (db.query(EmailMessage)
+            .filter(EmailMessage.operator_id == operator_id)
+            .order_by(EmailMessage.created_at.desc())
+            .all())
+    return [{
+        "id": m.id,
+        "direction": m.direction.value if hasattr(m.direction, "value") else m.direction,
+        "subject": m.subject,
+        "body_preview": m.body_preview,
+        "from_addr": m.from_addr,
+        "to_addr": m.to_addr,
+        "protocol": m.protocol,
+        "channel": m.channel,
+        "confederation_id": m.confederation_id,
+        "sent_at": m.sent_at.isoformat() if m.sent_at else None,
+        "received_at": m.received_at.isoformat() if m.received_at else None,
+        "created_at": m.created_at.isoformat() if m.created_at else None,
+    } for m in msgs]
+
+
+@router.get("/email-history/{operator_id}/download")
+def email_history_download(operator_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """Gera um arquivo HTML com todo o histórico de e-mails do operador, para auditoria."""
+    from fastapi.responses import Response
+    from datetime import datetime
+    from ..models.messaging import EmailMessage
+    from ..models.operator import BettingOperator
+    from ..models.confederation import Confederation
+
+    op = db.query(BettingOperator).get(operator_id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operador não encontrado")
+    msgs = (db.query(EmailMessage)
+            .filter(EmailMessage.operator_id == operator_id)
+            .order_by(EmailMessage.created_at.asc())
+            .all())
+    conf_map = {c.id: c.acronym for c in db.query(Confederation).all()}
+
+    def esc(s):
+        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    parts = [
+        "<html><head><meta charset='utf-8'><title>Histórico de E-mails</title>",
+        "<style>body{font-family:Arial,sans-serif;margin:24px;color:#222}"
+        ".msg{border:1px solid #ccc;border-radius:8px;padding:12px 16px;margin-bottom:14px}"
+        ".out{border-left:5px solid #2563eb}.in{border-left:5px solid #16a34a}"
+        ".meta{font-size:12px;color:#555}h1{font-size:20px}h2{font-size:14px;margin:0 0 6px}"
+        ".tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;background:#eee;margin-right:6px}</style></head><body>",
+        f"<h1>Histórico de E-mails — {esc(op.company_name)}</h1>",
+        f"<p class='meta'>CNPJ: {esc(op.cnpj) or '—'} · Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')} · {len(msgs)} mensagem(ns)</p><hr>",
+    ]
+    for m in msgs:
+        d = m.direction.value if hasattr(m.direction, "value") else str(m.direction)
+        cls = "out" if d == "outbound" else "in"
+        rotulo = "ENVIADO" if d == "outbound" else "RESPOSTA RECEBIDA"
+        when = m.sent_at or m.received_at or m.created_at
+        parts.append(
+            f"<div class='msg {cls}'>"
+            f"<span class='tag'>{rotulo}</span>"
+            + (f"<span class='tag'>{esc(conf_map.get(m.confederation_id))}</span>" if m.confederation_id else "")
+            + (f"<span class='tag'>Protocolo {esc(m.protocol)}</span>" if m.protocol else "")
+            + f"<h2>{esc(m.subject) or '(sem assunto)'}</h2>"
+            f"<p class='meta'>De: {esc(m.from_addr) or '—'} · Para: {esc(m.to_addr) or '—'} · "
+            f"{when.strftime('%d/%m/%Y %H:%M') if when else '—'}</p>"
+            f"<p>{esc(m.body_preview) or '<i>(sem prévia do conteúdo)</i>'}</p></div>"
+        )
+    parts.append("</body></html>")
+    html = "".join(parts)
+    fname = f"emails_{(op.fantasy_name or op.company_name or 'operador').replace(' ', '_')[:40]}.html"
+    return Response(content=html, media_type="text/html; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})

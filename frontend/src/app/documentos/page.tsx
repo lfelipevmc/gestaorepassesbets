@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import Modal from "@/components/ui/Modal";
-import { getDocuments, uploadDocument, downloadDocument, getOperators, getConfederations } from "@/lib/api";
+import { getDocuments, uploadDocument, downloadDocument, getOperators, getConfederations, getEmailHistory, downloadEmailHistory } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 
 const DOC_TYPES = [
@@ -32,6 +32,7 @@ export default function DocumentosPage() {
   const [groupBy, setGroupBy] = useState<"confederation" | "operator">("confederation");
   const [filters, setFilters] = useState({ confederation_id: "", operator_id: "", category: "", document_type: "" });
   const [form, setForm] = useState({ title: "", document_type: "other", category: "documento_oficial", operator_id: "", confederation_id: "", description: "" });
+  const [tab, setTab] = useState<"arquivos" | "emails">("arquivos");
 
   const fetchAll = () => {
     setLoading(true);
@@ -103,6 +104,14 @@ export default function DocumentosPage() {
         actions={<button onClick={() => setShowUpload(true)} className="btn-primary">+ Enviar Documento</button>}
       />
 
+      <div className="flex gap-2 mb-6">
+        <button onClick={() => setTab("arquivos")} className={tab === "arquivos" ? "btn-primary" : "btn-secondary"}>Arquivos</button>
+        <button onClick={() => setTab("emails")} className={tab === "emails" ? "btn-primary" : "btn-secondary"}>Histórico de E-mails</button>
+      </div>
+
+      {tab === "emails" && <EmailHistory operators={operators} confederations={confederations} />}
+
+      {tab === "arquivos" && (<>
       {/* Filtros */}
       <div className="card mb-6">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
@@ -190,6 +199,7 @@ export default function DocumentosPage() {
           ))}
         </div>
       )}
+      </>)}
 
       <Modal isOpen={showUpload} onClose={() => setShowUpload(false)} title="Enviar Documento" size="lg">
         <form onSubmit={handleUpload} className="space-y-4">
@@ -242,6 +252,88 @@ export default function DocumentosPage() {
         </form>
       </Modal>
     </AppShell>
+  );
+}
+
+/* --------------------- Histórico de E-mails (item 14) --------------------- */
+function EmailHistory({ operators, confederations }: { operators: any[]; confederations: any[] }) {
+  const [opId, setOpId] = useState("");
+  const [msgs, setMsgs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  async function load(id: string) {
+    if (!id) { setMsgs([]); return; }
+    setLoading(true);
+    try { const r = await getEmailHistory(parseInt(id)); setMsgs(r.data); }
+    catch { setMsgs([]); }
+    finally { setLoading(false); }
+  }
+
+  async function handleDownload() {
+    if (!opId) return;
+    setDownloading(true);
+    try {
+      const r = await downloadEmailHistory(parseInt(opId));
+      const op = operators.find(o => String(o.id) === opId);
+      const url = URL.createObjectURL(new Blob([r.data], { type: "text/html" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = `emails_${(op?.fantasy_name || op?.company_name || "operador").replace(/ /g, "_")}.html`; a.click();
+      URL.revokeObjectURL(url);
+    } finally { setDownloading(false); }
+  }
+
+  const confAcr = (id?: number) => confederations.find(c => c.id === id)?.acronym;
+  const outbound = msgs.filter(m => m.direction === "outbound").length;
+  const inbound = msgs.length - outbound;
+
+  return (
+    <div className="space-y-4">
+      <div className="card">
+        <p className="text-xs text-muted mb-3">Todo o histórico de e-mails enviados pelo sistema e respostas recebidas, separado por Bet — baixe o dossiê para auditoria futura.</p>
+        <div className="flex gap-3 items-end flex-wrap">
+          <div className="min-w-[280px]">
+            <label className="label">Agente Operador (Bet) *</label>
+            <select className="input" value={opId} onChange={e => { setOpId(e.target.value); load(e.target.value); }}>
+              <option value="">Selecione...</option>
+              {operators.map(o => <option key={o.id} value={o.id}>{o.fantasy_name || o.company_name}</option>)}
+            </select>
+          </div>
+          <button onClick={handleDownload} disabled={!opId || msgs.length === 0 || downloading} className="btn-secondary">
+            {downloading ? "Gerando..." : "⬇ Baixar dossiê (HTML)"}
+          </button>
+          {opId && !loading && (
+            <span className="text-xs text-muted pb-2">{msgs.length} mensagem(ns) · {outbound} enviada(s) · {inbound} resposta(s)</span>
+          )}
+        </div>
+      </div>
+
+      {loading ? <div className="text-muted">Carregando...</div> : !opId ? (
+        <div className="card text-center text-muted py-12">Selecione uma Bet para ver o histórico.</div>
+      ) : msgs.length === 0 ? (
+        <div className="card text-center text-muted py-12">Nenhum e-mail registrado para esta Bet.</div>
+      ) : (
+        <div className="space-y-3">
+          {msgs.map(m => {
+            const out = m.direction === "outbound";
+            const when = m.sent_at || m.received_at || m.created_at;
+            return (
+              <div key={m.id} className={`card border-l-4 ${out ? "border-l-primary" : "border-l-success"}`}>
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${out ? "bg-primary/15 text-primary" : "bg-success/15 text-success"}`}>{out ? "ENVIADO" : "RESPOSTA RECEBIDA"}</span>
+                  {confAcr(m.confederation_id) && <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface text-muted">{confAcr(m.confederation_id)}</span>}
+                  {m.protocol && <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface text-muted font-mono">Protocolo {m.protocol}</span>}
+                  <span className="text-[11px] text-muted ml-auto">{when ? new Date(when).toLocaleString("pt-BR") : "—"}</span>
+                </div>
+                <p className="text-sm font-medium text-white">{m.subject || "(sem assunto)"}</p>
+                <p className="text-[11px] text-muted mt-0.5">De: {m.from_addr || "—"} · Para: {m.to_addr || "—"}</p>
+                {m.body_preview && <p className="text-xs text-slate-300 mt-2 whitespace-pre-wrap line-clamp-4">{m.body_preview}</p>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -150,3 +150,116 @@ def compliance_report_excel(cycle_id: int, db: Session = Depends(get_db), curren
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename=relatorio_ciclo_{cycle_id}.xlsx"}
     )
+
+
+# ============================================================================
+# RELATÓRIOS POR CONFEDERAÇÃO (item 13)
+# Visão separada por confederação — cada Bet aparece uma única vez — com
+# upload do arquivo de relatório enviado pela Bet (um por confederação paga).
+# ============================================================================
+
+@router.get("/by-confederation")
+def report_by_confederation(
+    confederation_id: int,
+    month: date = Query(..., description="Competência (YYYY-MM-01)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Relatório mensal de uma confederação: cada Bet aparece uma única vez, com a
+    conclusão efetiva, valores recebidos na competência e o relatório enviado."""
+    if current_user.role == "confederation_viewer" and current_user.confederation_id != confederation_id:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+    from ..models.operator import BettingOperator, OperatorStatus
+    from ..services.status_service import effective_conclusions, get_paid_map, LABELS_PT
+
+    conclusions = effective_conclusions(db, confederation_id, month)
+    paid = get_paid_map(db, confederation_id, month)
+    ops = db.query(BettingOperator).filter(BettingOperator.status == OperatorStatus.active).order_by(BettingOperator.company_name).all()
+
+    rows, counts = [], {}
+    total_received = 0.0
+    for op in ops:
+        conc = conclusions.get(op.id, "inadimplente")
+        counts[conc] = counts.get(conc, 0) + 1
+        p = paid.get(op.id) or {}
+        total_received += float(p.get("total") or 0)
+        rows.append({
+            "operator_id": op.id,
+            "company_name": op.company_name,
+            "fantasy_name": op.fantasy_name,
+            "cnpj": op.cnpj,
+            "conclusion": conc,
+            "conclusion_label": LABELS_PT.get(conc, conc),
+            "received_total": float(p.get("total") or 0),
+            "last_payment_date": p.get("last_date").isoformat() if p.get("last_date") else None,
+            "report_url": p.get("report_url"),
+        })
+    return {
+        "confederation_id": confederation_id,
+        "month": month.isoformat(),
+        "rows": rows,
+        "counts": counts,
+        "total_operators": len(ops),
+        "total_received": total_received,
+        "reports_received": sum(1 for r in rows if r["report_url"]),
+    }
+
+
+@router.post("/bet-report/{operator_id}/{confederation_id}")
+async def upload_bet_report(
+    operator_id: int,
+    confederation_id: int,
+    month: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload do relatório enviado pela Bet para uma confederação numa competência.
+    Anexa ao lançamento (DirectPayment) do mês, se houver, e registra como Documento."""
+    import os, shutil, uuid
+    from ..models.payment import DirectPayment
+    from ..models.document import Document, DocumentType
+    from ..models.operator import BettingOperator
+    from ..services.audit_service import log_action
+
+    op = db.query(BettingOperator).get(operator_id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operador não encontrado")
+    ref = date.fromisoformat(month[:7] + "-01")
+
+    updir = "/app/uploads/reports"
+    os.makedirs(updir, exist_ok=True)
+    ext = os.path.splitext(file.filename or "relatorio.pdf")[1].lower()
+    filename = f"betrep_{operator_id}_{confederation_id}_{uuid.uuid4().hex}{ext}"
+    path = os.path.join(updir, filename)
+    with open(path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    url = f"/uploads/reports/{filename}"
+
+    # Anexa ao lançamento da competência, se existir (para aparecer no histórico consolidado)
+    dp = (db.query(DirectPayment)
+          .filter(DirectPayment.operator_id == operator_id,
+                  DirectPayment.confederation_id == confederation_id,
+                  DirectPayment.reference_month == ref)
+          .order_by(DirectPayment.received_date.desc())
+          .first())
+    if dp:
+        dp.report_file_url = url
+
+    doc = Document(
+        operator_id=operator_id,
+        confederation_id=confederation_id,
+        title=f"Relatório {op.fantasy_name or op.company_name} — {ref.strftime('%m/%Y')}",
+        document_type=DocumentType.report,
+        file_path=url,
+        file_name=file.filename or filename,
+        file_size=os.path.getsize(path),
+        reference_month=ref,
+        uploaded_by_id=current_user.id,
+    )
+    db.add(doc)
+    db.commit()
+    log_action(db=db, action="UPLOAD_BET_REPORT", entity_type="Document", entity_id=doc.id,
+               user_id=current_user.id, confederation_id=confederation_id,
+               description=f"Relatório da Bet #{operator_id} — competência {ref.strftime('%m/%Y')}")
+    return {"report_file_url": url, "attached_to_payment": bool(dp), "document_id": doc.id}
