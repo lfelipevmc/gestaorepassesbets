@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date
@@ -175,4 +175,184 @@ def remove_monthly(assoc_id: int, db: Session = Depends(get_db), current_user: U
     db.commit()
     log_action(db=db, action="DELETE_ENDR_ASSOCIATION", entity_type="BettingOperator", entity_id=op_id,
                user_id=current_user.id)
+    return {"ok": True}
+
+
+# ============================================================================
+# ACOMPANHAMENTO ENDR (item 9)
+# Consolida automaticamente os repasses ENDR registrados nas confederações,
+# gestão documental por competência e linha do tempo geral desde 2025.
+# ============================================================================
+
+@router.get("/acompanhamento")
+def endr_acompanhamento(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Painel consolidado do ENDR.
+
+    Os repasses ENDR são registrados nas confederações (aba Repasses ENDR de cada
+    confederação) e gravados na tabela única endr_payments — por isso são refletidos
+    aqui automaticamente, sem necessidade de novo lançamento."""
+    from ..models.payment import ENDRPayment, ENDRPaymentBetLink
+    from ..models.confederation import Confederation
+    from ..models.document import Document
+
+    confs = db.query(Confederation).order_by(Confederation.acronym).all()
+    payments = db.query(ENDRPayment).order_by(ENDRPayment.received_date.desc()).all()
+
+    # --- Resumo por confederação ---
+    by_conf = []
+    for c in confs:
+        pays = [p for p in payments if p.confederation_id == c.id]
+        total = sum(float(p.amount_received or 0) for p in pays)
+        last = max(pays, key=lambda p: p.received_date) if pays else None
+        pending_reports = sum(1 for p in pays if p.reference_month is None)
+        if not pays:
+            situacao = "sem_repasse"
+        elif pending_reports:
+            situacao = "aguardando_relatorio"
+        else:
+            situacao = "regular"
+        by_conf.append({
+            "confederation_id": c.id, "acronym": c.acronym, "name": c.name,
+            "total_received": total, "count": len(pays),
+            "last_date": last.received_date.isoformat() if last else None,
+            "last_amount": float(last.amount_received) if last else None,
+            "pending_reports": pending_reports, "situacao": situacao,
+        })
+
+    conf_map = {c.id: c.acronym for c in confs}
+
+    # --- Histórico de repasses (todos) ---
+    pay_rows = []
+    for p in payments:
+        ops = [{"operator_id": l.operator_id,
+                "name": (l.operator.fantasy_name or l.operator.company_name) if l.operator else "?"}
+               for l in p.bet_links]
+        pay_rows.append({
+            "id": p.id, "confederation_id": p.confederation_id,
+            "acronym": conf_map.get(p.confederation_id, "?"),
+            "reference_month": p.reference_month.isoformat() if p.reference_month else None,
+            "amount_received": float(p.amount_received or 0),
+            "received_date": p.received_date.isoformat(),
+            "report_file_url": p.report_file_url,
+            "operators": ops, "notes": p.notes,
+        })
+
+    # --- Linha do tempo mensal desde jan/2025 ---
+    assocs = db.query(EndrAssociation).filter(EndrAssociation.is_associated == True).all()
+    # mês -> set de operator_ids associados
+    month_ops: dict = {}
+    op_names: dict = {}
+    for a in assocs:
+        ym = a.reference_month.strftime("%Y-%m")
+        month_ops.setdefault(ym, set()).add(a.operator_id)
+        if a.operator_id not in op_names and a.operator:
+            op_names[a.operator_id] = a.operator.fantasy_name or a.operator.company_name
+
+    today = date.today()
+    months = []
+    y, m = 2025, 1
+    while (y, m) <= (today.year, today.month):
+        months.append(f"{y}-{m:02d}")
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+
+    # relatórios por competência
+    reports_by_month: dict = {}
+    for p in payments:
+        if p.reference_month:
+            reports_by_month.setdefault(p.reference_month.strftime("%Y-%m"), []).append({
+                "payment_id": p.id, "acronym": conf_map.get(p.confederation_id, "?"),
+                "amount": float(p.amount_received or 0), "operators_count": len(p.bet_links),
+            })
+
+    timeline = []
+    prev: set = set()
+    for ym in months:
+        cur = month_ops.get(ym, set())
+        entered = sorted(op_names.get(i, f"#{i}") for i in cur - prev)
+        left = sorted(op_names.get(i, f"#{i}") for i in prev - cur)
+        timeline.append({
+            "month": ym, "associated_count": len(cur),
+            "entered": entered, "left": left,
+            "reports": reports_by_month.get(ym, []),
+        })
+        prev = cur
+    timeline.reverse()  # mais recente primeiro
+
+    # --- Documentos ENDR (gestão documental por competência) ---
+    docs = (db.query(Document)
+            .filter(Document.description.like("[ENDR]%"))
+            .order_by(Document.reference_month.desc().nullslast(), Document.created_at.desc())
+            .all())
+    doc_rows = [{
+        "id": d.id, "title": d.title, "file_name": d.file_name,
+        "file_path": d.file_path, "file_size": d.file_size,
+        "confederation_id": d.confederation_id,
+        "acronym": conf_map.get(d.confederation_id) if d.confederation_id else None,
+        "reference_month": d.reference_month.isoformat() if d.reference_month else None,
+        "created_at": d.created_at.isoformat() if d.created_at else None,
+        "description": (d.description or "").replace("[ENDR]", "").strip() or None,
+    } for d in docs]
+
+    total_geral = sum(r["total_received"] for r in by_conf)
+    return {
+        "confederations": by_conf, "payments": pay_rows,
+        "timeline": timeline, "documents": doc_rows,
+        "total_geral": total_geral,
+        "pending_reports_total": sum(r["pending_reports"] for r in by_conf),
+    }
+
+
+@router.post("/documents")
+async def upload_endr_document(
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    reference_month: Optional[str] = Form(None),
+    confederation_id: Optional[int] = Form(None),
+    description: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_office),
+):
+    """Upload de documento do ENDR vinculado a uma competência (relatórios, listas, ofícios)."""
+    import os, shutil, uuid
+    from ..models.document import Document, DocumentType
+    updir = "/app/uploads/documents"
+    os.makedirs(updir, exist_ok=True)
+    ext = os.path.splitext(file.filename or "doc")[1].lower()
+    filename = f"endr_doc_{uuid.uuid4().hex}{ext}"
+    path = os.path.join(updir, filename)
+    with open(path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    ref = None
+    if reference_month:
+        ref = date.fromisoformat(reference_month[:7] + "-01")
+    doc = Document(
+        confederation_id=confederation_id,
+        title=title or (file.filename or "Documento ENDR"),
+        document_type=DocumentType.report,
+        file_path=f"/uploads/documents/{filename}",
+        file_name=file.filename or filename,
+        file_size=os.path.getsize(path),
+        description=f"[ENDR] {description or ''}".strip(),
+        reference_month=ref,
+        uploaded_by_id=current_user.id,
+    )
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+    log_action(db=db, action="UPLOAD_ENDR_DOCUMENT", entity_type="Document", entity_id=doc.id,
+               new_values={"title": doc.title, "reference_month": str(ref)}, user_id=current_user.id)
+    return {"id": doc.id, "file_path": doc.file_path}
+
+
+@router.delete("/documents/{doc_id}")
+def delete_endr_document(doc_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    from ..models.document import Document
+    doc = db.query(Document).filter(Document.id == doc_id, Document.description.like("[ENDR]%")).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento ENDR não encontrado")
+    db.delete(doc)
+    db.commit()
+    log_action(db=db, action="DELETE_ENDR_DOCUMENT", entity_type="Document", entity_id=doc_id, user_id=current_user.id)
     return {"ok": True}

@@ -87,6 +87,9 @@ export const getEndrMonthly = (month: string) => api.get("/api/endr/monthly", { 
 export const getEndrAvailableOperators = (month: string) => api.get("/api/endr/operators-available", { params: { month } });
 export const addEndrMonthly = (data: any) => api.post("/api/endr/monthly", data);
 export const removeEndrMonthly = (assocId: number) => api.delete(`/api/endr/monthly/${assocId}`);
+export const getEndrAcompanhamento = () => api.get("/api/endr/acompanhamento");
+export const uploadEndrDocument = (form: FormData) => api.post("/api/endr/documents", form, { headers: { "Content-Type": "multipart/form-data" } });
+export const deleteEndrDocument = (docId: number) => api.delete(`/api/endr/documents/${docId}`);
 
 // Import
 export const importOperators = (formData: FormData) => api.post('/api/operators/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } });

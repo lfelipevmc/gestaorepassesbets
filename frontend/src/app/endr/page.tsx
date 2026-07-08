@@ -5,7 +5,24 @@ import {
   getEndrEntity, updateEndrEntity,
   getEndrMonthly, getEndrAvailableOperators,
   addEndrMonthly, removeEndrMonthly,
+  getEndrAcompanhamento, uploadEndrDocument, deleteEndrDocument,
 } from "@/lib/api";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+const SITUACAO: Record<string, { label: string; cls: string }> = {
+  regular: { label: "Regular", cls: "bg-success/15 text-success border-success/30" },
+  aguardando_relatorio: { label: "Aguardando relatório", cls: "bg-warning/15 text-warning border-warning/30" },
+  sem_repasse: { label: "Sem repasse", cls: "bg-surface text-muted border-surface-border" },
+};
+
+function fmtBRL(v: number) {
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+function fmtMonth(ym?: string | null) {
+  if (!ym) return "—";
+  return new Date(ym.slice(0, 7) + "-15T12:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+}
 
 type ENDREntity = {
   id: number; name: string; cnpj?: string; website?: string;
@@ -33,9 +50,38 @@ export default function EndrPage() {
   const [addForm, setAddForm] = useState<{ operator_ids: number[]; months: string[]; notes: string; opFilter: string }>({ operator_ids: [], months: [], notes: "", opFilter: "" });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [tab, setTab] = useState<"acomp" | "mensal">("acomp");
+  const [acomp, setAcomp] = useState<any>(null);
+  const [showUpload, setShowUpload] = useState(false);
+  const [docForm, setDocForm] = useState<{ file: File | null; title: string; month: string; conf: string; description: string }>({ file: null, title: "", month: "", conf: "", description: "" });
+  const [uploading, setUploading] = useState(false);
 
-  useEffect(() => { loadEntity(); }, []);
+  useEffect(() => { loadEntity(); loadAcomp(); }, []);
   useEffect(() => { loadMonthly(); }, [month]);
+
+  async function loadAcomp() {
+    try { const r = await getEndrAcompanhamento(); setAcomp(r.data); } catch { /* ignore */ }
+  }
+
+  async function handleUploadDoc(e: React.FormEvent) {
+    e.preventDefault();
+    if (!docForm.file) { alert("Selecione um arquivo."); return; }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", docForm.file);
+      fd.append("title", docForm.title || docForm.file.name);
+      if (docForm.month) fd.append("reference_month", docForm.month + "-01");
+      if (docForm.conf) fd.append("confederation_id", docForm.conf);
+      if (docForm.description) fd.append("description", docForm.description);
+      await uploadEndrDocument(fd);
+      setShowUpload(false);
+      setDocForm({ file: null, title: "", month: "", conf: "", description: "" });
+      loadAcomp();
+      setMsg("Documento ENDR salvo com sucesso.");
+    } catch (err: any) { alert(err.response?.data?.detail || "Erro ao enviar documento"); }
+    finally { setUploading(false); }
+  }
 
   async function loadEntity() {
     try { const r = await getEndrEntity(); setEntity(r.data); setEntityForm(r.data); }
@@ -186,7 +232,186 @@ export default function EndrPage() {
         )}
       </div>
 
+      {/* Abas */}
+      <div className="flex gap-2 border-b border-surface-border">
+        {[{ id: "acomp", label: "📊 Acompanhamento" }, { id: "mensal", label: "📋 Bets Associadas (mensal)" }].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id as any)}
+            className={`px-4 py-2 text-sm rounded-t-lg border-b-2 -mb-px transition-colors ${tab === t.id ? "border-primary text-primary font-semibold" : "border-transparent text-muted hover:text-white"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "acomp" && (
+        <div className="space-y-6">
+          {/* Resumo por confederação — consolidado automaticamente */}
+          <div className="bg-surface-card border border-surface-border rounded-xl p-6">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-lg font-semibold text-white">Repasses ENDR por Confederação</h2>
+              {acomp && <span className="text-sm text-muted">Total geral: <span className="text-white font-semibold">{fmtBRL(acomp.total_geral || 0)}</span></span>}
+            </div>
+            <p className="text-xs text-muted mb-4">Consolidação automática dos repasses registrados na aba "Repasses ENDR" de cada confederação — não é necessário lançar novamente aqui.</p>
+            {!acomp ? <p className="text-muted text-sm">Carregando...</p> : (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {acomp.confederations.map((c: any) => {
+                  const sit = SITUACAO[c.situacao] || SITUACAO.sem_repasse;
+                  return (
+                    <div key={c.confederation_id} className="bg-surface border border-surface-border rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <a href={`/confederacoes/${c.confederation_id}`} className="font-semibold text-white hover:text-primary">{c.acronym}</a>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${sit.cls}`}>{sit.label}</span>
+                      </div>
+                      <p className="text-xl font-bold text-white">{fmtBRL(c.total_received)}</p>
+                      <p className="text-[11px] text-muted mt-1">{c.count} repasse(s){c.pending_reports ? ` · ${c.pending_reports} sem relatório` : ""}</p>
+                      <p className="text-[11px] text-muted">Último: {c.last_date ? new Date(c.last_date + "T12:00:00").toLocaleDateString("pt-BR") : "—"}{c.last_amount != null ? ` · ${fmtBRL(c.last_amount)}` : ""}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Histórico de repasses */}
+          {acomp && acomp.payments.length > 0 && (
+            <div className="bg-surface-card border border-surface-border rounded-xl p-6">
+              <h2 className="text-lg font-semibold text-white mb-4">Histórico de Repasses</h2>
+              <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-surface-border text-left text-xs text-muted">
+                      <th className="py-2 px-3">Confederação</th>
+                      <th className="py-2 px-3">Data recebimento</th>
+                      <th className="py-2 px-3">Valor</th>
+                      <th className="py-2 px-3">Competência</th>
+                      <th className="py-2 px-3">Operadores no relatório</th>
+                      <th className="py-2 px-3">Relatório</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {acomp.payments.map((p: any) => (
+                      <tr key={p.id} className="border-b border-surface-border/50 hover:bg-surface-border/30">
+                        <td className="py-2 px-3 text-white font-medium">{p.acronym}</td>
+                        <td className="py-2 px-3 text-slate-300">{new Date(p.received_date + "T12:00:00").toLocaleDateString("pt-BR")}</td>
+                        <td className="py-2 px-3 text-slate-200">{fmtBRL(p.amount_received)}</td>
+                        <td className="py-2 px-3 capitalize">{p.reference_month ? fmtMonth(p.reference_month) : <span className="text-warning text-xs">a definir</span>}</td>
+                        <td className="py-2 px-3 text-slate-400 text-xs">{p.operators.length > 0 ? `${p.operators.length} bet(s)` : "—"}</td>
+                        <td className="py-2 px-3">{p.report_file_url ? <a href={API_BASE + p.report_file_url} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline">Ver</a> : <span className="text-muted text-xs">—</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Gestão documental */}
+          <div className="bg-surface-card border border-surface-border rounded-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Documentos ENDR</h2>
+                <p className="text-xs text-muted mt-0.5">Relatórios, listas e ofícios do ENDR, vinculados à competência.</p>
+              </div>
+              <button onClick={() => setShowUpload(v => !v)} className="px-4 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors">
+                {showUpload ? "Cancelar" : "+ Documento"}
+              </button>
+            </div>
+            {showUpload && (
+              <form onSubmit={handleUploadDoc} className="mb-4 bg-surface-border rounded-lg p-4 grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-xs text-muted mb-1">Arquivo *</label>
+                  <input type="file" className="text-sm text-slate-300" onChange={e => setDocForm(f => ({ ...f, file: e.target.files?.[0] || null }))} />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">Título</label>
+                  <input className="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-sm text-white" value={docForm.title} onChange={e => setDocForm(f => ({ ...f, title: e.target.value }))} placeholder="ex: Relatório ENDR mai/2025" />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">Competência</label>
+                  <input type="month" className="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-sm text-white" value={docForm.month} onChange={e => setDocForm(f => ({ ...f, month: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">Confederação (opcional)</label>
+                  <select className="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-sm text-white" value={docForm.conf} onChange={e => setDocForm(f => ({ ...f, conf: e.target.value }))}>
+                    <option value="">— Geral / todas —</option>
+                    {(acomp?.confederations || []).map((c: any) => <option key={c.confederation_id} value={c.confederation_id}>{c.acronym}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-muted mb-1">Descrição (opcional)</label>
+                  <input className="w-full bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-sm text-white" value={docForm.description} onChange={e => setDocForm(f => ({ ...f, description: e.target.value }))} />
+                </div>
+                <div className="col-span-2">
+                  <button type="submit" disabled={uploading} className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 disabled:opacity-50">{uploading ? "Enviando..." : "Salvar documento"}</button>
+                </div>
+              </form>
+            )}
+            {(!acomp || acomp.documents.length === 0) ? (
+              <p className="text-muted text-sm">Nenhum documento ENDR cadastrado.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-surface-border text-left text-xs text-muted">
+                    <th className="py-2 px-3">Título</th>
+                    <th className="py-2 px-3">Competência</th>
+                    <th className="py-2 px-3">Confederação</th>
+                    <th className="py-2 px-3">Enviado em</th>
+                    <th className="py-2 px-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {acomp.documents.map((d: any) => (
+                    <tr key={d.id} className="border-b border-surface-border/50 hover:bg-surface-border/30">
+                      <td className="py-2 px-3 text-white">{d.title}{d.description ? <span className="block text-[11px] text-muted">{d.description}</span> : null}</td>
+                      <td className="py-2 px-3 capitalize">{fmtMonth(d.reference_month)}</td>
+                      <td className="py-2 px-3 text-slate-300">{d.acronym || "Geral"}</td>
+                      <td className="py-2 px-3 text-slate-400 text-xs">{d.created_at ? new Date(d.created_at).toLocaleDateString("pt-BR") : "—"}</td>
+                      <td className="py-2 px-3 text-right whitespace-nowrap">
+                        <a href={API_BASE + d.file_path} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline mr-3">Baixar</a>
+                        <button onClick={async () => { if (confirm("Excluir este documento?")) { await deleteEndrDocument(d.id); loadAcomp(); } }} className="text-danger text-xs hover:underline">Excluir</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Linha do tempo */}
+          <div className="bg-surface-card border border-surface-border rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-1">Linha do Tempo — desde jan/2025</h2>
+            <p className="text-xs text-muted mb-4">Entradas e saídas de agentes do ENDR e competências cobertas por relatório, mês a mês.</p>
+            {!acomp ? <p className="text-muted text-sm">Carregando...</p> : (
+              <div className="space-y-3 max-h-[520px] overflow-y-auto pr-2">
+                {acomp.timeline.map((t: any) => (
+                  <div key={t.month} className="flex gap-4 items-start">
+                    <div className="w-24 flex-shrink-0 text-right">
+                      <p className="text-sm text-white font-medium capitalize">{fmtMonth(t.month)}</p>
+                      <p className="text-[11px] text-muted">{t.associated_count} associada(s)</p>
+                    </div>
+                    <div className="flex-1 border-l-2 border-surface-border pl-4 pb-2 min-w-0">
+                      {t.entered.length === 0 && t.left.length === 0 && t.reports.length === 0 && (
+                        <p className="text-xs text-muted italic">Sem movimentação.</p>
+                      )}
+                      {t.entered.length > 0 && (
+                        <p className="text-xs text-success mb-1">▲ Entraram: <span className="text-slate-300">{t.entered.join(", ")}</span></p>
+                      )}
+                      {t.left.length > 0 && (
+                        <p className="text-xs text-danger mb-1">▼ Saíram: <span className="text-slate-300">{t.left.join(", ")}</span></p>
+                      )}
+                      {t.reports.map((r: any, i: number) => (
+                        <p key={i} className="text-xs text-primary">📄 Relatório {r.acronym}: {fmtBRL(r.amount)} · {r.operators_count} bet(s) nesta competência</p>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Visão Mensal */}
+      {tab === "mensal" && (
       <div className="bg-surface-card border border-surface-border rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-4">
@@ -317,6 +542,7 @@ export default function EndrPage() {
           </div>
         )}
       </div>
+      )}
     </div>
     </AppShell>
   );
