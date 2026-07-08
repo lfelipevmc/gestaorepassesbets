@@ -740,17 +740,25 @@ def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional
         })
         return docs
 
-    def add_detail(campo_x, label):
-        det, dd = fetch_processo_detail(client, di, 0, filtro_campo=campo_x)
-        cr, ex = 0, None
-        if det:
-            f = extract_processo_fields(det)
-            if f.get("responsaveis"):
-                cr = 1
-                ex = {"numero": f.get("numero"),
-                      "responsaveis": [r["nome"] for r in f["responsaveis"] if r.get("nome")][:12]}
+    def add_detail(campo_x, label, scan=1):
+        # Varre as primeiras posições até achar um processo COM responsáveis
+        # (nem todo tipo de processo os lista — ex.: relatórios de auditoria).
+        cr, ex, det, dd, any_det = 0, None, None, {}, False
+        for idx in range(max(1, scan)):
+            det_i, dd = fetch_processo_detail(client, di, idx, filtro_campo=campo_x)
+            if det_i:
+                any_det = True
+                det = det_i
+                f = extract_processo_fields(det_i)
+                if f.get("responsaveis"):
+                    cr = 1
+                    ex = {"numero": f.get("numero"),
+                          "responsaveis": [r["nome"] for r in f["responsaveis"] if r.get("nome")][:12]}
+                    break
+            else:
+                break  # posição vazia → não adianta continuar
         attempts.append({
-            "label": label, "status": dd.get("status"), "count": 1 if det else 0, "total": None,
+            "label": label, "status": dd.get("status"), "count": 1 if any_det else 0, "total": None,
             "error": dd.get("error"), "http_status": dd.get("http_status"),
             "content_encoding": dd.get("content_encoding"), "body_len": dd.get("body_len"),
             "raw_sample": dd.get("raw_sample"),
@@ -762,11 +770,12 @@ def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional
     add_list(campo, "Lista de processos (resumido)")
     add_detail(campo, "Registro completo do 1º processo (responsáveis)")
 
-    # 2) validação por "qualquer movimentação" (se o configurado não for esse)
+    # 2) validação por "qualquer movimentação" (se o configurado não for esse) —
+    #    varre alguns processos para achar um com responsáveis e provar a captura.
     if campo.upper() != "DTATUALIZACAO":
         docs_val = add_list("DTATUALIZACAO", "Validação — qualquer movimentação (lista)")
         if docs_val:
-            add_detail("DTATUALIZACAO", "Validação — responsáveis (qualquer movimentação)")
+            add_detail("DTATUALIZACAO", "Validação — responsáveis (qualquer movimentação)", scan=8)
 
     best = next((a for a in attempts if a["com_responsaveis"]), None) \
         or next((a for a in attempts if a["count"]), None) or attempts[0]
