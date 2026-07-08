@@ -3,11 +3,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
-import { getFinanceSummary, getFinanceByConfederation, getOperators } from "@/lib/api";
+import { getFinanceSummary, getFinanceByConfederation, getInadimplenciaHistory } from "@/lib/api";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from "recharts";
 
 type Alert = {
@@ -21,7 +21,8 @@ type Alert = {
 
 export default function DashboardPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [history, setHistory] = useState<any[]>([]);
+  const [inad, setInad] = useState<any>(null);          // {labels, series[]} — inadimplentes por confederação
+  const [inadStart, setInadStart] = useState<string>(""); // "YYYY-MM" início da janela (vazio = últimos 6 meses)
   const [summary, setSummary] = useState<any>(null);
   const [byConf, setByConf] = useState<any[]>([]);
   const [transparency, setTransparency] = useState<any>(null);
@@ -30,18 +31,45 @@ export default function DashboardPage() {
   useEffect(() => {
     Promise.all([
       api.get("/api/alerts/"),
-      api.get("/api/alerts/compliance-history"),
       getFinanceSummary(),
       getFinanceByConfederation(),
       api.get("/api/alerts/transparency"),
-    ]).then(([al, hist, sum, byc, tr]) => {
+    ]).then(([al, sum, byc, tr]) => {
       setAlerts(al.data.alerts || []);
-      setHistory(hist.data.history || []);
       setSummary(sum.data);
       setByConf(byc.data || []);
       setTransparency(tr.data);
     }).finally(() => setLoading(false));
+    loadInad("");
   }, []);
+
+  function defaultStart() {
+    // últimos 6 meses terminando no mês atual
+    const d = new Date(); d.setMonth(d.getMonth() - 5);
+    const min = new Date(2025, 0, 1);
+    const eff = d < min ? min : d;
+    return `${eff.getFullYear()}-${String(eff.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function loadInad(start: string) {
+    const st = start || defaultStart();
+    getInadimplenciaHistory({ start: st, months: 6 })
+      .then(r => { setInad(r.data); setInadStart(st); })
+      .catch(() => {});
+  }
+
+  function shiftInad(delta: number) {
+    const base = inadStart || defaultStart();
+    const [y, m] = base.split("-").map(Number);
+    let ny = y, nm = m + delta;
+    while (nm <= 0) { nm += 12; ny -= 1; }
+    while (nm > 12) { nm -= 12; ny += 1; }
+    let next = `${ny}-${String(nm).padStart(2, "0")}`;
+    if (next < "2025-01") next = "2025-01";
+    const mx = inad?.max_month || defaultStart();
+    if (next > mx) next = mx;
+    loadInad(next);
+  }
 
   const criticalAlerts = alerts.filter(a => a.level === "critical");
   const warningAlerts = alerts.filter(a => a.level === "warning");
@@ -139,31 +167,49 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            {/* Evolução mensal */}
+            {/* Evolução de Inadimplentes — por confederação, navegável desde jan/2025 */}
             <div className="card lg:col-span-2">
-              <h2 className="font-semibold text-white mb-4 text-sm">Evolução da Adimplência — Últimos 6 Meses</h2>
-              {history.some(h => h.rate !== null) ? (
-                <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={history}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2d3748" />
-                    <XAxis dataKey="month" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-                    <YAxis domain={[0, 100]} tick={{ fill: "#94a3b8", fontSize: 11 }} unit="%" />
-                    <Tooltip
-                      formatter={(v: any) => [`${v}%`, "Adimplência"]}
-                      contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }}
-                      labelStyle={{ color: "#e2e8f0" }}
-                    />
-                    <Line
-                      type="monotone" dataKey="rate" stroke="#6366f1" strokeWidth={2}
-                      dot={{ fill: "#6366f1", r: 4 }} connectNulls={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-[200px] flex items-center justify-center text-muted text-sm">
-                  Dados insuficientes — registre ciclos de cobrança para visualizar a evolução.
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-semibold text-white text-sm">Evolução de Inadimplentes <span className="text-muted font-normal">— por confederação</span></h2>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => shiftInad(-6)} className="px-2 py-0.5 text-xs border border-surface-border rounded hover:bg-surface text-slate-300" title="6 meses anteriores">«</button>
+                  <button onClick={() => shiftInad(-1)} className="px-2 py-0.5 text-xs border border-surface-border rounded hover:bg-surface text-slate-300" title="Mês anterior">‹</button>
+                  <span className="text-[11px] text-muted px-1">{inad?.labels?.[0] || ""} — {inad?.labels?.[inad?.labels?.length - 1] || ""}</span>
+                  <button onClick={() => shiftInad(1)} className="px-2 py-0.5 text-xs border border-surface-border rounded hover:bg-surface text-slate-300" title="Próximo mês">›</button>
+                  <button onClick={() => shiftInad(6)} className="px-2 py-0.5 text-xs border border-surface-border rounded hover:bg-surface text-slate-300" title="6 meses à frente">»</button>
+                  <button onClick={() => loadInad("")} className="px-2 py-0.5 text-xs border border-surface-border rounded hover:bg-surface text-slate-300" title="Janela atual">Hoje</button>
                 </div>
+              </div>
+              {inad && inad.labels?.length ? (() => {
+                const CORES = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#a855f7", "#ec4899", "#84cc16"];
+                const data = inad.labels.map((lb: string, i: number) => {
+                  const row: any = { month: lb };
+                  inad.series.forEach((sr: any) => { row[sr.acronym] = sr.data[i]; });
+                  return row;
+                });
+                return (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={data}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#2d3748" />
+                      <XAxis dataKey="month" tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                      <YAxis allowDecimals={false} tick={{ fill: "#94a3b8", fontSize: 11 }} />
+                      <Tooltip
+                        contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }}
+                        labelStyle={{ color: "#e2e8f0" }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      {inad.series.map((sr: any, i: number) => (
+                        <Line key={sr.acronym} type="monotone" dataKey={sr.acronym}
+                          stroke={CORES[i % CORES.length]} strokeWidth={2}
+                          dot={{ fill: CORES[i % CORES.length], r: 3 }} />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                );
+              })() : (
+                <div className="h-[220px] flex items-center justify-center text-muted text-sm">Carregando histórico...</div>
               )}
+              <p className="text-[11px] text-muted mt-2">Histórico desde janeiro/2025; novos meses entram automaticamente. Use as setas para navegar.</p>
             </div>
 
             {/* Por confederação */}
