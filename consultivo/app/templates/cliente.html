@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ cliente.nome }} — Mensura{% endblock %}
+{% block content %}
+  <p class="crumb"><a href="/">Visão Geral</a> · Cliente</p>
+  <h1>{{ cliente.nome }}</h1>
+  <p class="sub">{% if cliente.empresa %}{{ cliente.empresa }} · {% endif %}{{ cliente.telefone }}</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="lbl">Atendimentos</div><div class="num">{{ ag.n_atendimentos }}</div></div>
+    <div class="tile"><div class="lbl">Esforço</div><div class="num">{{ ag.horas }} h</div></div>
+    <div class="tile"><div class="lbl">Valor equivalente</div><div class="num accent">{{ ag.valor_equivalente|moeda }}</div></div>
+    <div class="tile"><div class="lbl">Contrato/mês</div><div class="num">{{ ag.contrato_mensal|moeda }}</div></div>
+    <div class="tile"><div class="lbl">Tarefas abertas</div><div class="num">{{ ag.tarefas_abertas }}</div></div>
+  </div>
+
+  <div class="gap">
+    <div>
+      <div class="lbl">Valor entregue</div>
+      <div class="big">{{ ag.valor_equivalente|moeda }}</div>
+    </div>
+    <div class="vs">Contrato atual: <b>{{ ag.contrato_mensal|moeda }}/mês</b><br>
+      No trimestre: <b>{{ ag.contrato_periodo|moeda }}</b> → base para reajuste.</div>
+  </div>
+
+  <div class="actions">
+    <a class="btn" href="/clientes/{{ cliente.id }}/relatorio">Gerar Relatório de Valor Entregue</a>
+  </div>
+
+  <h2>Atendimentos</h2>
+  {% if atendimentos %}
+    <div class="card">
+      {% for a in atendimentos %}
+      <div class="at">
+        <div class="head">
+          <div class="meta">
+            <span class="when">{{ a.inicio|dt }}</span>
+            {% if a.tema %}<span class="pill tema">{{ a.tema }}</span>{% endif %}
+            <span class="pill {{ 'alta' if a.complexidade == 'alta' else '' }}">{{ a.complexidade }}</span>
+            <span class="pill">{{ a.num_mensagens }} msg</span>
+            {% if a.gerou_providencia %}<span class="badge">providência</span>{% endif %}
+          </div>
+          <div class="money">{{ a.valor_equivalente|moeda }} · {{ a.minutos_estimados }} min</div>
+        </div>
+        <p>{{ a.resumo }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="note">Fonte da medição: {{ atendimentos[0].fonte_medicao or 'heurística' }}. Valores estimados e auditáveis.</p>
+  {% else %}
+    <div class="card"><p class="empty">Nenhum atendimento medido ainda.</p></div>
+  {% endif %}
+
+  <h2>Tarefas</h2>
+  {% if tarefas %}
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Tarefa</th><th>Origem</th><th class="val">Status</th></tr></thead>
+        <tbody>
+          {% for t in tarefas %}
+          <tr>
+            <td><b>{{ t.titulo }}</b>{% if t.descricao %}<br><span class="note">{{ t.descricao }}</span>{% endif %}</td>
+            <td>{% if t.atendimento_id %}Atendimento #{{ t.atendimento_id }}{% else %}—{% endif %}</td>
+            <td class="val"><span class="pill {{ 'alta' if t.status == 'aberta' else '' }}">{{ t.status }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="card"><p class="empty">Nenhuma providência gerada — a maioria dos atendimentos se resolve na própria conversa.</p></div>
+  {% endif %}
+{% endblock %}

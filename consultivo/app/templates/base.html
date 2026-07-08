@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Mensura{% endblock %}</title>
+<style>
+  :root{
+    --paper:#f5f4ef; --surface:#fffefb; --surface-2:#efeee7;
+    --ink:#182029; --muted:#58636d; --line:#e0ded4; --line-2:#cfcdc0;
+    --accent:#1b6b52; --accent-soft:#e6efe9; --gold:#8f7229;
+    --good:#1b6b52; --warn:#8f7229;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Code","Roboto Mono",Menlo,monospace;
+    --shadow:0 1px 2px rgba(24,32,41,.04),0 8px 24px rgba(24,32,41,.05);
+  }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+    --paper:#10161c; --surface:#19212a; --surface-2:#1f2831;
+    --ink:#ecebe4; --muted:#9aa6b0; --line:rgba(255,255,255,.10); --line-2:rgba(255,255,255,.16);
+    --accent:#54b18d; --accent-soft:rgba(84,177,141,.12); --gold:#c6a24e; --good:#54b18d; --warn:#c6a24e;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .top{border-bottom:1px solid var(--line);background:var(--surface)}
+  .top .in{max-width:1020px;margin:0 auto;padding:.9rem 1.2rem;display:flex;align-items:baseline;justify-content:space-between;gap:1rem}
+  .brand{font-family:var(--serif);font-size:1.3rem;font-weight:600;color:var(--ink)}
+  .brand a{color:inherit}
+  .brand .dot{color:var(--accent)}
+  .top .tag{font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .wrap{max-width:1020px;margin:0 auto;padding:clamp(1.4rem,4vw,2.6rem) 1.2rem 4rem}
+  h1{font-family:var(--serif);font-weight:600;font-size:clamp(1.6rem,4vw,2.2rem);letter-spacing:-.01em;margin:0 0 .2rem;text-wrap:balance}
+  h2{font-family:var(--serif);font-weight:600;font-size:1.35rem;margin:2rem 0 .8rem}
+  .sub{color:var(--muted);margin:.1rem 0 0}
+  .crumb{font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:.6rem}
+
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem;margin:1.4rem 0}
+  .tile{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem;box-shadow:var(--shadow)}
+  .tile .lbl{font-family:var(--mono);font-size:.68rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+  .tile .num{font-family:var(--serif);font-size:1.7rem;font-weight:600;color:var(--ink);margin-top:.25rem;font-variant-numeric:tabular-nums}
+  .tile .num.accent{color:var(--accent)}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:1.2rem 1.3rem}
+  .tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+  table{width:100%;border-collapse:collapse;font-size:.92rem;min-width:560px}
+  th,td{text-align:left;padding:.7rem .95rem;border-bottom:1px solid var(--line)}
+  th{font-family:var(--mono);font-size:.68rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  td.val,th.val{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+  tbody tr:hover{background:var(--surface-2)}
+  tr:last-child td{border-bottom:none}
+
+  .pill{display:inline-block;font-family:var(--mono);font-size:.66rem;letter-spacing:.04em;text-transform:uppercase;padding:.15rem .5rem;border-radius:20px;border:1px solid var(--line-2);color:var(--muted)}
+  .pill.tema{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent);background:var(--accent-soft)}
+  .pill.alta{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,transparent)}
+  .badge{display:inline-block;font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:#fff;background:var(--gold);border-radius:6px;padding:.12rem .45rem}
+
+  .btn{display:inline-block;font-family:var(--sans);font-size:.9rem;font-weight:600;cursor:pointer;border-radius:9px;padding:.6rem 1rem;border:1px solid var(--accent);background:var(--accent);color:#fff}
+  .btn:hover{text-decoration:none;filter:brightness(1.05)}
+  .btn.ghost{background:transparent;color:var(--accent)}
+  .actions{display:flex;flex-wrap:wrap;gap:.6rem;margin:1.2rem 0}
+
+  .gap{background:var(--accent-soft);border-radius:14px;padding:1.3rem 1.4rem;margin:1.2rem 0;display:flex;flex-wrap:wrap;gap:.3rem 2rem;align-items:flex-end}
+  .gap .big{font-family:var(--serif);font-size:clamp(1.7rem,5vw,2.4rem);font-weight:600;color:var(--accent);line-height:1;font-variant-numeric:tabular-nums}
+  .gap .lbl{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  .gap .vs{color:var(--muted);font-size:.92rem}
+  .gap .vs b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+  .at{padding:1rem 0;border-bottom:1px solid var(--line)}
+  .at:last-child{border-bottom:none}
+  .at .head{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;justify-content:space-between}
+  .at .meta{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+  .at .when{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+  .at .money{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600}
+  .at p{margin:.5rem 0 0;color:var(--muted);font-size:.94rem}
+  .empty{color:var(--muted);font-size:.95rem;padding:1rem 0}
+  .note{color:var(--muted);font-size:.85rem;margin-top:.6rem}
+  code{font-family:var(--mono);font-size:.82rem;background:var(--surface-2);padding:.1rem .35rem;border-radius:5px}
+</style>
+</head>
+<body>
+  <header class="top">
+    <div class="in">
+      <div class="brand"><a href="/">Mensura<span class="dot">.</span></a></div>
+      <div class="tag">Consultivo · MVP</div>
+    </div>
+  </header>
+  <main class="wrap">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

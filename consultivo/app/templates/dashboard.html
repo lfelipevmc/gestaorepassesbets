@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Mensura — Visão Geral{% endblock %}
+{% block content %}
+  <p class="crumb">Visão Geral</p>
+  <h1>Consultivo medido por cliente</h1>
+  <p class="sub">O que foi atendido, quanto vale e o que virou providência.</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="lbl">Clientes</div><div class="num">{{ totais.clientes }}</div></div>
+    <div class="tile"><div class="lbl">Atendimentos</div><div class="num">{{ totais.atendimentos }}</div></div>
+    <div class="tile"><div class="lbl">Valor entregue</div><div class="num accent">{{ totais.valor|moeda }}</div></div>
+    <div class="tile"><div class="lbl">Tarefas abertas</div><div class="num">{{ totais.tarefas }}</div></div>
+  </div>
+
+  <div class="actions">
+    <button class="btn" onclick="seed(this)">Popular demonstração</button>
+    <a class="btn ghost" href="/">Atualizar</a>
+  </div>
+
+  {% if linhas %}
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th class="val">Atend.</th>
+          <th class="val">Horas</th>
+          <th class="val">Valor entregue</th>
+          <th class="val">Contrato/mês</th>
+          <th class="val">Tarefas</th>
+          <th class="val">Último</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in linhas %}
+        <tr>
+          <td><a href="/clientes/{{ l.cliente.id }}"><b>{{ l.cliente.nome }}</b></a>
+            {% if l.cliente.empresa %}<br><span class="note">{{ l.cliente.empresa }}</span>{% endif %}</td>
+          <td class="val">{{ l.n_atendimentos }}</td>
+          <td class="val">{{ l.horas }}</td>
+          <td class="val">{{ l.valor|moeda }}</td>
+          <td class="val">{{ l.cliente.valor_contrato_mensal|moeda }}</td>
+          <td class="val">{{ l.tarefas_abertas }}</td>
+          <td class="val">{{ l.ultimo.strftime('%d/%m') if l.ultimo else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card">
+    <p class="empty">Nenhum cliente ainda. Clique em <b>Popular demonstração</b> para ver o sistema funcionando com conversas de exemplo — ou conecte o webhook do WhatsApp.</p>
+  </div>
+  {% endif %}
+
+  <p class="note">Dados de demonstração são conversas fictícias. Em produção, as mensagens chegam pelo webhook oficial do WhatsApp Business.</p>
+
+  <script>
+    async function seed(b){
+      b.disabled = true; b.textContent = 'Populando…';
+      try { await fetch('/api/seed-demo', {method:'POST'}); }
+      finally { location.reload(); }
+    }
+  </script>
+{% endblock %}

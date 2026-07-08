@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Relatório — {{ cliente.nome }}{% endblock %}
+{% block content %}
+  <p class="crumb"><a href="/">Visão Geral</a> · <a href="/clientes/{{ cliente.id }}">{{ cliente.nome }}</a> · Relatório</p>
+  <h1>Relatório de Valor Entregue</h1>
+  <p class="sub">{{ cliente.nome }}{% if cliente.empresa %} · {{ cliente.empresa }}{% endif %} · gerado em {{ ag.gerado_em }}</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="lbl">Atendimentos</div><div class="num">{{ ag.n_atendimentos }}</div></div>
+    <div class="tile"><div class="lbl">Esforço</div><div class="num">{{ ag.horas }} h</div></div>
+    <div class="tile"><div class="lbl">Valor equivalente</div><div class="num accent">{{ ag.valor_equivalente|moeda }}</div></div>
+    <div class="tile"><div class="lbl">Tarefas abertas</div><div class="num">{{ ag.tarefas_abertas }}</div></div>
+  </div>
+
+  {% if ag.temas %}
+  <h2>Temas tratados</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Tema</th><th class="val">Atendimentos</th></tr></thead>
+      <tbody>
+        {% for tema, n in ag.temas %}
+        <tr><td>{{ tema }}</td><td class="val">{{ n }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="gap">
+    <div>
+      <div class="lbl">Valor entregue no período</div>
+      <div class="big">{{ ag.valor_equivalente|moeda }}</div>
+    </div>
+    <div class="vs">Contrato atual: <b>{{ ag.contrato_mensal|moeda }}/mês</b> · <b>{{ ag.contrato_periodo|moeda }}</b> no trimestre<br>→ base objetiva para reajuste do contrato.</div>
+  </div>
+
+  <div class="actions">
+    <a class="btn" href="/pastas/{{ ag.arquivo_rel }}" target="_blank">Abrir arquivo salvo na pasta do cliente</a>
+    <a class="btn ghost" href="/clientes/{{ cliente.id }}">Voltar ao cliente</a>
+  </div>
+  <p class="note">Uma cópia autocontida deste relatório foi gravada em <code>{{ ag.arquivo_rel }}</code> dentro da pasta do cliente.</p>
+{% endblock %}
