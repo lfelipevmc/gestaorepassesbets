@@ -85,12 +85,13 @@ def _run_light_migrations():
         except Exception as e:
             logger.warning(f"Migração: enum eventtype 'phone_contact' indisponível: {e}")
 
-        # Lançamento avulso: mês de competência passa a ser opcional (definido ao receber o relatório)
-        try:
-            with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE direct_payments ALTER COLUMN reference_month DROP NOT NULL"))
-        except Exception as e:
-            logger.warning(f"Migração: direct_payments.reference_month já é opcional: {e}")
+        # Competência opcional (definida ao receber o relatório): lançamentos avulsos e repasses ENDR
+        for tbl in ("direct_payments", "endr_payments"):
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {tbl} ALTER COLUMN reference_month DROP NOT NULL"))
+            except Exception as e:
+                logger.warning(f"Migração: {tbl}.reference_month já é opcional: {e}")
 
         try:
             with engine.begin() as conn:

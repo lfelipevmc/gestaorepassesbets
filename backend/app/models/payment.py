@@ -69,11 +69,16 @@ class PaymentReceipt(Base):
 
 
 class ENDRPayment(Base):
-    """Repasse único do ENDR cobrindo múltiplas bets."""
+    """Repasse único do ENDR cobrindo múltiplas bets.
+
+    IMPORTANTE (regra de negócio): quando o ENDR repassa, ainda NÃO se sabe a competência
+    nem quais operadores estão cobertos — isso só chega com o relatório (~30 dias depois),
+    que informa total, competência e a lista de operadores (sem individualizar valores).
+    Por isso reference_month e bet_links podem ser preenchidos posteriormente."""
     __tablename__ = "endr_payments"
     id = Column(Integer, primary_key=True)
     confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=False)
-    reference_month = Column(Date, nullable=False)
+    reference_month = Column(Date, nullable=True)   # competência: definida ao receber o relatório
     amount_received = Column(Numeric(15, 2), nullable=False)
     received_date = Column(Date, nullable=False)
     notes = Column(Text, nullable=True)

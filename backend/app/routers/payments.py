@@ -282,6 +282,56 @@ def create_endr_payment(data: ENDRPaymentCreate, db: Session = Depends(get_db), 
     return payment
 
 
+class EndrReportIn(_BaseModel):
+    reference_month: date
+    operator_ids: List[int]
+    create_associations: bool = True   # registrar também a associação ENDR desses operadores no mês
+    notes: Optional[str] = None
+
+
+@router.post("/endr/{id}/register-report", response_model=ENDRPaymentOut)
+def register_endr_report(id: int, data: EndrReportIn, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Registra as informações do relatório do ENDR (que chega ~30 dias após o repasse):
+    competência, lista de operadores cobertos (sem valores individualizados) e, opcionalmente,
+    já cria a associação ENDR desses operadores no mês de competência (suspende a cobrança)."""
+    payment = db.query(ENDRPayment).get(id)
+    if not payment:
+        raise HTTPException(status_code=404, detail="Repasse ENDR não encontrado")
+
+    payment.reference_month = data.reference_month
+    if data.notes:
+        payment.notes = ((payment.notes or "") + f"\n[Relatório] {data.notes}").strip()
+
+    # Substitui a lista de operadores cobertos pela informada no relatório
+    db.query(ENDRPaymentBetLink).filter(ENDRPaymentBetLink.endr_payment_id == id).delete()
+    for op_id in data.operator_ids:
+        db.add(ENDRPaymentBetLink(endr_payment_id=id, operator_id=op_id))
+
+    associations_created = 0
+    if data.create_associations:
+        from ..models.operator import EndrAssociation
+        for op_id in data.operator_ids:
+            exists = db.query(EndrAssociation).filter(
+                EndrAssociation.operator_id == op_id,
+                EndrAssociation.reference_month == data.reference_month,
+            ).first()
+            if not exists:
+                db.add(EndrAssociation(
+                    operator_id=op_id, reference_month=data.reference_month,
+                    is_associated=True, updated_by_id=current_user.id,
+                    notes=f"Relatório ENDR do repasse #{id}",
+                ))
+                associations_created += 1
+
+    db.commit()
+    db.refresh(payment)
+    log_action(db=db, action="ENDR_REPORT", entity_type="ENDRPayment", entity_id=id,
+               user_id=current_user.id, confederation_id=payment.confederation_id,
+               description=f"Relatório ENDR: competência {data.reference_month.strftime('%m/%Y')}, "
+                           f"{len(data.operator_ids)} operadores, {associations_created} associações criadas")
+    return payment
+
+
 @router.post("/endr/{id}/upload-report")
 async def upload_endr_report(id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(require_office)):
     payment = db.query(ENDRPayment).get(id)

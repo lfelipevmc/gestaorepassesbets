@@ -144,3 +144,84 @@ def delete_distribution_rule(id: int, rule_id: int, db: Session = Depends(get_db
     db.delete(rule)
     db.commit()
     return {"ok": True}
+
+
+# ---------- Visão Geral: operadores com anotações específicas desta confederação ----------
+
+from pydantic import BaseModel as _BM
+
+
+class _OperatorNoteIn(_BM):
+    notes: str = ""
+
+
+@router.get("/{id}/operators-overview")
+def operators_overview(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Todos os agentes operadores (do cadastro central) + anotações específicas desta confederação."""
+    from datetime import date as _date
+    from ..models.operator import BettingOperator, ContactType, OperatorConfederationInfo, EndrAssociation
+
+    conf = db.query(Confederation).get(id)
+    if not conf:
+        raise HTTPException(status_code=404, detail="Confederação não encontrada")
+    if current_user.role == "confederation_viewer" and current_user.confederation_id != id:
+        raise HTTPException(status_code=403, detail="Acesso negado")
+
+    notes_map = {
+        i.operator_id: i.notes
+        for i in db.query(OperatorConfederationInfo).filter(OperatorConfederationInfo.confederation_id == id).all()
+    }
+    today = _date.today()
+    month_start = _date(today.year, today.month, 1)
+    endr_ids = {
+        a.operator_id for a in db.query(EndrAssociation).filter(
+            EndrAssociation.reference_month == month_start, EndrAssociation.is_associated == True
+        ).all()
+    }
+
+    out = []
+    for op in db.query(BettingOperator).order_by(BettingOperator.company_name).all():
+        emails = [c.value for c in op.contacts if c.type == ContactType.email and c.value]
+        phones = [c.value for c in op.contacts if c.type in (ContactType.phone, ContactType.whatsapp) and c.value]
+        for r in op.responsibles:
+            if r.email:
+                emails.append(r.email)
+            if r.phone:
+                phones.append(r.phone)
+        out.append({
+            "operator_id": op.id,
+            "company_name": op.company_name,
+            "fantasy_name": op.fantasy_name,
+            "cnpj": op.cnpj,
+            "status": op.status.value if hasattr(op.status, "value") else op.status,
+            "authorization": op.authorization_number or op.mf_license_number,
+            "email": emails[0] if emails else None,
+            "phone": phones[0] if phones else None,
+            "brands": [b.name for b in op.brands],
+            "endr_current_month": op.id in endr_ids,
+            "notes": notes_map.get(op.id) or "",
+        })
+    return out
+
+
+@router.put("/{id}/operators/{operator_id}/note")
+def save_operator_note(
+    id: int, operator_id: int, data: _OperatorNoteIn,
+    db: Session = Depends(get_db), current_user: User = Depends(require_office),
+):
+    """Cria/atualiza a anotação específica desta confederação sobre o operador (upsert)."""
+    from ..models.operator import OperatorConfederationInfo
+    info = db.query(OperatorConfederationInfo).filter(
+        OperatorConfederationInfo.confederation_id == id,
+        OperatorConfederationInfo.operator_id == operator_id,
+    ).first()
+    if not info:
+        info = OperatorConfederationInfo(confederation_id=id, operator_id=operator_id)
+        db.add(info)
+    info.notes = data.notes
+    info.updated_by_id = current_user.id
+    db.commit()
+    log_action(db=db, action="OPERATOR_CONF_NOTE", entity_type="BettingOperator", entity_id=operator_id,
+               user_id=current_user.id, confederation_id=id,
+               description=f"Anotação da confederação atualizada ({len(data.notes)} caracteres)")
+    return {"ok": True, "notes": info.notes}

@@ -167,3 +167,22 @@ class ContactSuggestion(Base):
 
     operator = relationship("BettingOperator", back_populates="contact_suggestions")
     reviewed_by = relationship("User")
+
+
+class OperatorConfederationInfo(Base):
+    """Anotações/especificidades de um agente operador PARA uma confederação específica.
+
+    Cada confederação pode ter particularidades próprias na relação com a mesma Bet
+    (ex.: acordo específico, contato dedicado, tratativa judicial daquela entidade).
+    Um registro por par (operador, confederação)."""
+    __tablename__ = "operator_confederation_info"
+    id = Column(Integer, primary_key=True)
+    operator_id = Column(Integer, ForeignKey("betting_operators.id"), nullable=False)
+    confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=False)
+    notes = Column(Text, nullable=True)
+    updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    operator = relationship("BettingOperator")
+    updated_by = relationship("User")

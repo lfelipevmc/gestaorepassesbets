@@ -5,16 +5,18 @@ import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import {
   getConfederation, updateConfederation, uploadConfederationLogo, uploadConfederationRegulation,
-  getDistributionRules, deleteDistributionRule,
+  getDistributionRules, deleteDistributionRule, createDistributionRule, updateDistributionRule,
   getCollections, getPayments, getOperators,
   getEndrPayments, createEndrPayment, uploadEndrReport, deleteEndrPayment,
   registerReport, uploadPaymentReport,
   getDocuments, uploadDocument, downloadDocument,
 } from "@/lib/api";
 import { formatDate, formatCurrency } from "@/lib/utils";
+import { getUser } from "@/lib/auth";
+import { getConfOperatorsOverview, saveConfOperatorNote, registerEndrReport } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const TABS = ["Visão Geral", "Cadastro", "Receitas por Mês", "Repasses ENDR", "Regras de Rateio"];
+const TABS = ["Visão Geral", "Cadastro", "Ciclos de Cobrança", "Receitas por Mês", "Repasses ENDR", "Regras de Rateio"];
 
 type Conf = {
   id: number; name: string; acronym: string; cnpj?: string; website?: string; phone?: string;
@@ -69,6 +71,8 @@ export default function ConfederationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState(0);
   const [msg, setMsg] = useState("");
+  const me = getUser();
+  const [ruleModal, setRuleModal] = useState<any>(null);  // null | { rule? } — edição manual das regras (admin)
 
   const [editConf, setEditConf] = useState(false);
   const [confForm, setConfForm] = useState<Partial<Conf>>({});
@@ -81,7 +85,8 @@ export default function ConfederationDetailPage() {
   const [loadingMonth, setLoadingMonth] = useState(false);
 
   const [showEndrForm, setShowEndrForm] = useState(false);
-  const [endrForm, setEndrForm] = useState({ reference_month: toFirstOfMonth(today), amount_received: "", received_date: "", notes: "", operator_ids: [] as number[] });
+  const [endrForm, setEndrForm] = useState({ reference_month: "", amount_received: "", received_date: "", notes: "", operator_ids: [] as number[] });
+  const [endrReportModal, setEndrReportModal] = useState<any>(null);  // registrar relatório do ENDR (competência + operadores)
   const [savingEndr, setSavingEndr] = useState(false);
 
   const [reportModal, setReportModal] = useState<{ payId: number } | null>(null);
@@ -147,11 +152,33 @@ export default function ConfederationDetailPage() {
     catch { flash("Erro ao enviar logomarca."); }
   }
 
+  async function saveEndrReport() {
+    const m = endrReportModal;
+    if (!m?.reference_month) { alert("Informe a competência do relatório."); return; }
+    if (!m.operator_ids?.length) { alert("Selecione os operadores cobertos pelo relatório."); return; }
+    try {
+      await registerEndrReport(m.payment.id, {
+        reference_month: m.reference_month + "-01",
+        operator_ids: m.operator_ids,
+        create_associations: m.create_associations,
+        notes: m.notes || null,
+      });
+      setEndrReportModal(null);
+      const r = await getEndrPayments({ confederation_id: numId });
+      setEndrPayments(r.data);
+      flash(m.create_associations
+        ? "Relatório registrado. Associações ENDR do mês criadas para os operadores informados."
+        : "Relatório registrado.");
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao registrar o relatório ENDR");
+    }
+  }
+
   async function saveEndr() {
     if (!endrForm.amount_received || !endrForm.received_date) return;
     setSavingEndr(true);
     try {
-      const r = await createEndrPayment({ confederation_id: numId, reference_month: endrForm.reference_month, amount_received: parseFloat(endrForm.amount_received), received_date: endrForm.received_date, notes: endrForm.notes || null, operator_ids: endrForm.operator_ids });
+      const r = await createEndrPayment({ confederation_id: numId, reference_month: endrForm.reference_month || null, amount_received: parseFloat(endrForm.amount_received), received_date: endrForm.received_date, notes: endrForm.notes || null, operator_ids: endrForm.operator_ids });
       setEndrPayments(p => [r.data, ...p]);
       setShowEndrForm(false);
       setEndrForm({ reference_month: toFirstOfMonth(today), amount_received: "", received_date: "", notes: "", operator_ids: [] });
@@ -276,26 +303,42 @@ export default function ConfederationDetailPage() {
       </div>
 
       {/* TAB 0: VISÃO GERAL */}
-      {tab === 0 && (
+      {tab === 0 && <ConfOverview confId={numId} sigla={conf.acronym} />}
+
+      {/* TAB 2: CICLOS DE COBRANÇA */}
+      {tab === 2 && (
         <div className="space-y-6">
-          <div className="grid grid-cols-4 gap-4">
-            <div className="card text-center"><p className="text-3xl font-bold text-success mb-1">{paid}</p><p className="text-xs text-muted">Adimplentes</p></div>
-            <div className="card text-center"><p className="text-3xl font-bold text-warning mb-1">{reportPending}</p><p className="text-xs text-muted">Pend. de Relatório</p></div>
-            <div className="card text-center"><p className="text-3xl font-bold text-danger mb-1">{overdue}</p><p className="text-xs text-muted">Inadimplentes</p></div>
-            <div className="card text-center"><p className="text-xl font-bold text-success mb-1">{formatCurrency(totalReceived)}</p><p className="text-xs text-muted">Total Recebido</p></div>
-          </div>
-          <div className="card">
-            <h3 className="font-semibold text-white mb-4">Ciclos de Cobrança ({cycles.length})</h3>
-            {cycles.length === 0 ? <p className="text-muted text-sm">Nenhum ciclo criado</p> : (
-              <div className="space-y-2">
-                {cycles.slice(0, 8).map(c => (
-                  <div key={c.id} className="flex items-center justify-between p-2 bg-surface rounded-lg">
-                    <span className="text-sm text-slate-300">{formatDate(c.reference_month)}</span>
-                    <span className="text-xs text-muted capitalize">{c.status}</span>
-                  </div>
-                ))}
+          {(() => {
+            const latest = cycles.length ? cycles.reduce((a, b) => (a.reference_month > b.reference_month ? a : b)) : null;
+            const cur = latest ? payments.filter((p: any) => p.cycle_id === latest.id) : [];
+            const cnt = (sts: string[]) => cur.filter((p: any) => sts.includes(p.status)).length;
+            const adimpl = cnt(["paid", "report_pending"]);
+            return latest ? (
+              <div className="grid grid-cols-4 gap-4">
+                <div className="card text-center"><p className="text-xs text-muted mb-1">Competência vigente</p><p className="text-lg font-bold text-white">{formatDate(latest.reference_month)}</p></div>
+                <div className="card text-center"><p className="text-3xl font-bold text-success mb-1">{adimpl}</p><p className="text-xs text-muted">Adimplentes no ciclo</p></div>
+                <div className="card text-center"><p className="text-3xl font-bold text-danger mb-1">{cnt(["overdue", "pending"])}</p><p className="text-xs text-muted">Inadimplentes no ciclo</p></div>
+                <div className="card text-center"><p className="text-3xl font-bold text-white mb-1">{cur.length}</p><p className="text-xs text-muted">Bets no ciclo</p></div>
               </div>
-            )}
+            ) : null;
+          })()}
+          <div className="card p-0 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-surface"><tr>
+                <th className="table-th">Ciclo</th><th className="table-th">Competência</th><th className="table-th">Status</th><th className="table-th"></th>
+              </tr></thead>
+              <tbody>
+                {cycles.length === 0 && <tr><td colSpan={4} className="table-td text-center text-muted py-8">Nenhum ciclo criado. Crie em Cobranças.</td></tr>}
+                {cycles.slice().sort((a, b) => b.reference_month.localeCompare(a.reference_month)).map(c => (
+                  <tr key={c.id} className="border-b border-surface-border/50 hover:bg-surface-border/20">
+                    <td className="table-td text-white">#{c.id}</td>
+                    <td className="table-td">{formatDate(c.reference_month)}</td>
+                    <td className="table-td capitalize text-muted">{c.status}</td>
+                    <td className="table-td"><a href={"/cobrancas/" + c.id} className="text-primary text-xs hover:underline">Abrir ciclo</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -499,7 +542,7 @@ export default function ConfederationDetailPage() {
       )}
 
       {/* TAB 2: RECEITAS POR MÊS */}
-      {tab === 2 && (
+      {tab === 3 && (
         <div className="space-y-4">
           <div className="flex items-center gap-4">
             <label className="text-sm text-muted">Mês de referência:</label>
@@ -560,7 +603,7 @@ export default function ConfederationDetailPage() {
       )}
 
       {/* TAB 3: REPASSES ENDR */}
-      {tab === 3 && (
+      {tab === 4 && (
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <p className="text-sm text-muted">O ENDR faz um repasse único cobrindo múltiplas bets. Registre cada repasse recebido e indique as bets cobertas.</p>
@@ -571,9 +614,9 @@ export default function ConfederationDetailPage() {
               <h4 className="font-semibold text-white">Novo Repasse ENDR</h4>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs text-muted mb-1">Mês de Referência</label>
+                  <label className="block text-xs text-muted mb-1">Competência <span className="text-slate-500">(opcional — só se sabe com o relatório)</span></label>
                   <input type="month" value={endrForm.reference_month.slice(0, 7)}
-                    onChange={e => setEndrForm(f => ({ ...f, reference_month: e.target.value + "-01" }))}
+                    onChange={e => setEndrForm(f => ({ ...f, reference_month: e.target.value ? e.target.value + "-01" : "" }))}
                     className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary" />
                 </div>
                 <div>
@@ -590,7 +633,7 @@ export default function ConfederationDetailPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs text-muted mb-2">Bets que pagaram via ENDR neste mês</label>
+                <label className="block text-xs text-muted mb-2">Bets cobertas <span className="text-slate-500">(opcional — o relatório do ENDR, que chega ~30 dias depois, informa a lista; registre depois em "Registrar relatório")</span></label>
                 <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto p-2 bg-surface-border rounded-lg">
                   {operators.filter(o => o.status === "active").map(op => (
                     <label key={op.id} className="flex items-center gap-2 cursor-pointer">
@@ -619,12 +662,18 @@ export default function ConfederationDetailPage() {
             <div key={ep.id} className="card">
               <div className="flex items-center justify-between mb-2">
                 <div>
-                  <p className="font-semibold text-white">
-                    {new Date(ep.reference_month + "T12:00:00").toLocaleDateString("pt-BR", { month: "long", year: "numeric" })} — {formatCurrency(parseFloat(ep.amount_received))}
+                  <p className="font-semibold text-white capitalize">
+                    {ep.reference_month
+                      ? new Date(ep.reference_month + "T12:00:00").toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+                      : <span className="text-warning normal-case">Competência a definir (aguardando relatório)</span>} — {formatCurrency(parseFloat(ep.amount_received))}
                   </p>
-                  <p className="text-xs text-muted mt-0.5">Recebido em {formatDate(ep.received_date)} · {ep.bet_links.length} bet(s)</p>
+                  <p className="text-xs text-muted mt-0.5">Recebido em {formatDate(ep.received_date)} · {ep.bet_links.length ? ep.bet_links.length + " bet(s)" : "operadores a definir"}</p>
                 </div>
                 <div className="flex gap-2">
+                  <button onClick={() => setEndrReportModal({ payment: ep, reference_month: (ep.reference_month || "").slice(0, 7), operator_ids: ep.bet_links.map(b => b.operator_id), create_associations: true, notes: "" })}
+                    className="px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors">
+                    {ep.reference_month && ep.bet_links.length ? "Editar relatório" : "Registrar relatório"}
+                  </button>
                   {ep.report_file_url
                     ? <a href={API_URL + ep.report_file_url} target="_blank" rel="noreferrer" className="px-3 py-1.5 text-xs text-primary border border-primary/30 rounded-lg hover:bg-primary/10 transition-colors">Ver relatório</a>
                     : <label className="px-3 py-1.5 text-xs text-muted border border-surface-border rounded-lg hover:bg-surface-border cursor-pointer transition-colors">
@@ -643,7 +692,7 @@ export default function ConfederationDetailPage() {
       )}
 
       {/* TAB 4: REGRAS DE RATEIO */}
-      {tab === 4 && (
+      {tab === 5 && (
         <div className="space-y-4">
           <div className="card bg-primary/5 border-primary/20">
             <p className="text-sm text-slate-300">
@@ -705,6 +754,11 @@ export default function ConfederationDetailPage() {
             </div>
           </div>
 
+          {me?.role === "admin" && (
+            <div className="flex justify-end">
+              <button onClick={() => setRuleModal({})} className="px-4 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors">+ Nova Regra</button>
+            </div>
+          )}
           {rules.length === 0 ? (
             <p className="text-muted text-sm text-center py-6">Nenhuma regra de rateio cadastrada.</p>
           ) : (
@@ -731,8 +785,14 @@ export default function ConfederationDetailPage() {
                         )}
                       </div>
                     </div>
-                    <button onClick={() => handleDeleteRule(r.id)}
-                      className="px-2 py-1 text-xs text-danger border border-danger/30 rounded hover:bg-danger/10 transition-colors flex-shrink-0">Remover</button>
+                    <div className="flex gap-2 flex-shrink-0">
+                      {me?.role === "admin" && (
+                        <button onClick={() => setRuleModal({ rule: r })}
+                          className="px-2 py-1 text-xs text-primary border border-primary/30 rounded hover:bg-primary/10 transition-colors">Editar</button>
+                      )}
+                      <button onClick={() => handleDeleteRule(r.id)}
+                        className="px-2 py-1 text-xs text-danger border border-danger/30 rounded hover:bg-danger/10 transition-colors">Remover</button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -771,6 +831,288 @@ export default function ConfederationDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Modal: Relatório do repasse ENDR (competência + operadores cobertos) */}
+      {endrReportModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface-card border border-surface-border rounded-xl p-6 w-full max-w-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="font-semibold text-white">Relatório do Repasse ENDR — {formatCurrency(parseFloat(endrReportModal.payment.amount_received))}</h3>
+            <p className="text-xs text-muted">O relatório do ENDR informa a competência e a lista de operadores cobertos (sem individualizar valores). Registre-o aqui quando chegar.</p>
+            <div>
+              <label className="block text-xs text-muted mb-1">Competência (do relatório) *</label>
+              <input type="month" className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary max-w-[200px]"
+                value={endrReportModal.reference_month}
+                onChange={e => setEndrReportModal((m: any) => ({ ...m, reference_month: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-xs text-muted mb-1">Operadores cobertos pelo repasse *</label>
+              <div className="grid grid-cols-3 gap-1.5 max-h-56 overflow-y-auto p-2 bg-surface-border rounded-lg">
+                {operators.filter(o => o.status === "active").map(op => (
+                  <label key={op.id} className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={endrReportModal.operator_ids.includes(op.id)}
+                      onChange={e => setEndrReportModal((m: any) => ({ ...m, operator_ids: e.target.checked ? [...m.operator_ids, op.id] : m.operator_ids.filter((x: number) => x !== op.id) }))} />
+                    <span className="text-xs text-slate-300 truncate">{op.fantasy_name || op.company_name}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted mt-1">{endrReportModal.operator_ids.length} operador(es) selecionado(s)</p>
+            </div>
+            <label className="flex items-start gap-2 text-sm text-slate-300 cursor-pointer">
+              <input type="checkbox" className="mt-0.5" checked={endrReportModal.create_associations}
+                onChange={e => setEndrReportModal((m: any) => ({ ...m, create_associations: e.target.checked }))} />
+              <span>Registrar também a <b>associação ENDR</b> destes operadores na competência informada <span className="text-muted">(suspende a cobrança individual deles nesse mês)</span></span>
+            </label>
+            <div>
+              <label className="block text-xs text-muted mb-1">Observações do relatório</label>
+              <textarea rows={2} className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                value={endrReportModal.notes} onChange={e => setEndrReportModal((m: any) => ({ ...m, notes: e.target.value }))} />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setEndrReportModal(null)} className="px-4 py-2 text-sm text-muted border border-surface-border rounded-lg hover:bg-surface-border transition-colors">Cancelar</button>
+              <button onClick={saveEndrReport} className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors">Salvar Relatório</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: criar/editar regra de rateio (admin) */}
+      {ruleModal && (
+        <RuleModal confId={numId} rule={ruleModal.rule}
+          onClose={() => setRuleModal(null)}
+          onSaved={async () => { setRuleModal(null); const r = await getDistributionRules(numId); setRules(r.data); flash("Regra de rateio salva."); }} />
+      )}
     </AppShell>
+  );
+}
+
+/* ---------- Modal de regra de rateio (edição manual pelo admin) ---------- */
+function RuleModal({ confId, rule, onClose, onSaved }: any) {
+  const pct = (v: any) => (v !== null && v !== undefined && v !== "" ? String(parseFloat(v) * 100) : "");
+  const [f, setF] = useState<any>({
+    scenario_label: rule?.scenario_label || "",
+    scenario_code: rule?.scenario_code || "",
+    article_ref: rule?.article_ref || "",
+    description: rule?.description || "",
+    is_equanime: rule?.is_equanime || false,
+    confederation_pct: pct(rule?.confederation_pct),
+    athlete_pct: pct(rule?.athlete_pct),
+    entity_pct: pct(rule?.entity_pct),
+    federation_pct: pct(rule?.federation_pct),
+    order_index: rule?.order_index ?? 0,
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!f.scenario_label) { alert("Informe o nome do cenário."); return; }
+    const toFrac = (v: string) => (v === "" ? null : parseFloat(v) / 100);
+    const payload: any = {
+      scenario_label: f.scenario_label,
+      article_ref: f.article_ref || null,
+      description: f.description || null,
+      is_equanime: f.is_equanime,
+      confederation_pct: f.is_equanime ? null : toFrac(f.confederation_pct),
+      athlete_pct: f.is_equanime ? null : toFrac(f.athlete_pct),
+      entity_pct: f.is_equanime ? null : toFrac(f.entity_pct),
+      federation_pct: f.is_equanime ? null : toFrac(f.federation_pct),
+      order_index: Number(f.order_index) || 0,
+    };
+    setSaving(true);
+    try {
+      if (rule?.id) await updateDistributionRule(confId, rule.id, payload);
+      else await createDistributionRule(confId, { ...payload, scenario_code: f.scenario_code || f.scenario_label.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 40) });
+      onSaved();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao salvar regra");
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-surface-card border border-surface-border rounded-xl p-6 w-full max-w-xl space-y-4 max-h-[90vh] overflow-y-auto">
+        <h3 className="font-semibold text-white">{rule?.id ? "Editar Regra de Rateio" : "Nova Regra de Rateio"}</h3>
+        <p className="text-xs text-muted">Corrija manualmente a matriz caso o regulamento tenha sido interpretado de forma diversa. Percentuais em % (a soma usual é 100%).</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="block text-xs text-muted mb-1">Cenário (nome) *</label>
+            <input className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+              placeholder="Ex.: Evento Internacional com atleta brasileiro" value={f.scenario_label} onChange={e => setF((s: any) => ({ ...s, scenario_label: e.target.value }))} />
+          </div>
+          <div>
+            <label className="block text-xs text-muted mb-1">Referência (artigo)</label>
+            <input className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+              placeholder="Ex.: Art. 4º" value={f.article_ref} onChange={e => setF((s: any) => ({ ...s, article_ref: e.target.value }))} />
+          </div>
+          <div>
+            <label className="block text-xs text-muted mb-1">Ordem de exibição</label>
+            <input type="number" className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+              value={f.order_index} onChange={e => setF((s: any) => ({ ...s, order_index: e.target.value }))} />
+          </div>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+          <input type="checkbox" checked={f.is_equanime} onChange={e => setF((s: any) => ({ ...s, is_equanime: e.target.checked }))} />
+          Rateio equânime entre participantes (percentuais variáveis por partida)
+        </label>
+        {!f.is_equanime && (
+          <div className="grid grid-cols-4 gap-3">
+            {[["Confederação", "confederation_pct"], ["Atleta(s)", "athlete_pct"], ["Entidade/Clube", "entity_pct"], ["Federação", "federation_pct"]].map(([label, key]) => (
+              <div key={key}>
+                <label className="block text-xs text-muted mb-1">{label} (%)</label>
+                <input type="number" step="0.01" min="0" max="100" placeholder="—"
+                  className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+                  value={(f as any)[key]} onChange={e => setF((s: any) => ({ ...s, [key]: e.target.value }))} />
+              </div>
+            ))}
+          </div>
+        )}
+        <div>
+          <label className="block text-xs text-muted mb-1">Descrição</label>
+          <textarea rows={2} className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+            value={f.description} onChange={e => setF((s: any) => ({ ...s, description: e.target.value }))} />
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-muted border border-surface-border rounded-lg hover:bg-surface-border transition-colors">Cancelar</button>
+          <button onClick={save} disabled={saving} className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 disabled:opacity-50 transition-colors">{saving ? "Salvando..." : "Salvar"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Visão Geral: operadores + anotações específicas desta confederação ---------- */
+const OV_COLS: { key: string; label: string }[] = [
+  { key: "razao", label: "Razão Social" },
+  { key: "fantasia", label: "Nome Fantasia" },
+  { key: "cnpj", label: "CNPJ" },
+  { key: "status", label: "Status" },
+  { key: "autorizacao", label: "Autorização" },
+  { key: "email", label: "E-mail" },
+  { key: "phone", label: "Telefone" },
+  { key: "brands", label: "Marcas" },
+  { key: "endr", label: "ENDR mês atual" },
+];
+
+function ConfOverview({ confId, sigla }: { confId: number; sigla: string }) {
+  const storageKey = `confOverviewCols_${confId}`;
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [cols, setCols] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try { const v = JSON.parse(localStorage.getItem(storageKey) || "null"); if (Array.isArray(v) && v.length) return v; } catch { /* noop */ }
+    }
+    return ["razao", "fantasia", "cnpj", "status", "endr"];
+  });
+  const [showCols, setShowCols] = useState(false);
+  const [noteEdit, setNoteEdit] = useState<any>(null);  // { operator_id, label, notes }
+  const [savingNote, setSavingNote] = useState(false);
+
+  function load() {
+    getConfOperatorsOverview(confId).then(r => setRows(r.data)).finally(() => setLoading(false));
+  }
+  useEffect(() => { load(); }, [confId]);
+
+  function toggleCol(key: string) {
+    setCols(prev => {
+      const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
+      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* noop */ }
+      return next;
+    });
+  }
+
+  async function saveNote() {
+    setSavingNote(true);
+    try {
+      await saveConfOperatorNote(confId, noteEdit.operator_id, noteEdit.notes || "");
+      setNoteEdit(null);
+      load();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erro ao salvar anotação");
+    } finally { setSavingNote(false); }
+  }
+
+  const filtered = rows.filter(r => {
+    if (!search) return true;
+    const t = search.toLowerCase();
+    return r.company_name?.toLowerCase().includes(t) || (r.fantasy_name || "").toLowerCase().includes(t) ||
+      (r.cnpj || "").includes(t) || (r.notes || "").toLowerCase().includes(t);
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted">Todos os agentes operadores do cadastro central, com as <span className="text-slate-200">anotações específicas da {sigla}</span> sobre cada um.</p>
+        <div className="flex gap-2">
+          <input className="input max-w-xs" placeholder="Buscar por nome, CNPJ ou anotação..." value={search} onChange={e => setSearch(e.target.value)} />
+          <div className="relative">
+            <button onClick={() => setShowCols(v => !v)} className="btn-secondary">⚙ Colunas</button>
+            {showCols && (
+              <div className="absolute right-0 mt-1 bg-surface-card border border-surface-border rounded-lg shadow-xl z-20 w-56 p-2 space-y-1" onMouseLeave={() => setShowCols(false)}>
+                {OV_COLS.map(c => (
+                  <label key={c.key} className="flex items-center gap-2 text-xs text-slate-200 px-2 py-1.5 rounded hover:bg-surface cursor-pointer">
+                    <input type="checkbox" checked={cols.includes(c.key)} onChange={() => toggleCol(c.key)} />
+                    {c.label}
+                  </label>
+                ))}
+                <p className="text-[10px] text-muted px-2 pt-1">A coluna de anotações é sempre exibida.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="card p-0 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-surface">
+            <tr>
+              {OV_COLS.filter(c => cols.includes(c.key)).map(c => <th key={c.key} className="table-th">{c.label}</th>)}
+              <th className="table-th">Anotações ({sigla})</th>
+              <th className="table-th"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={cols.length + 2} className="table-td text-center text-muted py-8">Carregando...</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={cols.length + 2} className="table-td text-center text-muted py-8">Nenhum operador encontrado</td></tr>
+            ) : filtered.map(r => (
+              <tr key={r.operator_id} className="border-b border-surface-border/50 hover:bg-surface-border/20 align-top">
+                {cols.includes("razao") && <td className="table-td text-white font-medium">{r.company_name}</td>}
+                {cols.includes("fantasia") && <td className="table-td">{r.fantasy_name || "—"}</td>}
+                {cols.includes("cnpj") && <td className="table-td font-mono text-xs">{r.cnpj || "—"}</td>}
+                {cols.includes("status") && <td className="table-td capitalize text-muted">{r.status}</td>}
+                {cols.includes("autorizacao") && <td className="table-td text-xs">{r.authorization || <span className="text-warning">—</span>}</td>}
+                {cols.includes("email") && <td className="table-td text-xs">{r.email || <span className="text-danger">sem e-mail</span>}</td>}
+                {cols.includes("phone") && <td className="table-td text-xs">{r.phone || "—"}</td>}
+                {cols.includes("brands") && <td className="table-td text-xs text-muted">{r.brands?.join(", ") || "—"}</td>}
+                {cols.includes("endr") && <td className="table-td">{r.endr_current_month ? <span className="text-xs text-green-400 bg-green-900/30 px-2 py-0.5 rounded-full">ENDR</span> : <span className="text-xs text-muted">—</span>}</td>}
+                <td className="table-td text-xs text-slate-300 max-w-xs">
+                  {r.notes ? <span className="whitespace-pre-line">{r.notes}</span> : <span className="text-muted">—</span>}
+                </td>
+                <td className="table-td">
+                  <button onClick={() => setNoteEdit({ operator_id: r.operator_id, label: r.fantasy_name || r.company_name, notes: r.notes || "" })}
+                    className="text-primary text-xs hover:underline whitespace-nowrap">{r.notes ? "Editar" : "+ Anotar"}</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {noteEdit && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface-card border border-surface-border rounded-xl p-6 w-full max-w-lg space-y-4">
+            <h3 className="font-semibold text-white">Anotações da {sigla} — {noteEdit.label}</h3>
+            <p className="text-xs text-muted">Especificidades da relação desta confederação com este agente operador (acordos, tratativas, contatos dedicados, particularidades jurídicas...). Cada confederação tem as suas.</p>
+            <textarea rows={6} className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary"
+              placeholder={"Ex.: Acordo de parcelamento firmado em 03/2026; contato preferencial: jurídico da marca X..."}
+              value={noteEdit.notes} onChange={e => setNoteEdit((s: any) => ({ ...s, notes: e.target.value }))} />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setNoteEdit(null)} className="px-4 py-2 text-sm text-muted border border-surface-border rounded-lg hover:bg-surface-border transition-colors">Cancelar</button>
+              <button onClick={saveNote} disabled={savingNote} className="px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/80 disabled:opacity-50 transition-colors">{savingNote ? "Salvando..." : "Salvar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

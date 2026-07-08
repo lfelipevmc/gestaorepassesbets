@@ -262,3 +262,11 @@ export const getGgrAnalysis = (id: number) => api.get(`/api/payments/${id}/ggr-a
 // ---- Lançamento avulso: edição (definir mês depois) ----
 export const updateDirectPayment = (operatorId: number, paymentId: number, data: any) =>
   api.patch(`/api/payments/direct/${operatorId}/${paymentId}`, data);
+
+// ---- Visão geral por confederação + anotações específicas ----
+export const getConfOperatorsOverview = (id: number) => api.get(`/api/confederations/${id}/operators-overview`);
+export const saveConfOperatorNote = (id: number, operatorId: number, notes: string) =>
+  api.put(`/api/confederations/${id}/operators/${operatorId}/note`, { notes });
+
+// ---- Relatório do repasse ENDR (competência + operadores, definidos depois) ----
+export const registerEndrReport = (id: number, data: any) => api.post(`/api/payments/endr/${id}/register-report`, data);

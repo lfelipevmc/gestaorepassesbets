@@ -75,7 +75,7 @@ class ENDRPaymentBetLinkOut(BaseModel):
 class ENDRPaymentOut(BaseModel):
     id: int
     confederation_id: int
-    reference_month: date
+    reference_month: Optional[date] = None
     amount_received: Decimal
     received_date: date
     notes: Optional[str]
@@ -89,7 +89,7 @@ class ENDRPaymentOut(BaseModel):
 
 class ENDRPaymentCreate(BaseModel):
     confederation_id: int
-    reference_month: date
+    reference_month: Optional[date] = None   # competência definida depois, com o relatório
     amount_received: Decimal
     received_date: date
     notes: Optional[str] = None
