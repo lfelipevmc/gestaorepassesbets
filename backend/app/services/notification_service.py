@@ -148,7 +148,7 @@ Escritório Jurídico - Gestão de Haveres de Bets
             body_preview=(body or "")[:1000],
             to_addr=", ".join(to_addresses),
             matched=success,
-            sent_at=datetime.utcnow(),
+            sent_at=datetime.now(),
         ))
     except Exception:
         pass

@@ -6,6 +6,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-gestaobets}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      TZ: America/Sao_Paulo
+      PGTZ: America/Sao_Paulo
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,6 +23,7 @@ services:
       - "127.0.0.1:8000:8000"   # acessível só pelo host (Nginx faz o proxy público)
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/gestaobets}
+      TZ: America/Sao_Paulo
     volumes:
       - uploads_data:/app/uploads
     depends_on:

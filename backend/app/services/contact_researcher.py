@@ -98,7 +98,7 @@ def research_operator(db: Session, operator_id: int, user_id: int = None) -> dic
         "new_suggestions": new_count,
         "total_found": len(suggestions_found),
         "errors": errors,
-        "researched_at": datetime.utcnow().isoformat(),
+        "researched_at": datetime.now().isoformat(),
     }
 
 

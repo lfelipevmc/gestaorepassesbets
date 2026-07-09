@@ -28,7 +28,7 @@ def _archive_reply_as_document(db: Session, operator_id, cycle_id, subject, from
     try:
         os.makedirs(REPLIES_DIR, exist_ok=True)
         safe_subj = re.sub(r"[^\w\-]+", "_", (subject or "resposta"))[:60]
-        file_name = f"Resposta_{safe_subj}_{(received or datetime.utcnow()).strftime('%Y%m%d')}.html"
+        file_name = f"Resposta_{safe_subj}_{(received or datetime.now()).strftime('%Y%m%d')}.html"
         disk_name = f"{uuid.uuid4().hex}_{file_name}"
         file_path = os.path.join(REPLIES_DIR, disk_name)
         html = (

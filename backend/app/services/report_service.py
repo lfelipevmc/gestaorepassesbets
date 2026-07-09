@@ -45,7 +45,7 @@ def get_compliance_report(db: Session, cycle_id: int) -> dict:
         "cycle_id": cycle_id,
         "confederation": {"id": confederation.id, "name": confederation.name, "acronym": confederation.acronym},
         "reference_month": cycle.reference_month.strftime("%m/%Y"),
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now().isoformat(),
         "summary": {
             "total_operators": len(payments),
             "paid": len(paid),

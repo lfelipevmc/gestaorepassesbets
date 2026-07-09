@@ -174,7 +174,7 @@ def _check_email_compliance():
                             Payment.status.in_([PaymentStatus.pending, PaymentStatus.overdue])
                         ).all()
                         for p in payments:
-                            p.payment_confirmed_at = datetime.utcnow()
+                            p.payment_confirmed_at = datetime.now()
                             p.status = PaymentStatus.paid
                             event = CollectionEvent(
                                 cycle_id=p.cycle_id,

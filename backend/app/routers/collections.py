@@ -219,7 +219,7 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
             em = EmailMessage(
                 direction=EmailDirection.outbound, operator_id=op.id, confederation_id=conf.id,
                 cycle_id=cycle.id, subject=subject, body_preview=body[:1000],
-                to_addr=", ".join(to_addr), sent_at=datetime.utcnow(), channel="email",
+                to_addr=", ".join(to_addr), sent_at=datetime.now(), channel="email",
             )
             db.add(em)
             db.flush()

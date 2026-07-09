@@ -1,6 +1,11 @@
 FROM python:3.12-slim
 WORKDIR /app
-RUN apt-get update && apt-get install -y libpq-dev gcc && rm -rf /var/lib/apt/lists/*
+# Fuso horário de Brasília: datas/horas gravadas, logs e agendador em America/Sao_Paulo
+ENV TZ=America/Sao_Paulo
+RUN apt-get update && apt-get install -y libpq-dev gcc tzdata \
+    && ln -sf /usr/share/zoneinfo/America/Sao_Paulo /etc/localtime \
+    && echo "America/Sao_Paulo" > /etc/timezone \
+    && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .

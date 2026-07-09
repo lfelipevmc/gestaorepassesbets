@@ -177,7 +177,7 @@ def confirm_payment(id: int, data: PaymentConfirm, db: Session = Depends(get_db)
     ).scalar() or Decimal("0")
     payment.amount_paid = total
     payment.payment_date = data.payment_date  # data do último repasse
-    payment.payment_confirmed_at = datetime.utcnow()
+    payment.payment_confirmed_at = datetime.now()
     payment.confirmed_by_id = current_user.id
     payment.status = PaymentStatus.report_pending if not payment.report_received else PaymentStatus.paid
     if data.notes:
@@ -199,7 +199,7 @@ def register_report(id: int, data: PaymentRegisterReport, db: Session = Depends(
         raise HTTPException(status_code=404, detail="Pagamento não encontrado")
 
     payment.report_received = True
-    payment.report_received_at = datetime.utcnow()
+    payment.report_received_at = datetime.now()
     if data.report_reference_month:
         payment.report_reference_month = data.report_reference_month
     if data.report_notes:
@@ -234,7 +234,7 @@ async def upload_report(id: int, file: UploadFile = File(...), db: Session = Dep
     payment.report_file_url = f"/uploads/reports/{filename}"
     payment.report_received = True
     if not payment.report_received_at:
-        payment.report_received_at = datetime.utcnow()
+        payment.report_received_at = datetime.now()
     if payment.amount_paid:
         payment.status = PaymentStatus.paid
     db.commit()

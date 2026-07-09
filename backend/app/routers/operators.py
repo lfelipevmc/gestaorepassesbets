@@ -361,7 +361,7 @@ def approve_suggestion(
 
     suggestion.status = SuggestionStatus.approved
     suggestion.reviewed_by_id = current_user.id
-    suggestion.reviewed_at = datetime.utcnow()
+    suggestion.reviewed_at = datetime.now()
     db.commit()
     db.refresh(contact)
 
@@ -388,7 +388,7 @@ def reject_suggestion(
 
     suggestion.status = SuggestionStatus.rejected
     suggestion.reviewed_by_id = current_user.id
-    suggestion.reviewed_at = datetime.utcnow()
+    suggestion.reviewed_at = datetime.now()
     db.commit()
 
     log_action(db=db, action="REJECT_SUGGESTION", entity_type="BettingOperator", entity_id=id,

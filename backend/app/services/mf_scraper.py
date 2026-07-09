@@ -38,7 +38,7 @@ def scrape_mf_operators(db: Session) -> dict:
                 "success": False,
                 "error": "Acesso bloqueado pelo servidor do governo (403). Use a importação manual por planilha.",
                 "url": MF_BASE_URL,
-                "scraped_at": datetime.utcnow().isoformat()
+                "scraped_at": datetime.now().isoformat()
             }
 
         response.raise_for_status()
@@ -63,7 +63,7 @@ def scrape_mf_operators(db: Session) -> dict:
                     "success": False,
                     "error": "Nenhum arquivo CSV/XLSX ou tabela encontrada na página do governo. Use a importação manual.",
                     "url": MF_BASE_URL,
-                    "scraped_at": datetime.utcnow().isoformat()
+                    "scraped_at": datetime.now().isoformat()
                 }
         else:
             for file_info in file_links:
@@ -95,12 +95,12 @@ def scrape_mf_operators(db: Session) -> dict:
             "updated_operators": updated_count,
             "files_found": len(file_links),
             "errors": errors,
-            "scraped_at": datetime.utcnow().isoformat()
+            "scraped_at": datetime.now().isoformat()
         }
 
     except Exception as e:
         logger.error(f"MF scrape error: {e}")
-        return {"success": False, "error": str(e), "scraped_at": datetime.utcnow().isoformat()}
+        return {"success": False, "error": str(e), "scraped_at": datetime.now().isoformat()}
 
 
 def import_from_file(db: Session, content: bytes, filename: str, category: str = "autorizada", user_id: int = None) -> dict:
@@ -131,7 +131,7 @@ def import_from_file(db: Session, content: bytes, filename: str, category: str =
             "new_operators": result["new"],
             "updated_operators": result["updated"],
             "errors": result.get("errors", []),
-            "imported_at": datetime.utcnow().isoformat()
+            "imported_at": datetime.now().isoformat()
         }
     except Exception as e:
         logger.error(f"Import error: {e}")
