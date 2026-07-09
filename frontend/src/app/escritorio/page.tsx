@@ -56,7 +56,9 @@ export default function EscritorioPage() {
 
   return (
     <AppShell>
-      <Header title="Escritório" subtitle="Dados cadastrais do escritório usados nas comunicações e relatórios"
+      <Header title="Escritório" icon="🏛️"
+        help="Dados do escritório usados nas assinaturas de e-mail, ofícios e relatórios (nome, OAB, endereço, e-mail de revisão). O e-mail cadastrado aqui recebe os dossiês mensais para revisão interna antes do envio às confederações. Também define as colunas padrão da tabela de operadores."
+        subtitle="Dados cadastrais do escritório usados nas comunicações e relatórios"
         actions={<button onClick={save} disabled={saving} className="btn-primary">{saving ? "Salvando..." : "Salvar"}</button>} />
 
       {msg && <div className="mb-4 bg-primary/10 border border-primary/30 text-primary rounded-lg px-4 py-3 text-sm">{msg}</div>}

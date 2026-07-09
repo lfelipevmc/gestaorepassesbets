@@ -16,6 +16,9 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Aviso amigável (com trava de 15s para não repetir) quando o servidor está
+// fora do ar ou reiniciando durante uma atualização.
+let lastOfflineToast = 0;
 api.interceptors.response.use(
   (r) => r,
   (err) => {
@@ -23,6 +26,15 @@ api.interceptors.response.use(
       localStorage.removeItem("token");
       localStorage.removeItem("user");
       window.location.href = "/login";
+    }
+    if (!err.response && typeof window !== "undefined" && err.code !== "ERR_CANCELED") {
+      const now = Date.now();
+      if (now - lastOfflineToast > 15000) {
+        lastOfflineToast = now;
+        import("@/components/ui/Toast").then(({ toast }) =>
+          toast.warn("Sem conexão com o servidor — ele pode estar sendo atualizado. Aguarde alguns instantes e tente novamente.")
+        );
+      }
     }
     return Promise.reject(err);
   }

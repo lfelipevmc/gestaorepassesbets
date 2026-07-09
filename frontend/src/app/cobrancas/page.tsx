@@ -12,6 +12,8 @@ import {
 import { getUser } from "@/lib/auth";
 import { formatDate } from "@/lib/utils";
 import { toast } from "@/components/ui/Toast";
+import HelpTip from "@/components/ui/HelpTip";
+import EmptyState from "@/components/ui/EmptyState";
 
 const TABS = ["Ciclos", "Modelos de Cobrança"];
 
@@ -136,13 +138,15 @@ export default function CobrancasPage() {
     <AppShell>
       <Header
         title="Cobranças"
+        icon="📨"
+        help="Cada ciclo representa a cobrança de uma competência (mês) para uma confederação. O ciclo é um espelho da base central: não cria lista própria de operadores. Aqui você prepara notificações, registra recebimentos e acompanha a situação. Ciclos antigos podem ser arquivados pelo administrador — o histórico fica preservado."
         subtitle="Ciclos mensais de cobrança e modelos de mensagem"
         actions={tab === 0
           ? <button onClick={() => setShowCreate(true)} className="btn-primary">+ Novo Ciclo</button>
           : <button onClick={newTemplate} className="btn-primary">+ Novo Modelo</button>}
       />
 
-      <div className="flex gap-1 border-b border-surface-border mb-6">
+      <div className="flex gap-1 border-b border-surface-border mb-6 items-center">
         {TABS.map((t, i) => (
           <button key={t} onClick={() => setTab(i)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
@@ -150,6 +154,14 @@ export default function CobrancasPage() {
             {t}
           </button>
         ))}
+        <span className="ml-auto pl-2 pr-1 flex-shrink-0">
+          <HelpTip
+            title={TABS[tab]}
+            text={tab === 0
+              ? "Ciclos agrupados por confederação, do mais recente ao mais antigo. Cada ciclo espelha a base central de operadores na competência. O administrador pode arquivar ciclos antigos — eles saem da lista, mas o histórico permanece no sistema."
+              : "Modelos de mensagem usados nas notificações de cobrança. Aceitam variáveis como {bet}, {confederacao}, {mes} e {valor}, substituídas automaticamente no envio. Modelos podem ser globais ou específicos de uma confederação."}
+            align="right" wide />
+        </span>
       </div>
 
       {loading ? <div className="text-muted">Carregando...</div> : tab === 0 ? (
@@ -235,7 +247,7 @@ export default function CobrancasPage() {
                   </div>
                 );
               })}
-            {filtered.length === 0 && <div className="card text-center py-12 text-muted">Nenhum ciclo de cobrança encontrado</div>}
+            {filtered.length === 0 && <div className="card p-0"><EmptyState icon="📨" title="Nenhum ciclo de cobrança encontrado" hint="Crie o primeiro ciclo com + Novo Ciclo — ele espelha automaticamente a base de operadores na competência escolhida." /></div>}
           </div>
         </>
       ) : (

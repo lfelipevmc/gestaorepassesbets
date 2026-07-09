@@ -198,6 +198,8 @@ export default function OperadoresPage() {
     <AppShell>
       <Header
         title="Agentes Operadores"
+        icon="🎰"
+        help="Fonte única de verdade dos agentes operadores (Bets): tudo o que os ciclos, confederações e relatórios exibem parte deste cadastro. Pesquise por razão social, nome fantasia, CNPJ ou marca (a busca cobre toda a base, não só a página atual). Clique em ⚙ para escolher e arrastar a largura das colunas, e use ⬇ PDF para exportar a lista."
         subtitle={
           <span>
             {filtered.length} operador{filtered.length !== 1 ? "es" : ""} encontrado{filtered.length !== 1 ? "s" : ""}

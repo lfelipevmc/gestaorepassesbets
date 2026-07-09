@@ -27,9 +27,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface">
-      <div className="w-full max-w-md">
-        <div className="card">
+    <div className="min-h-screen flex items-center justify-center bg-surface px-4 relative overflow-hidden">
+      {/* brilho decorativo de fundo */}
+      <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-primary/10 blur-3xl pointer-events-none" aria-hidden />
+      <div className="absolute -bottom-32 -right-32 w-96 h-96 rounded-full bg-primary/10 blur-3xl pointer-events-none" aria-hidden />
+      <div className="w-full max-w-md animate-fade-up relative">
+        <div className="card shadow-2xl">
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-primary/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <svg className="w-8 h-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -69,7 +72,7 @@ export default function LoginPage() {
               </div>
             )}
             <button type="submit" disabled={loading} className="btn-primary w-full py-3 text-base">
-              {loading ? "Entrando..." : "Entrar"}
+              {loading ? "Entrando..." : "Entrar →"}
             </button>
           </form>
 

@@ -6,6 +6,8 @@ import Modal from "@/components/ui/Modal";
 import { getDocuments, uploadDocument, downloadDocument, getOperators, getConfederations, getEmailHistory, downloadEmailHistory } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { toast } from "@/components/ui/Toast";
+import HelpTip from "@/components/ui/HelpTip";
+import EmptyState from "@/components/ui/EmptyState";
 
 const DOC_TYPES = [
   { value: "notification", label: "Notificação" },
@@ -101,13 +103,23 @@ export default function DocumentosPage() {
     <AppShell>
       <Header
         title="Documentos"
+        icon="📁"
+        help="Repositório central: arquivos enviados manualmente e gerados pelo sistema, organizados por confederação ou por Bet, separando minutas de documentos oficiais. Na aba Histórico de E-mails você consulta e baixa o dossiê completo de comunicações de cada Bet para auditoria."
         subtitle="Repositório organizado por confederação e por Bet — minutas e documentos oficiais"
         actions={<button onClick={() => setShowUpload(true)} className="btn-primary">+ Enviar Documento</button>}
       />
 
-      <div className="flex gap-2 mb-6">
-        <button onClick={() => setTab("arquivos")} className={tab === "arquivos" ? "btn-primary" : "btn-secondary"}>Arquivos</button>
-        <button onClick={() => setTab("emails")} className={tab === "emails" ? "btn-primary" : "btn-secondary"}>Histórico de E-mails</button>
+      <div className="flex gap-2 mb-6 items-center">
+        <button onClick={() => setTab("arquivos")} className={tab === "arquivos" ? "btn-primary" : "btn-secondary"}>📄 Arquivos</button>
+        <button onClick={() => setTab("emails")} className={tab === "emails" ? "btn-primary" : "btn-secondary"}>✉️ Histórico de E-mails</button>
+        <span className="ml-auto">
+          <HelpTip
+            title={tab === "arquivos" ? "Arquivos" : "Histórico de E-mails"}
+            text={tab === "arquivos"
+              ? "Todos os documentos do sistema, agrupados por confederação ou por Bet e filtráveis por categoria (minuta × documento oficial) e tipo. Relatórios anexados nos ciclos e nos Relatórios também aparecem aqui automaticamente."
+              : "Auditoria de comunicação: selecione uma Bet para ver todos os e-mails enviados e respostas recebidas, com protocolo. O botão ⬇ Baixar dossiê gera um arquivo HTML com o histórico completo para arquivamento externo."}
+            align="right" wide />
+        </span>
       </div>
 
       {tab === "emails" && <EmailHistory operators={operators} confederations={confederations} />}
@@ -155,7 +167,7 @@ export default function DocumentosPage() {
       </div>
 
       {loading ? <div className="text-muted">Carregando...</div> : documents.length === 0 ? (
-        <div className="card text-center text-muted py-12">Nenhum documento encontrado para os filtros selecionados.</div>
+        <div className="card p-0"><EmptyState icon="📁" title="Nenhum documento encontrado" hint="Ajuste os filtros acima ou clique em + Enviar Documento para adicionar o primeiro arquivo." /></div>
       ) : (
         <div className="space-y-6">
           {groups.map(([groupName, docs]) => (
@@ -312,7 +324,7 @@ function EmailHistory({ operators, confederations }: { operators: any[]; confede
       {loading ? <div className="text-muted">Carregando...</div> : !opId ? (
         <div className="card text-center text-muted py-12">Selecione uma Bet para ver o histórico.</div>
       ) : msgs.length === 0 ? (
-        <div className="card text-center text-muted py-12">Nenhum e-mail registrado para esta Bet.</div>
+        <div className="card p-0"><EmptyState icon="✉️" title="Nenhum e-mail registrado para esta Bet" hint="Os envios feitos pelos ciclos de cobrança e as respostas sincronizadas do Microsoft 365 aparecerão aqui automaticamente." /></div>
       ) : (
         <div className="space-y-3">
           {msgs.map(m => {

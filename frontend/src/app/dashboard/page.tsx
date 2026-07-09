@@ -90,6 +90,8 @@ export default function DashboardPage() {
     <AppShell>
       <Header
         title="Central de Controle"
+        icon="📊"
+        help="Visão geral do sistema: indicadores da competência atual, alertas inteligentes que exigem atenção e a evolução do nº de inadimplentes por confederação desde jan/2025. Use as setas « ‹ › » do gráfico para navegar no tempo. Os números desta tela são calculados automaticamente a partir da base central de operadores e dos recebimentos registrados."
         subtitle={`${new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}`}
       />
 

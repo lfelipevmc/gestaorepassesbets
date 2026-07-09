@@ -19,8 +19,21 @@ import {
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/Toast";
+import HelpTip from "@/components/ui/HelpTip";
 
 const TABS = ["Dados Cadastrais", "Marcas Vinculadas", "Responsáveis", "ENDR", "Contatos", "Pesquisa de Contatos", "Histórico de Pagamentos", "Documentos", "Auditoria"];
+
+const TAB_HELP: string[] = [
+  "Cadastro oficial do agente (razão social, CNPJ, autorização SPA/MF, endereço, status). Esta é a fonte única de verdade: o que você salvar aqui reflete em ciclos, confederações e relatórios.",
+  "Marcas/sites operados pelo agente (sem limite). A pesquisa da lista de operadores também encontra por marca.",
+  "Pessoas de contato da Bet por papel (legal, financeiro, jurídico) — usadas nas comunicações de cobrança.",
+  "Meses em que o agente está associado ao ENDR (cobrança individual suspensa). Somente leitura aqui: a gestão é feita na aba ENDR do menu, que é a fonte única dessa informação.",
+  "E-mails e telefones de cobrança do agente. O sistema conta quantos canais válidos existem e avisa quando estão desatualizados.",
+  "Busca automática de contatos on-line (site oficial, dedução de e-mails de domínio) — as sugestões encontradas aguardam sua aprovação antes de virar contato oficial.",
+  "Tudo o que o agente já pagou, consolidado por confederação: total recebido, último pagamento e relatório anexado. Use as setas para navegar no histórico de 12 meses desde jan/2025.",
+  "Arquivos do agente (contratos, comprovantes, relatórios) — qualquer formato até 25 MB.",
+  "Trilha de auditoria só deste agente: alterações de cadastro, pagamentos e comunicações.",
+];
 
 const ROLE_LABELS: Record<string, string> = {
   legal: "Responsável Legal",
@@ -446,7 +459,7 @@ export default function OperatorDetailPage() {
       />
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-surface-border overflow-x-auto">
+      <div className="flex gap-1 mb-6 border-b border-surface-border overflow-x-auto items-center">
         {TABS.map((t, i) => (
           <button
             key={t}
@@ -458,6 +471,9 @@ export default function OperatorDetailPage() {
             {t}
           </button>
         ))}
+        <span className="ml-auto pl-2 pr-1 flex-shrink-0">
+          <HelpTip title={TABS[tab]} text={TAB_HELP[tab]} align="right" wide />
+        </span>
       </div>
 
       {/* Tab 0: Dados Cadastrais */}

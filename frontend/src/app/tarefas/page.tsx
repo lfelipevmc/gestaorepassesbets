@@ -73,6 +73,8 @@ export default function TarefasPage() {
     <AppShell>
       <Header
         title="A Fazer"
+        icon="✅"
+        help="Painel inteligente de atividades: o sistema gera as pendências automaticamente (cronograma de ciclos, respostas de Bets aguardando, contatos desatualizados, relatórios pendentes, tratativas, fechamento do mês e inconsistências cadastrais). Marque o checkbox ao concluir — itens de relatório reaparecem na competência seguinte. Use + Lembrete para criar tarefas próprias com prazo."
         subtitle="Painel de gestão operacional — pendências geradas automaticamente + lembretes"
         actions={<button onClick={() => setShowReminder(true)} className="btn-primary">+ Lembrete</button>}
       />

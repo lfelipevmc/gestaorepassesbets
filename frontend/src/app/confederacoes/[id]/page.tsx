@@ -15,9 +15,19 @@ import { formatDate, formatCurrency } from "@/lib/utils";
 import { getUser } from "@/lib/auth";
 import { getConfOperatorsOverview, saveConfOperatorInfo, registerEndrReport } from "@/lib/api";
 import { toast } from "@/components/ui/Toast";
+import HelpTip from "@/components/ui/HelpTip";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const TABS = ["Visão Geral", "Cadastro", "Ciclos de Cobrança", "Receitas por Mês", "Repasses ENDR", "Regras de Rateio"];
+
+const TAB_HELP: string[] = [
+  "Todos os agentes operadores vistos por esta confederação. Os dados cadastrais e o ENDR são somente leitura (espelho da base central); você edita aqui a Conclusão do mês (com opção automática), as Anotações e as Anotações Adicionais. Arraste a borda dos títulos para redimensionar colunas.",
+  "Dados cadastrais da confederação (CNPJ, contatos, banco) usados nos ofícios e comunicações.",
+  "Os ciclos mensais de cobrança desta confederação — cada ciclo espelha a base central na competência. Clique para abrir o ciclo.",
+  "Receitas mês a mês: soma dos recebimentos das Bets (por ciclo e avulsos) e repasses ENDR na competência.",
+  "Repasses recebidos do ENDR. O valor chega antes do relatório (~30 dias): registre o recebimento e depois use 'Registrar relatório' para informar a competência e os operadores cobertos — isso suspende a cobrança individual deles no mês.",
+  "Percentuais de repartição aos beneficiários. Somente o administrador edita — as alterações valem para as repartições futuras.",
+];
 
 type Conf = {
   id: number; name: string; acronym: string; cnpj?: string; website?: string; phone?: string;
@@ -287,20 +297,24 @@ export default function ConfederationDetailPage() {
 
   return (
     <AppShell>
-      <Header title={conf.acronym} subtitle={conf.name} />
+      <Header title={conf.acronym} icon="🏆" subtitle={conf.name}
+        help="Área do cliente: visão geral dos operadores com Conclusão editável, cadastro, ciclos, receitas mensais, repasses ENDR e regras de rateio. Os dados dos operadores vêm da base central (fonte única) — o que é específico desta confederação (conclusão, anotações) é editado aqui." />
       {msg && (
         <div className="mb-4 bg-primary/10 border border-primary/30 text-primary rounded-lg px-4 py-3 text-sm flex items-center justify-between">
           {msg}<button onClick={() => setMsg("")} className="ml-4 text-muted">✕</button>
         </div>
       )}
 
-      <div className="flex gap-1 border-b border-surface-border mb-6">
+      <div className="flex gap-1 border-b border-surface-border mb-6 overflow-x-auto items-center">
         {TABS.map((t, i) => (
           <button key={t} onClick={() => setTab(i)}
-            className={"px-4 py-2.5 text-sm font-medium border-b-2 transition-colors " + (tab === i ? "border-primary text-primary" : "border-transparent text-muted hover:text-slate-200")}>
+            className={"px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px whitespace-nowrap " + (tab === i ? "border-primary text-primary" : "border-transparent text-muted hover:text-slate-200")}>
             {t}
           </button>
         ))}
+        <span className="ml-auto pl-2 pr-1 flex-shrink-0">
+          <HelpTip title={TABS[tab]} text={TAB_HELP[tab]} align="right" wide />
+        </span>
       </div>
 
       {/* TAB 0: VISÃO GERAL */}

@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import AppShell from "@/components/AppShell";
 import { toast } from "@/components/ui/Toast";
+import HelpTip from "@/components/ui/HelpTip";
 import {
   getEndrEntity, updateEndrEntity,
   getEndrMonthly, getEndrAvailableOperators,
@@ -148,9 +149,17 @@ export default function EndrPage() {
     <AppShell>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">ENDR</h1>
-          <p className="text-muted text-sm mt-1">Escritório Nacional de Direitos de Rateio</p>
+        <div className="flex items-start gap-3">
+          <div className="hidden sm:flex w-11 h-11 rounded-xl bg-primary/15 border border-primary/25 items-center justify-center text-xl flex-shrink-0" aria-hidden>🤝</div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+              <span className="sm:hidden" aria-hidden>🤝</span>
+              ENDR
+              <HelpTip title="ENDR" wide align="left"
+                text="Fonte única de verdade da relação com o Escritório Nacional de Direitos de Rateio. Bets associadas ao ENDR em um mês têm a cobrança individual suspensa naquela competência — o repasse chega consolidado via ENDR. Tudo o que as outras telas mostram sobre ENDR vem daqui." />
+            </h1>
+            <p className="text-muted text-xs sm:text-sm mt-1">Escritório Nacional de Direitos de Rateio</p>
+          </div>
         </div>
       </div>
 
@@ -234,13 +243,21 @@ export default function EndrPage() {
       </div>
 
       {/* Abas */}
-      <div className="flex gap-2 border-b border-surface-border">
+      <div className="flex gap-2 border-b border-surface-border overflow-x-auto items-center">
         {[{ id: "acomp", label: "📊 Acompanhamento" }, { id: "mensal", label: "📋 Bets Associadas (mensal)" }].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)}
-            className={`px-4 py-2 text-sm rounded-t-lg border-b-2 -mb-px transition-colors ${tab === t.id ? "border-primary text-primary font-semibold" : "border-transparent text-muted hover:text-white"}`}>
+            className={`px-4 py-2 text-sm rounded-t-lg border-b-2 -mb-px transition-colors whitespace-nowrap ${tab === t.id ? "border-primary text-primary font-semibold" : "border-transparent text-muted hover:text-white"}`}>
             {t.label}
           </button>
         ))}
+        <span className="ml-auto pl-2 pr-1 flex-shrink-0">
+          <HelpTip
+            title={tab === "acomp" ? "Acompanhamento" : "Bets Associadas (mensal)"}
+            text={tab === "acomp"
+              ? "Consolidação automática dos repasses ENDR registrados nas confederações (sem lançamento duplo), gestão de documentos por competência e linha do tempo desde 2025 com entradas/saídas de agentes e as competências cobertas por cada relatório."
+              : "Gestão mês a mês de quais Bets estão associadas ao ENDR. Adicionar uma Bet aqui suspende a cobrança individual dela na competência. É possível marcar vários meses de uma vez ao adicionar."}
+            align="right" wide />
+        </span>
       </div>
 
       {tab === "acomp" && (

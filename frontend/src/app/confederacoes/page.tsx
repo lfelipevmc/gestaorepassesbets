@@ -76,7 +76,9 @@ export default function ConfederacoesPage() {
 
   return (
     <AppShell>
-      <Header title="Confederações" subtitle="Clientes do escritório — situação da competência vigente e financeiro"
+      <Header title="Confederações" icon="🏆"
+        help="Os clientes do escritório (CBTM, CBT, CBW, CBH). Cada card mostra a situação da competência vigente calculada em tempo real a partir da base central: adimplentes, inadimplentes, ENDR e valores recebidos. Clique para abrir a visão geral dos operadores, ciclos, regras de rateio e repasses ENDR."
+        subtitle="Clientes do escritório — situação da competência vigente e financeiro"
         actions={<button onClick={() => setShowCreate(true)} className="btn-primary">+ Nova Confederação</button>} />
       {loading ? <div className="text-muted">Carregando...</div> : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

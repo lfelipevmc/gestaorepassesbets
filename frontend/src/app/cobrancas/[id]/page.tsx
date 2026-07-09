@@ -16,6 +16,7 @@ import {
 import { getUser } from "@/lib/auth";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/Toast";
+import HelpTip from "@/components/ui/HelpTip";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -281,6 +282,8 @@ export default function CollectionDetailPage() {
     <AppShell>
       <Header
         title={`Ciclo — ${conf?.acronym || ""} · ${monthShort(cycle?.reference_month)}`}
+        icon="📨"
+        help="O ciclo é o espelho da base central para esta competência: a lista de operadores e as conclusões vêm da confederação — nada é duplicado. Aqui você prepara a notificação (somente inadimplentes vêm pré-selecionados), registra recebimentos e relatórios (gravados na base central), gera o Ofício SPA e acompanha a linha do tempo. O administrador pode arquivar o ciclo preservando o histórico."
         subtitle={`${conf?.name} · Competência: ${monthLabel(cycle?.reference_month)} · espelho da relação da confederação (base central)`}
         actions={
           <>
@@ -305,13 +308,23 @@ export default function CollectionDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-surface-border mb-6">
+      <div className="flex gap-1 border-b border-surface-border mb-6 overflow-x-auto items-center">
         {["Operadores", `Comunicações (${emailStats.sent + emailStats.received || ""})`, `Linha do Tempo (${events.length})`].map((t, i) => (
           <button key={i} onClick={() => setTab(i)}
-            className={"px-4 py-2.5 text-sm font-medium border-b-2 transition-colors " + (tab === i ? "border-primary text-primary" : "border-transparent text-muted hover:text-slate-200")}>
+            className={"px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px whitespace-nowrap " + (tab === i ? "border-primary text-primary" : "border-transparent text-muted hover:text-slate-200")}>
             {t}
           </button>
         ))}
+        <span className="ml-auto pl-2 pr-1 flex-shrink-0">
+          <HelpTip
+            title={["Operadores", "Comunicações", "Linha do Tempo"][tab]}
+            text={[
+              "Espelho da relação da confederação na competência: Conclusão (editada na aba da confederação), recebido no mês, último pagamento e relatório. Ações por linha: Contactar (e-mail/WhatsApp/telefone), Registrar recebimento e anexar Relatório — tudo gravado na base central, sem duplicação.",
+              "E-mails enviados e respostas recebidas neste ciclo, com protocolo de envio. A fila de e-mails aguarda revisão antes do disparo; respostas são conciliadas automaticamente pela conversa do Outlook.",
+              "Cronologia completa do ciclo: notificações, contatos, confirmações de pagamento e eventos administrativos, com autor e data — útil como evidência do acompanhamento.",
+            ][tab]}
+            align="right" wide />
+        </span>
       </div>
 
       {/* TAB 0 — Espelho da relação da confederação */}

@@ -74,7 +74,9 @@ export default function AuditoriaPage() {
 
   return (
     <AppShell>
-      <Header title="Auditoria" subtitle="Registro completo de ações — filtros combináveis e exportação em PDF"
+      <Header title="Auditoria" icon="🔍"
+        help="Trilha de tudo o que acontece no sistema: quem fez, o quê, quando e em qual registro — essencial para compliance (ISO 9001 / LGPD). Combine filtros por usuário, ação, entidade e período, e exporte em PDF para evidência."
+        subtitle="Registro completo de ações — filtros combináveis e exportação em PDF"
         actions={<button onClick={exportPdf} disabled={exporting} className="btn-primary">{exporting ? "Gerando..." : "⬇ Exportar PDF"}</button>} />
 
       <div className="card mb-6">

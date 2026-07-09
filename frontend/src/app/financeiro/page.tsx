@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "@/components/ui/Toast";
+import HelpTip from "@/components/ui/HelpTip";
 
 const TABS = ["Resumo", "Repasses (Fase 1)", "Repartição (Fase 2)", "E-mails"];
 const BTYPES: Record<string, string> = { confederacao: "Confederação", atleta: "Atleta", clube: "Clube/Entidade", federacao: "Federação", outro: "Outro" };
@@ -152,7 +153,9 @@ export default function FinanceiroPage() {
 
   return (
     <AppShell>
-      <Header title="Financeiro" subtitle="ERP de repasses por confederação — cada cliente é uma estrutura financeira independente" />
+      <Header title="Financeiro" icon="💰"
+        help="Estrutura financeira independente por confederação. Fase 1: repasses recebidos das Bets (por ciclo, avulsos e ENDR). Fase 2: repartição dos valores aos beneficiários conforme as regras de rateio. A aba E-mails concilia respostas recebidas. Selecione o cliente no topo para alternar a confederação."
+        subtitle="ERP de repasses por confederação — cada cliente é uma estrutura financeira independente" />
       {msg && <div className="mb-4 bg-primary/10 border border-primary/30 text-primary rounded-lg px-4 py-3 text-sm">{msg}</div>}
 
       {/* Seletor de cliente (confederação) — escopa toda a estrutura financeira */}
@@ -173,13 +176,24 @@ export default function FinanceiroPage() {
         {activeConf && <p className="text-xs text-muted mt-2">Exibindo a estrutura financeira isolada de <span className="text-slate-200 font-medium">{confs.find(c => String(c.id) === activeConf)?.name}</span>.</p>}
       </div>
 
-      <div className="flex gap-1 border-b border-surface-border mb-6">
+      <div className="flex gap-1 border-b border-surface-border mb-6 overflow-x-auto items-center">
         {TABS.map((t, i) => (
           <button key={t} onClick={() => setTab(i)}
-            className={"px-4 py-2.5 text-sm font-medium border-b-2 transition-colors " + (tab === i ? "border-primary text-primary" : "border-transparent text-muted hover:text-slate-200")}>
+            className={"px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px whitespace-nowrap " + (tab === i ? "border-primary text-primary" : "border-transparent text-muted hover:text-slate-200")}>
             {t}
           </button>
         ))}
+        <span className="ml-auto pl-2 pr-1 flex-shrink-0">
+          <HelpTip
+            title={TABS[tab]}
+            text={[
+              "Panorama financeiro do cliente selecionado: total recebido, adimplência da competência (calculada pela Conclusão efetiva) e comparativo entre confederações.",
+              "Fase 1 — entradas: todos os valores recebidos das Bets (registrados nos ciclos, lançamentos avulsos e repasses ENDR). O mês de competência pode ficar 'a definir' até o relatório da Bet chegar — edite o lançamento para completar.",
+              "Fase 2 — saídas: repartição dos valores aos beneficiários conforme as regras de rateio da confederação. Acompanhe parcelas pagas, pendentes e atrasadas, e gerencie o cadastro de beneficiários.",
+              "Caixa de conciliação: respostas de e-mail recebidas das Bets. Use Sincronizar para importar do Microsoft 365; mensagens não identificadas podem ser vinculadas manualmente ou com sugestão da IA.",
+            ][tab]}
+            align="right" wide />
+        </span>
       </div>
 
       {/* RESUMO */}

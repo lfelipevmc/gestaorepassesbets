@@ -20,6 +20,7 @@ const CONC_BADGE: Record<string, string> = {
 };
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/Toast";
+import HelpTip from "@/components/ui/HelpTip";
 
 const STATUS_OPTIONS = [
   { value: "", label: "Todas as situações" },
@@ -43,13 +44,26 @@ export default function RelatoriosPage() {
 
   return (
     <AppShell>
-      <Header title="Relatórios" subtitle="Adimplência individualizada por confederação, mês e Bet — com visão consolidada e cruzada" />
+      <Header title="Relatórios" icon="📈"
+        help="Quatro visões: Por Confederação (cada Bet uma única vez, com anexo do relatório da Bet), Consolidado/Cruzado (filtros combináveis e exportação Excel/PDF), Por Ciclo (fotografia de um ciclo específico) e Evidências ISO 9001 (dossiê mensal auditável, com envio ao e-mail do escritório para revisão)."
+        subtitle="Adimplência individualizada por confederação, mês e Bet — com visão consolidada e cruzada" />
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-2 mb-6 flex-wrap items-center">
         <button onClick={() => setTab("porconf")} className={tab === "porconf" ? "btn-primary" : "btn-secondary"}>Por Confederação</button>
         <button onClick={() => setTab("consolidado")} className={tab === "consolidado" ? "btn-primary" : "btn-secondary"}>Consolidado / Cruzado</button>
         <button onClick={() => setTab("ciclo")} className={tab === "ciclo" ? "btn-primary" : "btn-secondary"}>Por Ciclo</button>
         <button onClick={() => setTab("evidencias")} className={tab === "evidencias" ? "btn-primary" : "btn-secondary"}>Evidências (ISO 9001)</button>
+        <span className="ml-auto">
+          <HelpTip
+            title={{ porconf: "Por Confederação", consolidado: "Consolidado / Cruzado", ciclo: "Por Ciclo", evidencias: "Evidências (ISO 9001)" }[tab]}
+            text={{
+              porconf: "Visão mensal separada por confederação: cada Bet aparece uma única vez, com a conclusão efetiva, o recebido no mês e o relatório enviado pela Bet. Use ⬆ Anexar em cada linha para guardar o relatório daquela confederação/competência.",
+              consolidado: "Relatório cruzado com filtros combináveis (confederação, mês, Bet, situação) e agregados por confederação e por mês. Exporte em Excel ou PDF para envio externo.",
+              ciclo: "Fotografia de um ciclo específico: adimplentes, inadimplentes e pendentes de relatório, com o Relatório de Atividades (PDF) que evidencia as diligências do escritório no mês.",
+              evidencias: "Dossiê mensal para auditoria ISO 9001/LGPD: notificações, respostas, valores e repartições da competência. Gere o PDF ou envie ao e-mail do escritório para revisão antes de encaminhar à confederação.",
+            }[tab]}
+            align="right" wide />
+        </span>
       </div>
 
       {tab === "porconf" && <PorConfederacao confederations={confederations} />}

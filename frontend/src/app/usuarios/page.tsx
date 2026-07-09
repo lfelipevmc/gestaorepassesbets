@@ -68,7 +68,9 @@ export default function UsuariosPage() {
 
   return (
     <AppShell>
-      <Header title="Usuários" subtitle="Gerencie acessos: administrador, escritório e leitores de confederação"
+      <Header title="Usuários" icon="👥"
+        help="Controle de acessos. Administrador: tudo, inclusive arquivar ciclos e editar regras de rateio. Escritório: operação diária (cobranças, recebimentos, cadastros). Leitor de confederação: enxerga apenas os dados da própria confederação, sem editar. Cada pessoa deve ter o próprio login — a auditoria registra as ações por usuário."
+        subtitle="Gerencie acessos: administrador, escritório e leitores de confederação"
         actions={<button onClick={newUser} className="btn-primary">+ Novo Usuário</button>} />
 
       {msg && <div className="mb-4 bg-primary/10 border border-primary/30 text-primary rounded-lg px-4 py-3 text-sm">{msg}</div>}
