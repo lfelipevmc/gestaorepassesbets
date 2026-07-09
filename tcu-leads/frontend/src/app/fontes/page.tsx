@@ -6,7 +6,7 @@ import Header from "@/components/layout/Header";
 import Modal from "@/components/ui/Modal";
 import {
   getSources, createSource, updateSource, deleteSource,
-  testSavedSource, testSourceAdhoc, runExternal,
+  testSavedSource, testSourceAdhoc, runExternal, addPresets,
 } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
@@ -104,6 +104,12 @@ export default function FontesPage() {
     finally { setRunning(false); }
   }
 
+  async function handlePresets() {
+    if (!confirm("Adicionar as fontes sugeridas (embaixadas, estatais, portais de contratação) e as palavras-chave jurídicas do DOU?")) return;
+    try { const r = await addPresets(); flash(r.data.message || "Fontes adicionadas."); load(); }
+    catch { flash("Erro ao adicionar sugeridas."); }
+  }
+
   function TestBox({ result }: { result: any }) {
     if (!result) return null;
     if (result.status === "erro" || result.status === "vazio")
@@ -131,6 +137,7 @@ export default function FontesPage() {
         subtitle="Monitore DOU, embaixadas, estatais e empresas — os achados entram em Oportunidades"
         actions={
           <div className="flex items-center gap-2">
+            <button onClick={handlePresets} className="btn-secondary">✨ Adicionar sugeridas</button>
             <button onClick={openNew} className="btn-secondary">+ Nova fonte</button>
             <button onClick={handleRun} disabled={running} className="btn-primary">{running ? "Coletando..." : "Executar radar agora"}</button>
           </div>

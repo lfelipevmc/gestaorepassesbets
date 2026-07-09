@@ -161,6 +161,28 @@ def test_source_processos(data: dict = None, db: Session = Depends(get_db),
             pass
 
 
+@router.post("/test-btcu")
+def test_btcu(data: dict = None, db: Session = Depends(get_db),
+              current_user: User = Depends(get_current_user)):
+    """Calibra a fonte do BTCU/Boletim (citações, audiências, despachos) a partir
+    do servidor. Devolve a estrutura retornada para confirmarmos os parâmetros."""
+    from ..services import sources as src
+    settings = pipeline.get_settings(db)
+    client = pipeline._client(settings)
+    data_str = (data or {}).get("data")
+    try:
+        return src.probe_btcu(client, data_str=data_str)
+    except Exception as e:
+        import logging, traceback
+        logging.getLogger(__name__).warning(f"probe BTCU falhou: {e}\n{traceback.format_exc()}")
+        return {"status": "erro", "error": f"Exceção no teste: {e}"}
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
 @router.post("/clear-autuados-source")
 def clear_autuados_source(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Remove uma URL customizada antiga de listagem de autuados, voltando a usar

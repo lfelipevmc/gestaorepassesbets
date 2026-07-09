@@ -171,3 +171,22 @@ def run_now(background_tasks: BackgroundTasks, db: Session = Depends(get_db),
             current_user: User = Depends(get_current_user)):
     background_tasks.add_task(_run_bg)
     return {"message": "Coleta do Radar Externo iniciada em segundo plano."}
+
+
+@router.post("/presets")
+def add_presets(seed_dou: bool = True, db: Session = Depends(get_db),
+                current_user: User = Depends(get_current_user)):
+    """Adiciona as fontes sugeridas (embaixadas, estatais, portais de contratação)
+    e, opcionalmente, semeia as palavras-chave jurídicas no DOU."""
+    from ..services.external import presets
+    res = presets.apply_presets(db, MonitoredSource)
+    if seed_dou:
+        settings = pipeline.get_settings(db)
+        atuais = settings.dou_keywords or ""
+        existentes = {l.strip().lower() for l in atuais.replace(",", "\n").splitlines() if l.strip()}
+        novas = [k for k in presets.DOU_KEYWORDS_JURIDICO if k.lower() not in existentes]
+        if novas:
+            settings.dou_keywords = "\n".join([atuais.strip()] + novas).strip() if atuais.strip() else "\n".join(novas)
+            db.commit()
+        res["dou_keywords_adicionadas"] = len(novas)
+    return {"message": f"{res['criadas']} fonte(s) sugerida(s) adicionada(s).", **res}

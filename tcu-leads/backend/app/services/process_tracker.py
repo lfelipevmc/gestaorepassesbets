@@ -170,16 +170,34 @@ def _parse_any_date(v):
 
 
 def _create_autuado_lead(db: Session, tp: TrackedProcess, detection_date: date, fields: dict = None):
-    """Cria um lead para um processo autuado inédito (com órgão/assunto/responsáveis)."""
+    """Cria um lead para um processo autuado inédito (com órgão/assunto/responsáveis).
+
+    O score, o tipo de ato e o prazo são derivados do domínio TCU (RITCU): natureza
+    do processo + comunicação detectada nas movimentações (citação/audiência/etc.).
+    """
     from .pipeline import upsert_lead  # import tardio (evita ciclo)
+    from . import tcu_domain as dom
     fields = fields or {}
     responsaveis = fields.get("responsaveis") or []
     principal = responsaveis[0] if responsaveis else {"nome": None, "documento": None, "tipo_doc": None, "papel": None}
     nomes = "; ".join(r["nome"] for r in responsaveis if r.get("nome"))
     assunto = tp.assunto or fields.get("assunto")
+    movs = fields.get("movimentacoes") or ([tp.ultima_movimentacao] if tp.ultima_movimentacao else [])
+    natureza = tp.natureza or tp.tipo
+
+    sig = dom.scan_movimentacoes(movs)
+    comunic = sig.get("comunicacao_forte")
+    tem_pj = any((r.get("tipo_doc") == "cnpj") for r in responsaveis)
+    score, rationale = dom.tcu_lead_score(
+        natureza_texto=natureza, movimentacoes=movs,
+        tem_responsavel=bool(nomes), tem_documento_pj=tem_pj)
+    act = dom.act_type_for(natureza, movs)
+    prazo = dom.prazo_for(movs)
+    comunic_txt = f" Sinal: {dom.COMUNICACOES[comunic]['label']} (nas movimentações)." if comunic else ""
+
     data = {
-        "act_type": "edital",
-        "natureza_processo": tp.natureza or tp.tipo,
+        "act_type": act,
+        "natureza_processo": natureza,
         "tema": None,
         "numero_processo": tp.numero_processo,
         "colegiado": tp.colegiado,
@@ -188,16 +206,18 @@ def _create_autuado_lead(db: Session, tp: TrackedProcess, detection_date: date, 
         "uf": tp.uf, "municipio": tp.municipio,
         "responsavel": principal,
         "responsaveis": responsaveis,
-        "prazo_dias": None,
+        "prazo_dias": prazo,
+        "opportunity_score": score,
         "resumo": (f"Processo autuado no TCU em {detection_date.strftime('%d/%m/%Y')}"
-                   f"{' — ' + tp.natureza if tp.natureza else ''}."
+                   f"{' — ' + natureza if natureza else ''}."
                    f"{' Responsável(is): ' + nomes + '.' if nomes else ''}"
                    f" Órgão: {tp.orgao_entidade or '—'}."
                    f"{' Assunto: ' + assunto[:200] + '.' if assunto else ''}"
+                   f"{comunic_txt}"
                    f" Momento ideal de aproximação (recém-autuado)."),
         "is_opportunity": True,
-        "rationale": "Processo recém-autuado — descoberta antecipada, antes de qualquer intimação.",
-        "confidence": "medium",
+        "rationale": rationale,
+        "confidence": "high" if comunic in ("citacao", "audiencia") else "medium",
         "extracted_by_ai": False,
     }
     lead, _ = upsert_lead(db, data, source_kind=TcuSourceKind.processo_autuado,

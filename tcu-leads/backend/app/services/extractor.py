@@ -27,11 +27,17 @@ logger = logging.getLogger(__name__)
 TCU_MODEL = "claude-sonnet-4-6"
 
 SYSTEM_PROMPT = (
-    "Você extrai dados estruturados de editais e acórdãos do Tribunal de Contas "
-    "da União (TCU). Responda SEMPRE e APENAS com um único objeto JSON válido, "
-    "sem comentários e sem texto fora do JSON. Use null quando um campo não "
-    "estiver presente no texto. Valores monetários em número decimal (ponto como "
-    "separador). Datas no formato ISO 8601 (AAAA-MM-DD)."
+    "Você extrai dados estruturados de documentos do Tribunal de Contas da União "
+    "(TCU): editais, acórdãos, DESPACHOS de relator e INSTRUÇÕES de unidade técnica. "
+    "Seu objetivo principal é identificar TODAS as pessoas físicas ou jurídicas "
+    "CHAMADAS ao processo — citadas (débito), em audiência (sem débito), em oitiva, "
+    "notificadas — que são os possíveis clientes do escritório. Numa instrução, a "
+    "unidade técnica PROPÕE a citação/audiência e lista os responsáveis; num "
+    "despacho, o relator ORDENA a citação/audiência. Extraia cada pessoa com seu "
+    "documento (CPF/CNPJ, ainda que mascarado) e o tipo de chamamento. "
+    "Responda SEMPRE e APENAS com um único objeto JSON válido, sem texto fora do "
+    "JSON. Use null quando ausente. Valores monetários em decimal (ponto). Datas "
+    "em ISO 8601 (AAAA-MM-DD)."
 )
 
 # Esquema textual + few-shot embutidos no prompt do usuário
@@ -45,6 +51,7 @@ _SCHEMA = """{
   "relator": "string|null",
   "unidade_tecnica": "string|null",
   "responsavel": {"nome": "string|null", "documento": "string|null", "tipo_doc": "cpf|cnpj|null", "papel": "string|null"},
+  "responsaveis": "array de {nome, documento, tipo_doc, papel, tipo_chamamento: citacao|audiencia|oitiva|notificacao|null} — TODAS as pessoas chamadas ao processo",
   "orgao_entidade": "string|null",
   "uf": "string|null (2 letras)",
   "municipio": "string|null",
@@ -66,7 +73,11 @@ JSON: {"act_type":"citacao","natureza_processo":"Tomada de Contas Especial","tem
 
 Exemplo 2 (acórdão condenatório):
 TEXTO: "Acórdão 5678/2026-TCU-Primeira Câmara. Julga irregulares as contas e condena o responsável ao pagamento de multa de R$ 30.000,00, fixando prazo de 15 dias para recolhimento."
-JSON: {"act_type":"acordao_condenatorio","natureza_processo":"Prestação de Contas","tema":null,"numero_processo":null,"acordao_ref":"5678/2026","colegiado":"Primeira Câmara","relator":null,"unidade_tecnica":null,"responsavel":{"nome":null,"documento":null,"tipo_doc":null,"papel":"responsável"},"orgao_entidade":null,"uf":null,"municipio":null,"ja_representado":false,"valor_debito":null,"valor_multa":30000.00,"data_referencia_valor":null,"prazo_dias":15,"resumo":"Acórdão que julga contas irregulares e aplica multa de R$ 30 mil, com prazo de 15 dias para recolhimento; abre janela para recursos.","is_opportunity":true,"rationale":"Condenação com multa gera necessidade de recurso (reconsideração/embargos).","confidence":"medium","opportunity_score":70}"""
+JSON: {"act_type":"acordao_condenatorio","natureza_processo":"Prestação de Contas","tema":null,"numero_processo":null,"acordao_ref":"5678/2026","colegiado":"Primeira Câmara","relator":null,"unidade_tecnica":null,"responsavel":{"nome":null,"documento":null,"tipo_doc":null,"papel":"responsável"},"responsaveis":[],"orgao_entidade":null,"uf":null,"municipio":null,"ja_representado":false,"valor_debito":null,"valor_multa":30000.00,"data_referencia_valor":null,"prazo_dias":15,"resumo":"Acórdão que julga contas irregulares e aplica multa de R$ 30 mil, com prazo de 15 dias para recolhimento; abre janela para recursos.","is_opportunity":true,"rationale":"Condenação com multa gera necessidade de recurso (reconsideração/embargos).","confidence":"medium","opportunity_score":70}
+
+Exemplo 3 (despacho/instrução propondo citação e audiência de vários):
+TEXTO: "Instrução da SecexEducação. Ante o exposto, propõe-se a CITAÇÃO solidária de José da Silva (CPF 111.222.333-44), gestor, e da Construtora Alfa Ltda (CNPJ 55.666.777/0001-88), pelo débito apurado, e a AUDIÊNCIA de Maria Souza (CPF 999.888.777-66), pregoeira, para razões de justificativa. Despacho do Relator: acolho a proposta; cite-se e realize-se a audiência."
+JSON: {"act_type":"citacao","natureza_processo":"Tomada de Contas Especial","tema":"educacao_fnde","numero_processo":null,"acordao_ref":null,"colegiado":null,"relator":null,"unidade_tecnica":"SecexEducação","responsavel":{"nome":"José da Silva","documento":"111.222.333-44","tipo_doc":"cpf","papel":"gestor (solidário)"},"responsaveis":[{"nome":"José da Silva","documento":"111.222.333-44","tipo_doc":"cpf","papel":"gestor","tipo_chamamento":"citacao"},{"nome":"Construtora Alfa Ltda","documento":"55.666.777/0001-88","tipo_doc":"cnpj","papel":"contratada (solidária)","tipo_chamamento":"citacao"},{"nome":"Maria Souza","documento":"999.888.777-66","tipo_doc":"cpf","papel":"pregoeira","tipo_chamamento":"audiencia"}],"orgao_entidade":null,"uf":null,"municipio":null,"ja_representado":false,"valor_debito":null,"valor_multa":null,"data_referencia_valor":null,"prazo_dias":15,"resumo":"Instrução da unidade técnica propõe a citação de gestor e empresa por débito e a audiência da pregoeira; relator acolhe. Três possíveis clientes identificados antes da intimação formal.","is_opportunity":true,"rationale":"Chamamento iminente de PF e PJ (citação/audiência) — momento ótimo de captação.","confidence":"high","opportunity_score":90}"""
 
 
 def extract_block(block: ParsedBlock) -> dict:

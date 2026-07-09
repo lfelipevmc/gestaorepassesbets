@@ -57,6 +57,7 @@ export const cleanupNoise = () => api.post("/api/monitor/cleanup-noise");
 export const clearAutuadosSource = () => api.post("/api/monitor/clear-autuados-source");
 export const testSourceProcessos = (data?: { data?: string }) =>
   api.post("/api/monitor/test-source/processos", data || {});
+export const testBtcu = (data?: { data?: string }) => api.post("/api/monitor/test-btcu", data || {});
 
 // Processos autuados
 export const getProcesses = (params?: any) => api.get("/api/processes", { params });
@@ -71,3 +72,4 @@ export const testSavedSource = (id: number) => api.post(`/api/external/sources/$
 export const testSourceAdhoc = (data: any) => api.post("/api/external/test-source", data);
 export const testDou = (data?: any) => api.post("/api/external/test-dou", data || {});
 export const runExternal = () => api.post("/api/external/run");
+export const addPresets = () => api.post("/api/external/presets");

@@ -681,6 +681,8 @@ def extract_processo_fields(item: dict) -> dict:
         "uf": _deep_first(item, ("uf", "sigla_uf")),
         "estado": item.get("ESTADO") or _deep_first(item, ("estadoProcesso", "situacao", "estado_processo")),
         "ultima_movimentacao": ultima,
+        "movimentacoes": ([str(m) for m in movs][:40] if isinstance(movs, list)
+                          else ([str(ultima)] if ultima else [])),
         "data_autuacao": _deep_first(item, ("dataAutuacao", "data_autuacao", "dataAutuado")),
         "source_url": item.get("URLSISTEMAPUSH"),
         "responsaveis": responsaveis,
@@ -792,6 +794,92 @@ def probe_processos_source(client: "TcuHttpClient", settings, data_str: Optional
         "cookies_firewall": _n_firewall_cookies(client),
         "cookies_nomes": client.cookie_names() if hasattr(client, "cookie_names") else [],
         "custom_url_configurada": bool(custom_url),
+        "diagnostics": attempts,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# BTCU / Boletim — fonte das comunicações (citações, audiências, despachos)
+# --------------------------------------------------------------------------- #
+# A Pesquisa Integrada expõe várias BASES sob /rest/publico/base/<base>/... .
+# A base do Boletim (BTCU) contém as deliberações e comunicações diárias. Como
+# os parâmetros exatos (nome da base, campo de data, ordenação) só se confirmam
+# contra o serviço vivo, esta função é genérica e calibrável pelo "Testar BTCU".
+PESQUISA_BASE_TPL = "https://pesquisa.apps.tcu.gov.br/rest/publico/base/{base}/{kind}"
+
+
+def fetch_pesquisa_base(client: "TcuHttpClient", base: str, data_iso: str, *,
+                        filtro_campo: str, termo: str = "*",
+                        ordenacao: str = "DTRELEVANCIA desc",
+                        page_size: int = 10, max_total: int = 10, full: bool = False,
+                        max_retries: int = 1) -> tuple[list, dict]:
+    """Consulta genérica a uma base da Pesquisa Integrada (btcu, acordao, etc.)."""
+    import urllib.parse
+    d = _yyyymmdd(data_iso)
+    filtro = f"{filtro_campo}:[{d} to {d}]"
+    kind = "documento" if full else "documentosResumidos"
+    base_url = PESQUISA_BASE_TPL.format(base=base, kind=kind)
+    ref_path = "documento" if full else "resultado"
+    referer = (f"https://pesquisa.apps.tcu.gov.br/{ref_path}/{base}/*/"
+               + urllib.parse.quote(urllib.parse.quote(filtro, safe=""), safe=""))
+    headers = _pesquisa_headers(referer)
+    client.prime(PESQUISA_PROC_URL, referer=referer)
+    diag = {"url": base_url, "base": base, "filtro": filtro, "status": None, "count": 0,
+            "total": None, "error": None, "http_status": None, "body_len": None, "raw_sample": None,
+            "campos": []}
+    params = {"termo": termo, "filtro": filtro, "ordenacao": ordenacao,
+              "quantidade": page_size, "inicio": 0}
+    raw = client.fetch_raw("GET", base_url, params=params, headers=headers, max_retries=max_retries)
+    if raw is None:
+        diag["error"] = "Sem resposta"
+        return [], diag
+    http_status, resp_headers, content = raw
+    text = content.decode("utf-8", "replace") if isinstance(content, (bytes, bytearray)) else str(content or "")
+    diag.update(http_status=http_status, body_len=len(text))
+    if http_status != 200:
+        diag["error"] = f"HTTP {http_status}"
+        diag["raw_sample"] = text[:300]
+        return [], diag
+    try:
+        data = json.loads(text) if text.strip() else None
+    except json.JSONDecodeError:
+        data = None
+    if not data:
+        diag["error"] = f"Corpo não-JSON (tam={len(text)})"
+        diag["raw_sample"] = text[:300]
+        return [], diag
+    docs = (data or {}).get("documentos") or _extract_list(data)
+    diag["total"] = (data or {}).get("quantidadeEncontrada")
+    diag["count"] = len(docs)
+    diag["status"] = "ok"
+    if docs and isinstance(docs[0], dict):
+        diag["campos"] = list(docs[0].keys())
+        diag["raw_sample"] = json.dumps(docs[0], ensure_ascii=False)[:500]
+    return docs, diag
+
+
+def probe_btcu(client: "TcuHttpClient", data_str: Optional[str] = None) -> dict:
+    """Calibra a fonte do BTCU/Boletim: tenta a base e o campo de data prováveis e
+    devolve o que veio, para confirmarmos a estrutura antes de ligar a ingestão."""
+    di = data_str or date.today().strftime("%Y-%m-%d")
+    attempts = []
+    combos = [("btcu", "DTPUBLICACAO"), ("btcu", "DTATUALIZACAO"), ("btcu", "DTRELEVANCIA")]
+    for base, campo in combos:
+        docs, d = fetch_pesquisa_base(client, base, di, filtro_campo=campo, page_size=5, max_total=5)
+        attempts.append({
+            "label": f"base={base} · campo={campo}", "status": d.get("status"),
+            "count": d.get("count"), "total": d.get("total"), "error": d.get("error"),
+            "http_status": d.get("http_status"), "body_len": d.get("body_len"),
+            "campos": d.get("campos", []), "raw_sample": d.get("raw_sample"),
+        })
+        if d.get("count"):
+            break
+    best = next((a for a in attempts if a["count"]), attempts[0] if attempts else {})
+    return {
+        "status": best.get("status") or ("ok" if best.get("count") else "erro"),
+        "count": best.get("count", 0), "total": best.get("total"),
+        "campos_retornados": best.get("campos", []),
+        "cookies_firewall": _n_firewall_cookies(client),
         "diagnostics": attempts,
     }
 

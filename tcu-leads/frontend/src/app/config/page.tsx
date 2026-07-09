@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
-import { getSettings, updateSettings, getRuns, cleanupNoise, clearAutuadosSource, testSourceProcessos, testDou } from "@/lib/api";
+import { getSettings, updateSettings, getRuns, cleanupNoise, clearAutuadosSource, testSourceProcessos, testDou, testBtcu } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
 
@@ -36,6 +36,15 @@ export default function ConfigPage() {
   const [cleaning, setCleaning] = useState(false);
   const [douResult, setDouResult] = useState<any>(null);
   const [douTesting, setDouTesting] = useState(false);
+  const [btcuResult, setBtcuResult] = useState<any>(null);
+  const [btcuTesting, setBtcuTesting] = useState(false);
+
+  async function handleTestBtcu() {
+    setBtcuTesting(true); setBtcuResult(null);
+    try { const r = await testBtcu(testDate ? { data: testDate } : undefined); setBtcuResult(r.data); }
+    catch (e: any) { setBtcuResult({ status: "erro", error: e.response?.data?.detail || "Falha ao testar o BTCU." }); }
+    finally { setBtcuTesting(false); }
+  }
 
   async function handleTestDou() {
     setDouTesting(true);
@@ -231,6 +240,36 @@ export default function ConfigPage() {
             Observação: a Pesquisa Integrada informa nº do processo, natureza, assunto, órgão (unidade jurisdicionada) e relator.
             Os <strong>responsáveis nominais</strong> costumam aparecer depois, no edital de citação (fonte BTCU) — que o sistema também captura.
           </p>
+        </div>
+
+        <div className="card">
+          <h3 className="font-semibold text-white text-sm mb-1">Boletim do TCU (BTCU) — citações, audiências e despachos <span className="text-[10px] px-2 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/30">calibrando</span></h3>
+          <p className="text-xs text-muted mb-3">O BTCU é o "diário oficial" do próprio TCU, onde saem as comunicações que chamam os responsáveis (citação/audiência) e os despachos. É a fonte mais rica de leads. Estamos confirmando os parâmetros da consulta a partir do servidor.</p>
+          <div className="flex items-center gap-2">
+            <button onClick={handleTestBtcu} disabled={btcuTesting} className="btn-secondary text-xs">{btcuTesting ? "Testando..." : "🔌 Testar BTCU (calibração)"}</button>
+            <span className="text-xs text-muted">Usa a data do campo ao lado do teste de processos.</span>
+          </div>
+          {btcuResult && (
+            <div className={`mt-2 rounded-lg p-3 text-xs border ${btcuResult.status === "erro" ? "border-danger/30 bg-danger/5 text-danger" : btcuResult.count ? "border-success/30 bg-success/5 text-success" : "border-warning/30 bg-warning/5 text-warning"}`}>
+              <p><strong>Status:</strong> {btcuResult.status || "—"} · <strong>Documentos:</strong> {btcuResult.count ?? 0}{btcuResult.total != null && ` (total: ${btcuResult.total})`} · cookies firewall: {btcuResult.cookies_firewall ?? 0}</p>
+              {btcuResult.error && <p className="mt-1">{btcuResult.error}</p>}
+              {btcuResult.diagnostics?.length > 0 && (
+                <details className="mt-2" open>
+                  <summary className="cursor-pointer text-muted">Tentativas (base × campo de data)</summary>
+                  <div className="mt-1 space-y-1">
+                    {btcuResult.diagnostics.map((d: any, i: number) => (
+                      <div key={i} className="rounded border border-surface-border p-2 bg-surface/50">
+                        <p className="text-slate-200">{d.label}</p>
+                        <p className="text-slate-400">status: {d.status || "—"}{d.http_status != null && ` · HTTP ${d.http_status}`} · itens: {d.count ?? 0}{d.total != null && ` · total: ${d.total}`}</p>
+                        {d.error && <p className="text-danger">{d.error}</p>}
+                        {d.campos?.length > 0 && <p className="text-slate-500 break-words">campos: {d.campos.join(", ")}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="card">
