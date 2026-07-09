@@ -54,7 +54,7 @@ export default function HelpTip({
       >?</button>
       {open && (
         <span
-          className={`absolute z-[90] top-[26px] ${pos} ${wide ? "w-80" : "w-64"} max-w-[86vw] rounded-xl border border-primary/25 bg-slate-900/98 shadow-2xl p-3.5 animate-tip-in text-left normal-case tracking-normal whitespace-normal cursor-default`}
+          className={`absolute z-[90] top-[26px] ${pos} ${wide ? "w-80" : "w-64"} max-w-[86vw] rounded-xl border border-primary/30 bg-[#0d1526] shadow-2xl shadow-black/60 p-3.5 animate-tip-in text-left normal-case tracking-normal whitespace-normal cursor-default`}
           onClick={e => e.stopPropagation()}
         >
           {title && (

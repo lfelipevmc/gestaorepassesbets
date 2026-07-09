@@ -23,10 +23,10 @@ export default function Header({ title, subtitle, actions, icon, help }: HeaderP
           </div>
         )}
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2 flex-wrap">
-            {icon && <span className="sm:hidden text-lg" aria-hidden>{icon}</span>}
-            <span className="truncate">{title}</span>
-            {help && <HelpTip title={title} text={help} wide align="left" />}
+          <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
+            {icon && <span className="sm:hidden text-lg flex-shrink-0" aria-hidden>{icon}</span>}
+            <span className="min-w-0">{title}</span>
+            {help && <span className="flex-shrink-0 inline-flex"><HelpTip title={title} text={help} wide align="left" /></span>}
           </h1>
           {subtitle && <p className="text-muted text-xs sm:text-sm mt-0.5">{subtitle}</p>}
         </div>
