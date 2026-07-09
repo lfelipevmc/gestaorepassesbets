@@ -73,7 +73,7 @@ a data e o responsável. O primeiro teste é feito na própria instalação.
 
 | Data do teste | Backup testado | Responsável | Resultado |
 |---------------|----------------|-------------|-----------|
-| _(preencher)_ | | | |
+| 09/07/2026    | Sim            | Luís Felipe | Positivo  |
 
 ## 7. Camada adicional recomendada
 
