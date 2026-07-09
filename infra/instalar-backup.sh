@@ -34,8 +34,11 @@ touch /var/log/haveres-backup.log
 
 echo "== 3. Agendando no cron (todo dia às 02:00) =="
 CRON_LINE="0 2 * * * cd ${PROJECT_DIR} && ./infra/backup.sh >> /var/log/haveres-backup.log 2>&1"
-# remove agendamento anterior deste script e recria
-( crontab -l 2>/dev/null | grep -v "infra/backup.sh" ; echo "$CRON_LINE" ) | crontab -
+# remove agendamento anterior deste script e recria (robusto quando não há crontab)
+ATUAL="$(crontab -l 2>/dev/null || true)"
+SEM_ANTIGO="$(printf '%s\n' "$ATUAL" | grep -v 'infra/backup.sh' || true)"
+printf '%s\n%s\n' "$SEM_ANTIGO" "$CRON_LINE" | sed '/^$/d' | crontab -
+echo "  Agendado: $(crontab -l | grep backup.sh)"
 
 echo "== 4. Rodando um backup de teste agora =="
 ./infra/backup.sh
