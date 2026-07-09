@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import { formatDate } from "@/lib/utils";
+import { toast } from "@/components/ui/Toast";
 
 const TABS = ["Ciclos", "Modelos de Cobrança"];
 
@@ -86,7 +87,7 @@ export default function CobrancasPage() {
       const msg = typeof detail === "string" ? detail
         : Array.isArray(detail) ? detail.map((e: any) => e.msg || JSON.stringify(e)).join(" | ")
         : "Erro ao criar ciclo de cobrança";
-      alert(msg);
+      toast.warn(msg);
     } finally { setCreating(false); }
   }
 
@@ -201,7 +202,7 @@ export default function CobrancasPage() {
                         </div>
                       </div>
                     </div>
-                    <table className="w-full">
+                    <div className="table-wrap"><table className="w-full">
                       <thead>
                         <tr>
                           <th className="table-th">Competência</th>
@@ -222,7 +223,7 @@ export default function CobrancasPage() {
                                 {me?.role === "admin" && (
                                   <button onClick={async () => {
                                     if (!confirm(`Arquivar o ciclo ${monthLabel(c.reference_month)} da ${conf.acronym}? O histórico fica preservado.`)) return;
-                                    try { await archiveCycle(c.id); fetchAll(); } catch (e: any) { alert(e.response?.data?.detail || "Erro ao arquivar"); }
+                                    try { await archiveCycle(c.id); fetchAll(); } catch (e: any) { toast.error(e.response?.data?.detail || "Erro ao arquivar"); }
                                   }} className="text-danger text-xs hover:underline" title="Somente admin — histórico preservado">Arquivar</button>
                                 )}
                               </div>
@@ -230,7 +231,7 @@ export default function CobrancasPage() {
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </table></div>
                   </div>
                 );
               })}

@@ -15,6 +15,7 @@ import {
 } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
+import { toast } from "@/components/ui/Toast";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -115,13 +116,13 @@ export default function CollectionDetailPage() {
       setShowReceipt(null);
       setReceiptForm({ amount: "", received_date: new Date().toISOString().slice(0, 10), notes: "" });
       fetchAll();
-    } catch (err: any) { alert(err.response?.data?.detail || "Erro ao registrar recebimento"); }
+    } catch (err: any) { toast.error(err.response?.data?.detail || "Erro ao registrar recebimento"); }
     finally { setBusy(false); }
   }
 
   async function saveReport(e: React.FormEvent) {
     e.preventDefault();
-    if (!reportFile) { alert("Selecione o arquivo do relatório."); return; }
+    if (!reportFile) { toast.warn("Selecione o arquivo do relatório."); return; }
     setBusy(true);
     try {
       const fd = new FormData();
@@ -129,7 +130,7 @@ export default function CollectionDetailPage() {
       await uploadCycleReceiptReport(numId, reportRow.operator_id, fd);
       setReportRow(null); setReportFile(null);
       fetchAll();
-    } catch (err: any) { alert(err.response?.data?.detail || "Erro ao anexar relatório"); }
+    } catch (err: any) { toast.error(err.response?.data?.detail || "Erro ao anexar relatório"); }
     finally { setBusy(false); }
   }
 
@@ -143,7 +144,7 @@ export default function CollectionDetailPage() {
       const included = new Set<number>(r.data.recipients.map((x: any) => x.operator_id));
       setReview({ ...r.data, included, deadline_text: `${r.data.deadline_days} (dias) — vencimento em ${r.data.deadline}`, template_id: "" });
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao carregar pré-visualização");
+      toast.error(err.response?.data?.detail || "Erro ao carregar pré-visualização");
     } finally { setReviewLoading(false); }
   }
 
@@ -185,7 +186,7 @@ export default function CollectionDetailPage() {
 
   async function doSend() {
     const recipients = includedRecipients().map((o: any) => ({ operator_id: o.operator_id, email: o.emails?.[0] || null }));
-    if (recipients.length === 0) { alert("Selecione ao menos um destinatário."); return; }
+    if (recipients.length === 0) { toast.warn("Selecione ao menos um destinatário."); return; }
     setSending(true);
     try {
       const r = await sendNotificationConfirmed(numId, {
@@ -199,13 +200,13 @@ export default function CollectionDetailPage() {
       setReviewStage("result");
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao enviar");
+      toast.error(err.response?.data?.detail || "Erro ao enviar");
     } finally { setSending(false); }
   }
 
   async function openProof(emailId: number) {
     try { const r = await getEmailProof(numId, emailId); setProof(r.data); }
-    catch { alert("Comprovante indisponível."); }
+    catch { toast.warn("Comprovante indisponível."); }
   }
 
   // ---------- SPA / atividades / arquivar ----------
@@ -213,11 +214,11 @@ export default function CollectionDetailPage() {
     setSpaBusy(true);
     try {
       const ids = (board?.rows || []).filter((r: any) => r.conclusion === "inadimplente").map((r: any) => r.operator_id);
-      if (ids.length === 0) { alert("Não há operadores inadimplentes para o ofício."); setSpaBusy(false); return; }
+      if (ids.length === 0) { toast.warn("Não há operadores inadimplentes para o ofício."); setSpaBusy(false); return; }
       const r = await generateSpaLetter(numId, { inadimplente_operator_ids: ids, ...spaForm });
       setSpaResult(r.data);
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao gerar minuta");
+      toast.error(err.response?.data?.detail || "Erro ao gerar minuta");
     } finally { setSpaBusy(false); }
   }
   async function handleDownloadSpa() {
@@ -226,7 +227,7 @@ export default function CollectionDetailPage() {
       const url = URL.createObjectURL(new Blob([r.data], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
       const a = document.createElement("a"); a.href = url; a.download = spaResult.file_name || "oficio_spa.docx"; a.click();
       URL.revokeObjectURL(url);
-    } catch { alert("Erro ao baixar a minuta."); }
+    } catch { toast.error("Erro ao baixar a minuta."); }
   }
   async function downloadActivity() {
     try {
@@ -234,21 +235,21 @@ export default function CollectionDetailPage() {
       const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
       const a = document.createElement("a"); a.href = url; a.download = `atividades_${conf?.acronym}_${monthShort(cycle?.reference_month).replace("/", "_")}.pdf`; a.click();
       URL.revokeObjectURL(url);
-    } catch { alert("Erro ao gerar relatório de atividades."); }
+    } catch { toast.error("Erro ao gerar relatório de atividades."); }
   }
   async function doArchive() {
     if (!confirm(`Arquivar o ciclo de ${monthShort(cycle?.reference_month)} da ${conf?.acronym}? Ele some das listas, mas o histórico fica preservado.`)) return;
-    try { await archiveCycle(numId); alert("Ciclo arquivado."); window.location.href = "/cobrancas"; }
-    catch (err: any) { alert(err.response?.data?.detail || "Erro ao arquivar"); }
+    try { await archiveCycle(numId); toast.success("Ciclo arquivado."); window.location.href = "/cobrancas"; }
+    catch (err: any) { toast.error(err.response?.data?.detail || "Erro ao arquivar"); }
   }
 
   async function doSyncEmails() {
     setSyncing(true);
     try {
       const r = await syncCycleEmails(numId);
-      if (!r.data.configured) alert("Integração de e-mail (M365) não configurada no .env.");
+      if (!r.data.configured) toast.warn("Integração de e-mail (M365) não configurada no .env.");
       loadEmails();
-    } catch { alert("Erro ao sincronizar e-mails."); }
+    } catch { toast.error("Erro ao sincronizar e-mails."); }
     finally { setSyncing(false); }
   }
 
@@ -380,7 +381,7 @@ export default function CollectionDetailPage() {
           </div>
           <CycleEmailQueue emails={emails.filter(e => e.direction === "inbound" && !e.matched)} operators={operators} onLinked={loadEmails} />
           <div className="card p-0 overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="table-wrap"><table className="w-full text-sm">
               <thead className="bg-surface"><tr>
                 <th className="table-th">Tipo</th><th className="table-th">Data</th><th className="table-th">Bet</th>
                 <th className="table-th">Assunto</th><th className="table-th">Endereço</th><th className="table-th"></th>
@@ -398,7 +399,7 @@ export default function CollectionDetailPage() {
                 ))}
                 {emails.length === 0 && <tr><td colSpan={6} className="table-td text-center text-muted py-8">Nenhum e-mail vinculado a este ciclo ainda.</td></tr>}
               </tbody>
-            </table>
+            </table></div>
           </div>
         </div>
       )}

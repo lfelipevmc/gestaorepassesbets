@@ -18,6 +18,7 @@ import {
   getOperatorMonthlyHistory, getOperatorComplianceScore, getOperatorConfSummary,
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
+import { toast } from "@/components/ui/Toast";
 
 const TABS = ["Dados Cadastrais", "Marcas Vinculadas", "Responsáveis", "ENDR", "Contatos", "Pesquisa de Contatos", "Histórico de Pagamentos", "Documentos", "Auditoria"];
 
@@ -116,8 +117,8 @@ export default function OperatorDetailPage() {
 
   async function handleUploadDoc(e: React.FormEvent) {
     e.preventDefault();
-    if (!docFile) { alert("Selecione um arquivo."); return; }
-    if (docFile.size > 25 * 1024 * 1024) { alert("Arquivo maior que 25 MB. Compacte ou divida o documento."); return; }
+    if (!docFile) { toast.warn("Selecione um arquivo."); return; }
+    if (docFile.size > 25 * 1024 * 1024) { toast.warn("Arquivo maior que 25 MB. Compacte ou divida o documento."); return; }
     setUploadingDoc(true);
     try {
       const fd = new FormData();
@@ -132,7 +133,7 @@ export default function OperatorDetailPage() {
       setDocFile(null);
       fetchData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao enviar documento");
+      toast.error(err.response?.data?.detail || "Erro ao enviar documento");
     } finally { setUploadingDoc(false); }
   }
 
@@ -142,18 +143,18 @@ export default function OperatorDetailPage() {
       const url = URL.createObjectURL(new Blob([r.data]));
       const a = document.createElement("a"); a.href = url; a.download = d.file_name || "documento"; a.click();
       URL.revokeObjectURL(url);
-    } catch { alert("Erro ao baixar documento."); }
+    } catch { toast.error("Erro ao baixar documento."); }
   }
 
   async function handleSaveDefineMonth(e: React.FormEvent) {
     e.preventDefault();
-    if (!defineMonth?.value) { alert("Selecione o mês."); return; }
+    if (!defineMonth?.value) { toast.warn("Selecione o mês."); return; }
     try {
       await updateDirectPayment(numId, defineMonth.payment.id, { reference_month: defineMonth.value + "-01" });
       setDefineMonth(null);
       fetchData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao definir o mês");
+      toast.error(err.response?.data?.detail || "Erro ao definir o mês");
     }
   }
 
@@ -240,7 +241,7 @@ export default function OperatorDetailPage() {
       await updateOperator(numId, payload);
       fetchData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao salvar");
+      toast.success(err.response?.data?.detail || "Erro ao salvar");
     } finally {
       setSaving(false);
     }
@@ -255,7 +256,7 @@ export default function OperatorDetailPage() {
       setContactForm({ type: "email", value: "", label: "", source: "", is_primary: false });
       fetchData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao adicionar contato");
+      toast.error(err.response?.data?.detail || "Erro ao adicionar contato");
     } finally {
       setAddingContact(false);
     }
@@ -318,7 +319,7 @@ export default function OperatorDetailPage() {
       setShowRespModal(false);
       fetchData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao salvar responsável");
+      toast.success(err.response?.data?.detail || "Erro ao salvar responsável");
     } finally { setSavingResp(false); }
   }
 
@@ -340,7 +341,7 @@ export default function OperatorDetailPage() {
       setShowBrandModal(false);
       fetchData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao salvar marca");
+      toast.success(err.response?.data?.detail || "Erro ao salvar marca");
     } finally {
       setSavingBrand(false);
     }
@@ -369,7 +370,7 @@ export default function OperatorDetailPage() {
       setDirectForm({ confederation_id: "", reference_month: "", amount_received: "", received_date: new Date().toISOString().slice(0, 10), notes: "" });
       fetchData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao registrar lançamento");
+      toast.error(err.response?.data?.detail || "Erro ao registrar lançamento");
     } finally { setSavingDirect(false); }
   }
 
@@ -398,10 +399,10 @@ export default function OperatorDetailPage() {
       const erros = r.data?.errors || [];
       setSuggestionsFilter("pending");
       await fetchSuggestions("pending");
-      if (novas > 0) alert(`Pesquisa concluída: ${novas} nova(s) sugestão(ões) encontrada(s). Revise abaixo.`);
-      else alert("Pesquisa concluída, mas nenhuma sugestão nova foi encontrada." + (erros.length ? `\n\nObservações: ${erros.join("; ")}` : "\n\nVerifique se o CNPJ/site estão preenchidos e se a chave de IA está configurada."));
+      if (novas > 0) toast.success(`Pesquisa concluída: ${novas} nova(s) sugestão(ões) encontrada(s). Revise abaixo.`);
+      else toast.success("Pesquisa concluída, mas nenhuma sugestão nova foi encontrada." + (erros.length ? `\n\nObservações: ${erros.join("; ")}` : "\n\nVerifique se o CNPJ/site estão preenchidos e se a chave de IA está configurada."));
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao pesquisar contatos");
+      toast.error(err.response?.data?.detail || "Erro ao pesquisar contatos");
     } finally {
       setResearching(false);
     }
@@ -736,7 +737,7 @@ export default function OperatorDetailPage() {
             <div className="card text-center py-8 text-muted text-sm">Nenhuma associação ENDR registrada</div>
           ) : (
             <div className="card p-0 overflow-hidden">
-              <table className="w-full">
+              <div className="table-wrap"><table className="w-full">
                 <thead className="bg-surface">
                   <tr>
                     <th className="table-th">Mês/Ano</th>
@@ -762,7 +763,7 @@ export default function OperatorDetailPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           )}
 
@@ -816,7 +817,7 @@ export default function OperatorDetailPage() {
             <div className="card text-center py-8 text-muted text-sm">Nenhum contato cadastrado</div>
           ) : (
             <div className="card p-0 overflow-hidden">
-              <table className="w-full">
+              <div className="table-wrap"><table className="w-full">
                 <thead className="bg-surface">
                   <tr>
                     <th className="table-th">Tipo</th>
@@ -843,7 +844,7 @@ export default function OperatorDetailPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           )}
 
@@ -932,7 +933,7 @@ export default function OperatorDetailPage() {
             </div>
           ) : (
             <div className="card p-0 overflow-hidden">
-              <table className="w-full">
+              <div className="table-wrap"><table className="w-full">
                 <thead className="bg-surface">
                   <tr>
                     <th className="table-th">Tipo</th>
@@ -982,7 +983,7 @@ export default function OperatorDetailPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           )}
         </div>
@@ -1069,7 +1070,7 @@ export default function OperatorDetailPage() {
               }}>+ Novo Lançamento</button>
             </div>
             <div className="overflow-hidden rounded-lg border border-surface-border">
-              <table className="w-full">
+              <div className="table-wrap"><table className="w-full">
                 <thead className="bg-surface">
                   <tr>
                     <th className="table-th">Confederação</th>
@@ -1104,7 +1105,7 @@ export default function OperatorDetailPage() {
                     );
                   })}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           </div>
 
@@ -1113,7 +1114,7 @@ export default function OperatorDetailPage() {
             <h3 className="font-semibold text-white mb-1">Pagamentos por Confederação</h3>
             <p className="text-xs text-muted mb-4">Visão consolidada do relacionamento financeiro deste operador com cada confederação (sem segmentação por ciclo).</p>
             <div className="overflow-hidden rounded-lg border border-surface-border">
-              <table className="w-full">
+              <div className="table-wrap"><table className="w-full">
                 <thead className="bg-surface">
                   <tr>
                     <th className="table-th">Confederação</th>
@@ -1149,7 +1150,7 @@ export default function OperatorDetailPage() {
                     );
                   })}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           </div>
         </div>
@@ -1220,7 +1221,7 @@ export default function OperatorDetailPage() {
             <button onClick={() => setShowDocUpload(true)} className="btn-primary">+ Enviar Documento</button>
           </div>
           <div className="card p-0 overflow-hidden">
-            <table className="w-full">
+            <div className="table-wrap"><table className="w-full">
               <thead className="bg-surface">
                 <tr>
                   <th className="table-th">Título</th>
@@ -1245,7 +1246,7 @@ export default function OperatorDetailPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </div>
 
           <Modal isOpen={showDocUpload} onClose={() => setShowDocUpload(false)} title="Enviar Documento">
@@ -1287,7 +1288,7 @@ export default function OperatorDetailPage() {
       {/* Tab 8: Audit */}
       {tab === 8 && (
         <div className="card p-0 overflow-hidden">
-          <table className="w-full">
+          <div className="table-wrap"><table className="w-full">
             <thead className="bg-surface">
               <tr>
                 <th className="table-th">Ação</th>
@@ -1308,7 +1309,7 @@ export default function OperatorDetailPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
     </AppShell>

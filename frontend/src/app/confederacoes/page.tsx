@@ -6,6 +6,7 @@ import Header from "@/components/layout/Header";
 import { getConfederations, getCollections, getPayments, getFinanceByConfederation, createConfederation } from "@/lib/api";
 import Modal from "@/components/ui/Modal";
 import { formatCurrency } from "@/lib/utils";
+import { toast } from "@/components/ui/Toast";
 
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 function monthLabel(iso?: string) {
@@ -63,13 +64,13 @@ export default function ConfederacoesPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name || !form.acronym) { alert("Preencha nome e sigla."); return; }
+    if (!form.name || !form.acronym) { toast.warn("Preencha nome e sigla."); return; }
     setCreating(true);
     try {
       await createConfederation({ name: form.name, acronym: form.acronym.toUpperCase() });
       setShowCreate(false); setForm({ name: "", acronym: "" }); load();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao criar confederação. A sigla pode já existir.");
+      toast.error(err.response?.data?.detail || "Erro ao criar confederação. A sigla pode já existir.");
     } finally { setCreating(false); }
   }
 

@@ -81,7 +81,7 @@ export default function UsuariosPage() {
 
       {loading ? <div className="text-muted">Carregando...</div> : (
         <div className="card p-0 overflow-hidden">
-          <table className="w-full">
+          <div className="table-wrap"><table className="w-full">
             <thead className="bg-surface">
               <tr>
                 <th className="table-th">Nome</th><th className="table-th">E-mail</th><th className="table-th">Telefone</th>
@@ -106,7 +106,7 @@ export default function UsuariosPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </div>
       )}
 

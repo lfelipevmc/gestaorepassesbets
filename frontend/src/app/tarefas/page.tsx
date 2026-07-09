@@ -5,6 +5,7 @@ import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import Modal from "@/components/ui/Modal";
 import { getTasksBoard, checkTask, createReminder, toggleReminder, deleteReminder } from "@/lib/api";
+import { toast } from "@/components/ui/Toast";
 
 const PRIORITY: Record<number, { label: string; cls: string }> = {
   0: { label: "Urgente", cls: "bg-danger/15 text-danger border-danger/30" },
@@ -45,14 +46,14 @@ export default function TarefasPage() {
 
   async function saveReminder(e: React.FormEvent) {
     e.preventDefault();
-    if (!remForm.title) { alert("Informe o título."); return; }
+    if (!remForm.title) { toast.warn("Informe o título."); return; }
     setSaving(true);
     try {
       await createReminder({ title: remForm.title, notes: remForm.notes || null, due_date: remForm.due_date || null });
       setShowReminder(false);
       setRemForm({ title: "", notes: "", due_date: "" });
       load();
-    } catch (err: any) { alert(err.response?.data?.detail || "Erro ao criar lembrete"); }
+    } catch (err: any) { toast.error(err.response?.data?.detail || "Erro ao criar lembrete"); }
     finally { setSaving(false); }
   }
 

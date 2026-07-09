@@ -19,6 +19,7 @@ const CONC_BADGE: Record<string, string> = {
   sem_obrigacao: "bg-surface text-muted",
 };
 import { formatCurrency } from "@/lib/utils";
+import { toast } from "@/components/ui/Toast";
 
 const STATUS_OPTIONS = [
   { value: "", label: "Todas as situações" },
@@ -73,7 +74,7 @@ function PorConfederacao({ confederations }: { confederations: any[] }) {
     try {
       const r = await getConfMonthlyReport(parseInt(cid), `${m}-01`);
       setReport(r.data);
-    } catch (e: any) { alert(e.response?.data?.detail || "Erro ao gerar relatório"); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || "Erro ao gerar relatório"); }
     finally { setLoading(false); }
   }
 
@@ -90,7 +91,7 @@ function PorConfederacao({ confederations }: { confederations: any[] }) {
       fd.append("file", file);
       await uploadBetReport(operatorId, parseInt(confId), fd);
       await generate();
-    } catch (e: any) { alert(e.response?.data?.detail || "Erro ao enviar relatório"); }
+    } catch (e: any) { toast.error(e.response?.data?.detail || "Erro ao enviar relatório"); }
     finally { setUploadingId(null); }
   }
 
@@ -203,7 +204,7 @@ function Consolidado({ confederations, operators, cycles }: { confederations: an
       const r = await getCrossReport(buildParams());
       setReport(r.data);
     } catch (e: any) {
-      alert(e.response?.data?.detail || "Erro ao gerar relatório");
+      toast.error(e.response?.data?.detail || "Erro ao gerar relatório");
     } finally { setLoading(false); }
   }
 
@@ -357,7 +358,7 @@ function AggTable({ title, labelKey, rows, header }: { title: string; labelKey: 
   return (
     <div className="card p-0 overflow-hidden">
       <div className="p-4 border-b border-surface-border"><h3 className="font-semibold text-white">{title}</h3></div>
-      <table className="w-full">
+      <div className="table-wrap"><table className="w-full">
         <thead className="bg-surface">
           <tr>
             <th className="table-th">{header}</th>
@@ -380,7 +381,7 @@ function AggTable({ title, labelKey, rows, header }: { title: string; labelKey: 
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -399,7 +400,7 @@ function PorCiclo({ confederations, cycles }: { confederations: any[]; cycles: a
       const r = await getComplianceReport(parseInt(selectedCycle));
       setReport(r.data);
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao gerar relatório");
+      toast.error(err.response?.data?.detail || "Erro ao gerar relatório");
     } finally { setLoading(false); }
   }
 
@@ -424,7 +425,7 @@ function PorCiclo({ confederations, cycles }: { confederations: any[]; cycles: a
       const a = document.createElement("a");
       a.href = url; a.download = `relatorio_atividades_ciclo_${selectedCycle}.pdf`; a.click();
       URL.revokeObjectURL(url);
-    } catch { alert("Erro ao gerar relatório de atividades."); }
+    } catch { toast.error("Erro ao gerar relatório de atividades."); }
     finally { setDownloading(false); }
   }
 
@@ -479,7 +480,7 @@ function PorCiclo({ confederations, cycles }: { confederations: any[]; cycles: a
                 <h3 className="font-semibold text-warning">Pendentes de Relatório ({report.report_pending_list.length})</h3>
                 <p className="text-xs text-muted mt-1">Pagaram, mas ainda não enviaram o relatório de individualização.</p>
               </div>
-              <table className="w-full">
+              <div className="table-wrap"><table className="w-full">
                 <thead className="bg-surface"><tr>
                   <th className="table-th">Razão Social</th><th className="table-th">CNPJ</th>
                   <th className="table-th">Valor Recebido</th><th className="table-th">Data Recebimento</th>
@@ -492,7 +493,7 @@ function PorCiclo({ confederations, cycles }: { confederations: any[]; cycles: a
                     <td className="table-td">{p.payment_date || "-"}</td>
                   </tr>
                 ))}</tbody>
-              </table>
+              </table></div>
             </div>
           )}
           {report.compliant.length > 0 && (
@@ -500,7 +501,7 @@ function PorCiclo({ confederations, cycles }: { confederations: any[]; cycles: a
               <div className="p-4 border-b border-surface-border bg-success/5">
                 <h3 className="font-semibold text-success">Adimplentes ({report.compliant.length})</h3>
               </div>
-              <table className="w-full">
+              <div className="table-wrap"><table className="w-full">
                 <thead className="bg-surface"><tr>
                   <th className="table-th">Razão Social</th><th className="table-th">Nome Fantasia</th>
                   <th className="table-th">Valor Pago</th><th className="table-th">Data Pagamento</th>
@@ -513,7 +514,7 @@ function PorCiclo({ confederations, cycles }: { confederations: any[]; cycles: a
                     <td className="table-td">{p.payment_date || "-"}</td>
                   </tr>
                 ))}</tbody>
-              </table>
+              </table></div>
             </div>
           )}
         </>
@@ -526,7 +527,7 @@ function CycleTable({ title, rows }: { title: string; rows: any[] }) {
   return (
     <div className="card p-0 overflow-hidden mb-4">
       <div className="p-4 border-b border-surface-border bg-danger/5"><h3 className="font-semibold text-danger">{title}</h3></div>
-      <table className="w-full">
+      <div className="table-wrap"><table className="w-full">
         <thead className="bg-surface"><tr>
           <th className="table-th">Razão Social</th><th className="table-th">Nome Fantasia</th>
           <th className="table-th">CNPJ</th><th className="table-th">Status</th><th className="table-th">Valor Devido</th>
@@ -540,7 +541,7 @@ function CycleTable({ title, rows }: { title: string; rows: any[] }) {
             <td className="table-td">{formatCurrency(p.amount_due)}</td>
           </tr>
         ))}</tbody>
-      </table>
+      </table></div>
     </div>
   );
 }
@@ -554,7 +555,7 @@ function Evidencias({ confederations }: { confederations: any[] }) {
   const [msg, setMsg] = useState("");
 
   async function download() {
-    if (!month) { alert("Selecione o mês de competência."); return; }
+    if (!month) { toast.warn("Selecione o mês de competência."); return; }
     setDownloading(true);
     try {
       const params: any = { month: `${month}-01` };
@@ -565,12 +566,12 @@ function Evidencias({ confederations }: { confederations: any[] }) {
       a.href = url; a.download = `evidencias_${month.replace("-", "_")}.pdf`; a.click();
       URL.revokeObjectURL(url);
     } catch (e: any) {
-      alert(e.response?.data?.detail || "Erro ao gerar o relatório de evidências.");
+      toast.error(e.response?.data?.detail || "Erro ao gerar o relatório de evidências.");
     } finally { setDownloading(false); }
   }
 
   async function sendToOffice() {
-    if (!month) { alert("Selecione o mês de competência."); return; }
+    if (!month) { toast.warn("Selecione o mês de competência."); return; }
     setSending(true); setMsg("");
     try {
       const params: any = { month: `${month}-01` };

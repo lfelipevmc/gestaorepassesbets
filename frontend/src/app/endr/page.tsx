@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import AppShell from "@/components/AppShell";
+import { toast } from "@/components/ui/Toast";
 import {
   getEndrEntity, updateEndrEntity,
   getEndrMonthly, getEndrAvailableOperators,
@@ -65,7 +66,7 @@ export default function EndrPage() {
 
   async function handleUploadDoc(e: React.FormEvent) {
     e.preventDefault();
-    if (!docForm.file) { alert("Selecione um arquivo."); return; }
+    if (!docForm.file) { toast.warn("Selecione um arquivo."); return; }
     setUploading(true);
     try {
       const fd = new FormData();
@@ -79,7 +80,7 @@ export default function EndrPage() {
       setDocForm({ file: null, title: "", month: "", conf: "", description: "" });
       loadAcomp();
       setMsg("Documento ENDR salvo com sucesso.");
-    } catch (err: any) { alert(err.response?.data?.detail || "Erro ao enviar documento"); }
+    } catch (err: any) { toast.error(err.response?.data?.detail || "Erro ao enviar documento"); }
     finally { setUploading(false); }
   }
 
@@ -348,7 +349,7 @@ export default function EndrPage() {
             {(!acomp || acomp.documents.length === 0) ? (
               <p className="text-muted text-sm">Nenhum documento ENDR cadastrado.</p>
             ) : (
-              <table className="w-full text-sm">
+              <div className="table-wrap"><table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-surface-border text-left text-xs text-muted">
                     <th className="py-2 px-3">Título</th>
@@ -372,7 +373,7 @@ export default function EndrPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             )}
           </div>
 

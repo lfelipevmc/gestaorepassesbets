@@ -14,6 +14,7 @@ import {
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { getUser } from "@/lib/auth";
 import { getConfOperatorsOverview, saveConfOperatorInfo, registerEndrReport } from "@/lib/api";
+import { toast } from "@/components/ui/Toast";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const TABS = ["Visão Geral", "Cadastro", "Ciclos de Cobrança", "Receitas por Mês", "Repasses ENDR", "Regras de Rateio"];
@@ -154,8 +155,8 @@ export default function ConfederationDetailPage() {
 
   async function saveEndrReport() {
     const m = endrReportModal;
-    if (!m?.reference_month) { alert("Informe a competência do relatório."); return; }
-    if (!m.operator_ids?.length) { alert("Selecione os operadores cobertos pelo relatório."); return; }
+    if (!m?.reference_month) { toast.warn("Informe a competência do relatório."); return; }
+    if (!m.operator_ids?.length) { toast.warn("Selecione os operadores cobertos pelo relatório."); return; }
     try {
       await registerEndrReport(m.payment.id, {
         reference_month: m.reference_month + "-01",
@@ -170,7 +171,7 @@ export default function ConfederationDetailPage() {
         ? "Relatório registrado. Associações ENDR do mês criadas para os operadores informados."
         : "Relatório registrado.");
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao registrar o relatório ENDR");
+      toast.error(err.response?.data?.detail || "Erro ao registrar o relatório ENDR");
     }
   }
 
@@ -323,7 +324,7 @@ export default function ConfederationDetailPage() {
             ) : null;
           })()}
           <div className="card p-0 overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="table-wrap"><table className="w-full text-sm">
               <thead className="bg-surface"><tr>
                 <th className="table-th">Ciclo</th><th className="table-th">Competência</th><th className="table-th">Status</th><th className="table-th"></th>
               </tr></thead>
@@ -338,7 +339,7 @@ export default function ConfederationDetailPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </div>
         </div>
       )}
@@ -559,7 +560,7 @@ export default function ConfederationDetailPage() {
           </div>
           {loadingMonth ? <p className="text-muted text-sm">Carregando...</p> : (
             <div className="card p-0 overflow-hidden">
-              <table className="w-full text-sm">
+              <div className="table-wrap"><table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-surface-border bg-surface">
                     <th className="table-th">Operador</th>
@@ -596,7 +597,7 @@ export default function ConfederationDetailPage() {
                     );
                   })}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           )}
         </div>
@@ -903,7 +904,7 @@ function RuleModal({ confId, rule, onClose, onSaved }: any) {
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!f.scenario_label) { alert("Informe o nome do cenário."); return; }
+    if (!f.scenario_label) { toast.warn("Informe o nome do cenário."); return; }
     const toFrac = (v: string) => (v === "" ? null : parseFloat(v) / 100);
     const payload: any = {
       scenario_label: f.scenario_label,
@@ -922,7 +923,7 @@ function RuleModal({ confId, rule, onClose, onSaved }: any) {
       else await createDistributionRule(confId, { ...payload, scenario_code: f.scenario_code || f.scenario_label.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 40) });
       onSaved();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao salvar regra");
+      toast.success(err.response?.data?.detail || "Erro ao salvar regra");
     } finally { setSaving(false); }
   }
 
@@ -1058,7 +1059,7 @@ function ConfOverview({ confId, sigla }: { confId: number; sigla: string }) {
       if (value === "__auto__") await saveConfOperatorInfo(confId, r.operator_id, { conclusion_auto: true });
       else await saveConfOperatorInfo(confId, r.operator_id, { conclusion: value });
       load();
-    } catch (err: any) { alert(err.response?.data?.detail || "Erro ao salvar conclusão"); }
+    } catch (err: any) { toast.success(err.response?.data?.detail || "Erro ao salvar conclusão"); }
   }
 
   async function saveNote() {
@@ -1068,7 +1069,7 @@ function ConfOverview({ confId, sigla }: { confId: number; sigla: string }) {
       setNoteEdit(null);
       load();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao salvar anotação");
+      toast.success(err.response?.data?.detail || "Erro ao salvar anotação");
     } finally { setSavingNote(false); }
   }
 

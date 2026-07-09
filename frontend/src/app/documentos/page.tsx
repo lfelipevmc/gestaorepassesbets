@@ -5,6 +5,7 @@ import Header from "@/components/layout/Header";
 import Modal from "@/components/ui/Modal";
 import { getDocuments, uploadDocument, downloadDocument, getOperators, getConfederations, getEmailHistory, downloadEmailHistory } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
+import { toast } from "@/components/ui/Toast";
 
 const DOC_TYPES = [
   { value: "notification", label: "Notificação" },
@@ -67,7 +68,7 @@ export default function DocumentosPage() {
       setForm({ title: "", document_type: "other", category: "documento_oficial", operator_id: "", confederation_id: "", description: "" });
       fetchAll();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao fazer upload");
+      toast.error(err.response?.data?.detail || "Erro ao fazer upload");
     } finally { setUploading(false); }
   }
 

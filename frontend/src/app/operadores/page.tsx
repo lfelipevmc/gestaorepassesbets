@@ -8,6 +8,7 @@ import Modal from "@/components/ui/Modal";
 import { getOperators, createOperator, importOperators, getSyncStatus, researchAllOperators, getOffice, updateOffice, exportOperatorsPdf } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import { formatDate, formatDateTime } from "@/lib/utils";
+import { toast } from "@/components/ui/Toast";
 
 const PAGE_SIZE = 50;
 
@@ -104,7 +105,7 @@ export default function OperadoresPage() {
       setForm({ company_name: "", fantasy_name: "", cnpj: "", website: "", status: "active", notes: "" });
       fetchOperators();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao criar operador");
+      toast.error(err.response?.data?.detail || "Erro ao criar operador");
     } finally {
       setCreating(false);
     }
@@ -154,9 +155,9 @@ export default function OperadoresPage() {
     setResearchingAll(true);
     try {
       await researchAllOperators();
-      alert("Pesquisa em andamento (segundo plano). Abra um operador → 'Pesquisa de Contatos' → Pendentes para revisar as sugestões conforme forem chegando.");
+      toast.warn("Pesquisa em andamento (segundo plano). Abra um operador → 'Pesquisa de Contatos' → Pendentes para revisar as sugestões conforme forem chegando.");
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro ao iniciar pesquisa");
+      toast.error(err.response?.data?.detail || "Erro ao iniciar pesquisa");
     } finally {
       setResearchingAll(false);
     }
@@ -171,13 +172,13 @@ export default function OperadoresPage() {
       fd.append("file", importFile);
       fd.append("category", importCategory);
       const r = await importOperators(fd);
-      alert(`Importação concluída: ${r.data.new_operators ?? r.data.created ?? 0} criados, ${r.data.updated_operators ?? r.data.updated ?? 0} atualizados, ${r.data.errors?.length || 0} erros`);
+      toast.success(`Importação concluída: ${r.data.new_operators ?? r.data.created ?? 0} criados, ${r.data.updated_operators ?? r.data.updated ?? 0} atualizados, ${r.data.errors?.length || 0} erros`);
       setShowImport(false);
       setImportFile(null);
       fetchOperators();
       fetchSyncInfo();
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erro na importação");
+      toast.error(err.response?.data?.detail || "Erro na importação");
     } finally {
       setImporting(false);
     }
@@ -227,7 +228,7 @@ export default function OperadoresPage() {
                 const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
                 const a = document.createElement("a"); a.href = url; a.download = "agentes_operadores.pdf"; a.click();
                 URL.revokeObjectURL(url);
-              } catch { alert("Erro ao gerar PDF."); }
+              } catch { toast.error("Erro ao gerar PDF."); }
             }} className="btn-secondary">⬇ PDF</button>
             <button onClick={() => setShowCreate(true)} className="btn-primary">
               + Novo Operador

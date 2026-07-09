@@ -4,6 +4,7 @@ import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import { getAuditLogs, getAuditActions, downloadAuditPdf, getUsers, getConfederations, getOperators } from "@/lib/api";
 import { formatDateTime } from "@/lib/utils";
+import { toast } from "@/components/ui/Toast";
 
 const ENTITIES: Record<string, string> = {
   "": "Todas as entidades",
@@ -56,7 +57,7 @@ export default function AuditoriaPage() {
       const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
       const a = document.createElement("a"); a.href = url; a.download = "auditoria.pdf"; a.click();
       URL.revokeObjectURL(url);
-    } catch { alert("Erro ao exportar PDF"); }
+    } catch { toast.error("Erro ao exportar PDF"); }
     finally { setExporting(false); }
   }
 
@@ -131,7 +132,7 @@ export default function AuditoriaPage() {
       </div>
 
       <div className="card p-0 overflow-hidden">
-        <table className="w-full">
+        <div className="table-wrap"><table className="w-full">
           <thead className="bg-surface">
             <tr>
               <th className="table-th">Data/Hora</th>
@@ -158,7 +159,7 @@ export default function AuditoriaPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       </div>
     </AppShell>
   );

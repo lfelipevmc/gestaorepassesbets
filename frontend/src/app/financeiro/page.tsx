@@ -11,6 +11,7 @@ import {
   suggestEmailOperator, linkEmailOperator,
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { toast } from "@/components/ui/Toast";
 
 const TABS = ["Resumo", "Repasses (Fase 1)", "Repartição (Fase 2)", "E-mails"];
 const BTYPES: Record<string, string> = { confederacao: "Confederação", atleta: "Atleta", clube: "Clube/Entidade", federacao: "Federação", outro: "Outro" };
@@ -111,7 +112,7 @@ export default function FinanceiroPage() {
 
   async function handleSaveDirectPayment(e: React.FormEvent) {
     e.preventDefault();
-    if (!directForm.operator_id) { alert("Selecione o agente operador."); return; }
+    if (!directForm.operator_id) { toast.warn("Selecione o agente operador."); return; }
     setSavingDirect(true);
     try {
       await createDirectPayment(Number(directForm.operator_id), {
@@ -125,7 +126,7 @@ export default function FinanceiroPage() {
       setDirectForm({ operator_id: "", confederation_id: confs[0]?.id?.toString() || "", reference_month: new Date().toISOString().slice(0, 7), amount_received: "", received_date: todayISO(), notes: "" });
       loadPhase1();
       flash("Lançamento registrado na Fase 1.");
-    } catch (err: any) { alert(err.response?.data?.detail || "Erro ao registrar lançamento."); }
+    } catch (err: any) { toast.error(err.response?.data?.detail || "Erro ao registrar lançamento."); }
     setSavingDirect(false);
   }
 
@@ -204,7 +205,7 @@ export default function FinanceiroPage() {
           {activeConf === "" && (
             <div className="card p-0 overflow-hidden">
               <div className="p-4 border-b border-surface-border"><h3 className="font-semibold text-white">Comparativo por Confederação</h3></div>
-              <table className="w-full text-sm">
+              <div className="table-wrap"><table className="w-full text-sm">
                 <thead className="bg-surface"><tr>
                   <th className="table-th">Confederação</th><th className="table-th">Receita Total</th>
                   <th className="table-th">Repassado</th><th className="table-th">Pendente Repasse</th>
@@ -223,7 +224,7 @@ export default function FinanceiroPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           )}
         </div>
@@ -293,7 +294,7 @@ export default function FinanceiroPage() {
           )}
 
           <div className="card p-0 overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="table-wrap"><table className="w-full text-sm">
               <thead className="bg-surface">
                 <tr>
                   <th className="table-th">Origem</th><th className="table-th">Agente Operador</th><th className="table-th">Confederação</th>
@@ -318,7 +319,7 @@ export default function FinanceiroPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </div>
         </div>
       )}
@@ -352,7 +353,7 @@ export default function FinanceiroPage() {
                 <button onClick={() => setEditBen({ type: "atleta", name: "", confederation_id: activeConf ? Number(activeConf) : (confs[0]?.id) })} className="btn-primary">+ Beneficiário</button>
               </div>
               <div className="card p-0 overflow-hidden">
-                <table className="w-full text-sm">
+                <div className="table-wrap"><table className="w-full text-sm">
                   <thead className="bg-surface"><tr>
                     <th className="table-th">Nome</th><th className="table-th">Tipo</th><th className="table-th">Confederação</th>
                     <th className="table-th">Documento</th><th className="table-th">Dados Bancários</th><th className="table-th"></th>
@@ -373,7 +374,7 @@ export default function FinanceiroPage() {
                     ))}
                     {beneficiaries.length === 0 && <tr><td colSpan={6} className="table-td text-center text-muted py-8">Nenhum beneficiário cadastrado.</td></tr>}
                   </tbody>
-                </table>
+                </table></div>
               </div>
               {editBen && <BeneficiaryModal confs={confs} ben={editBen} onClose={() => setEditBen(null)} onSaved={() => { setEditBen(null); loadBen(); flash("Beneficiário salvo."); }} />}
             </>
@@ -400,7 +401,7 @@ export default function FinanceiroPage() {
           <div>
             <h3 className="font-semibold text-white text-sm mb-2">Respostas já vinculadas</h3>
             <div className="card p-0 overflow-hidden">
-              <table className="w-full text-sm">
+              <div className="table-wrap"><table className="w-full text-sm">
                 <thead className="bg-surface"><tr>
                   <th className="table-th">Recebido</th><th className="table-th">De</th><th className="table-th">Assunto</th>
                   <th className="table-th">Bet</th><th className="table-th">Status</th>
@@ -422,7 +423,7 @@ export default function FinanceiroPage() {
                     <tr><td colSpan={5} className="table-td text-center text-muted py-8">Nenhuma resposta casada ainda.</td></tr>
                   )}
                 </tbody>
-              </table>
+              </table></div>
             </div>
           </div>
         </div>
@@ -485,8 +486,8 @@ function NewRedistribution({ confs, onClose, onSaved }: any) {
   const totalItems = items.reduce((s, it) => s + (parseFloat(it.amount) || 0), 0);
 
   async function save() {
-    if (!form.source) { alert("Selecione o repasse de origem (Fase 1)."); return; }
-    if (!form.confederation_id || !form.amount_received || !form.received_date) { alert("Preencha os campos obrigatórios."); return; }
+    if (!form.source) { toast.warn("Selecione o repasse de origem (Fase 1)."); return; }
+    if (!form.confederation_id || !form.amount_received || !form.received_date) { toast.warn("Preencha os campos obrigatórios."); return; }
     const [src, srcId] = form.source.split(":");
     setSaving(true);
     try {
@@ -508,7 +509,7 @@ function NewRedistribution({ confs, onClose, onSaved }: any) {
         })).filter(it => it.amount > 0),
       });
       onSaved();
-    } catch { alert("Erro ao criar repartição."); }
+    } catch { toast.error("Erro ao criar repartição."); }
     setSaving(false);
   }
 
@@ -651,14 +652,14 @@ function BeneficiaryModal({ confs, ben, onClose, onSaved }: any) {
   const [f, setF] = useState<any>({ type: "atleta", name: "", document: "", email: "", phone: "", bank_name: "", bank_agency: "", bank_account: "", pix_key: "", active: true, confederation_id: confs[0]?.id, ...ben });
   const [saving, setSaving] = useState(false);
   async function save() {
-    if (!f.name) { alert("Informe o nome do beneficiário."); return; }
+    if (!f.name) { toast.warn("Informe o nome do beneficiário."); return; }
     setSaving(true);
     try {
       const payload = { type: f.type, name: f.name, document: f.document, email: f.email, phone: f.phone, bank_name: f.bank_name, bank_agency: f.bank_agency, bank_account: f.bank_account, pix_key: f.pix_key, active: f.active };
       if (f.id) await updateBeneficiary(f.id, payload);
       else await createBeneficiary(Number(f.confederation_id), payload);
       onSaved();
-    } catch { alert("Erro ao salvar."); }
+    } catch { toast.success("Erro ao salvar."); }
     setSaving(false);
   }
   return (
