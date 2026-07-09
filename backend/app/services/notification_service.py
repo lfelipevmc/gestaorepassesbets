@@ -133,7 +133,8 @@ Escritório Jurídico - Gestão de Haveres de Bets
         subject = f"{notification_number}ª Notificação - Repasse Direito de Imagem {reference_month} - {confederation.acronym}"
 
     to_addresses = [c.value for c in email_contacts[:3]]
-    success = send_email(to=to_addresses, subject=subject, body=body)
+    success = send_email(to=to_addresses, subject=subject, body=body,
+                         confederation_acronym=confederation.acronym)
 
     # Registra o e-mail enviado para conciliação posterior com as respostas
     try:

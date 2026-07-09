@@ -201,7 +201,8 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
         to_addr = [rec.email] if rec.email else _operator_emails(op)[:3]
         subject = render_placeholders(data.subject, op, conf, ref, prazo=data.deadline, escritorio=office_name)
         body = render_placeholders(data.body, op, conf, ref, prazo=data.deadline, escritorio=office_name)
-        ok = bool(to_addr) and send_email(to=to_addr, subject=subject, body=body)
+        ok = bool(to_addr) and send_email(to=to_addr, subject=subject, body=body,
+                                          confederation_acronym=conf.acronym)
         ev = CollectionEvent(
             cycle_id=cycle.id, operator_id=op.id,
             event_type=EventType.notification_sent, channel=EventChannel.email,

@@ -10,10 +10,11 @@ import os
 import re
 import uuid
 import logging
-from .email_service import read_inbox_emails
+from .email_service import read_inbox_emails, ensure_confederation_folder, move_message, get_access_token, get_mailbox
 from ..models.operator import BettingOperator, OperatorContact, ContactType
 from ..models.messaging import EmailMessage, EmailDirection
 from ..models.collection import CollectionCycle, CollectionEvent, EventType, EventChannel
+from ..models.confederation import Confederation
 from ..models.document import Document, DocumentType, DocumentCategory
 from ..models.audit import AuditLog
 
@@ -74,6 +75,11 @@ def sync_inbox(db: Session, top: int = 50) -> dict:
         if c.value:
             email_map[c.value.strip().lower()] = c.operator_id
 
+    # credenciais/caixa para arquivar respostas nas pastas por confederação
+    token = get_access_token()
+    box = get_mailbox()
+    filed = 0
+
     imported = 0
     matched = 0
     skipped = 0
@@ -91,16 +97,31 @@ def sync_inbox(db: Session, top: int = 50) -> dict:
 
         operator_id = email_map.get(from_addr)
         cycle_id = None
+        confederation_id = None
         is_matched = operator_id is not None
         if operator_id:
             op = db.query(BettingOperator).get(operator_id)
-            # ciclo aberto mais recente de qualquer confederação
-            cycle = (
-                db.query(CollectionCycle)
-                .order_by(CollectionCycle.reference_month.desc())
-                .first()
-            )
-            cycle_id = cycle.id if cycle else None
+            # 1) Melhor casamento: mesmo fio de conversa de um envio anterior (traz a confederação certa)
+            prior = None
+            if conv:
+                prior = (db.query(EmailMessage)
+                         .filter(EmailMessage.graph_conversation_id == conv,
+                                 EmailMessage.direction == EmailDirection.outbound)
+                         .order_by(EmailMessage.sent_at.desc().nullslast())
+                         .first())
+            if prior:
+                confederation_id = prior.confederation_id
+                cycle_id = prior.cycle_id
+            if not cycle_id:
+                # 2) Fallback: ciclo mais recente do operador
+                cycle = (
+                    db.query(CollectionCycle)
+                    .order_by(CollectionCycle.reference_month.desc())
+                    .first()
+                )
+                cycle_id = cycle.id if cycle else None
+                if cycle and not confederation_id:
+                    confederation_id = cycle.confederation_id
             matched += 1
             if cycle_id:
                 db.add(CollectionEvent(
@@ -111,9 +132,18 @@ def sync_inbox(db: Session, top: int = 50) -> dict:
             # Arquiva a resposta como documento anexo para auditoria futura
             _archive_reply_as_document(db, operator_id, cycle_id, subject, from_addr, full_body, received)
 
+            # Arquiva a mensagem na pasta da confederação dentro da caixa dedicada
+            if token and box and graph_id and confederation_id:
+                conf = db.query(Confederation).get(confederation_id)
+                if conf:
+                    folder_id = ensure_confederation_folder(conf.acronym, box=box, token=token)
+                    if folder_id and move_message(graph_id, folder_id, box=box, token=token):
+                        filed += 1
+
         db.add(EmailMessage(
             direction=EmailDirection.inbound,
             operator_id=operator_id,
+            confederation_id=confederation_id,
             cycle_id=cycle_id,
             subject=subject,
             body_preview=body,
@@ -125,6 +155,6 @@ def sync_inbox(db: Session, top: int = 50) -> dict:
         ))
         imported += 1
 
-    db.add(AuditLog(action="SYNC_INBOX", description=f"Caixa de entrada: {imported} importados, {matched} casados"))
+    db.add(AuditLog(action="SYNC_INBOX", description=f"Caixa de entrada: {imported} importados, {matched} casados, {filed} arquivados por confederação"))
     db.commit()
-    return {"imported": imported, "matched": matched, "skipped": skipped, "configured": True}
+    return {"imported": imported, "matched": matched, "skipped": skipped, "filed": filed, "configured": True}

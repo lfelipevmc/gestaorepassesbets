@@ -143,7 +143,7 @@ export default function FinanceiroPage() {
     try {
       const r = await syncEmails();
       if (!r.data.configured) flash("Integração de e-mail (M365) não configurada no .env.");
-      else flash(`Sincronizado: ${r.data.imported} importados, ${r.data.matched} casados.`);
+      else flash(`Sincronizado: ${r.data.imported} importados, ${r.data.matched} casados${r.data.filed ? `, ${r.data.filed} arquivados por confederação` : ""}.`);
       loadEmails();
     } catch { flash("Erro ao sincronizar e-mails."); }
     setSyncing(false);
