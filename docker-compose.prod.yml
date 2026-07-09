@@ -3,9 +3,9 @@ services:
     image: postgres:16-alpine
     restart: always
     environment:
-      POSTGRES_DB: gestaobets
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-gestaobets}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +20,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"   # acessível só pelo host (Nginx faz o proxy público)
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/gestaobets
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@db:5432/gestaobets}
     volumes:
       - uploads_data:/app/uploads
     depends_on:
