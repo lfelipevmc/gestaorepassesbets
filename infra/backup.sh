@@ -126,15 +126,19 @@ podar() {
   local prefixo="$1" dias="$2"
   local limite
   limite="$(date -d "-${dias} days" +%Y-%m-%d)"
-  aws_s3 s3 ls "s3://$SPACES_BUCKET/${prefixo}/" 2>/dev/null | while read -r _ _ _ nome; do
+  # a pasta pode ainda não existir (weekly/monthly no 1º uso) — não deve abortar o backup
+  local listagem
+  listagem="$(aws_s3 s3 ls "s3://$SPACES_BUCKET/${prefixo}/" 2>/dev/null || true)"
+  [ -z "$listagem" ] && return 0
+  while read -r _ _ _ nome; do
     [ -z "${nome:-}" ] && continue
     local d
     d="$(echo "$nome" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' || true)"
     [ -z "$d" ] && continue
     if [[ "$d" < "$limite" ]]; then
-      aws_s3 s3 rm "s3://$SPACES_BUCKET/${prefixo}/${nome}" >>"$LOG" 2>&1 && log "    Removido antigo: ${prefixo}/${nome}"
+      aws_s3 s3 rm "s3://$SPACES_BUCKET/${prefixo}/${nome}" >>"$LOG" 2>&1 && log "    Removido antigo: ${prefixo}/${nome}" || true
     fi
-  done
+  done <<< "$listagem"
 }
 podar daily 30
 podar weekly 84
