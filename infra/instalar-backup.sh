@@ -7,12 +7,20 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 PROJECT_DIR="$(pwd)"
 
-echo "== 1. Instalando dependências (awscli, gnupg) =="
+echo "== 1. Instalando dependências (aws-cli v2, gnupg) =="
+apt-get update -y
+apt-get install -y gnupg curl unzip
+
+# AWS CLI v2 pelo instalador oficial (o pacote apt 'awscli' foi removido no Ubuntu Noble)
 if ! command -v aws >/dev/null 2>&1; then
-  apt-get update -y && apt-get install -y awscli gnupg
-else
-  command -v gpg >/dev/null 2>&1 || apt-get install -y gnupg
+  TMP="$(mktemp -d)"
+  ARCH="$(uname -m)"   # x86_64 ou aarch64
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o "$TMP/awscliv2.zip"
+  unzip -q "$TMP/awscliv2.zip" -d "$TMP"
+  "$TMP/aws/install" --update
+  rm -rf "$TMP"
 fi
+echo "  aws-cli: $(aws --version 2>&1)"
 
 echo "== 2. Verificando variáveis no .env =="
 for v in SPACES_KEY SPACES_SECRET SPACES_BUCKET BACKUP_GPG_PASSPHRASE; do
