@@ -183,7 +183,9 @@ export default function DashboardPage() {
                 </div>
               </div>
               {inad && inad.labels?.length ? (() => {
-                const CORES = ["#6366f1", "#22c55e", "#f59e0b", "#ef4444", "#06b6d4", "#a855f7", "#ec4899", "#84cc16"];
+                // Paleta categórica validada para o tema escuro (dataviz: banda de luminosidade,
+                // separação CVD ΔE 35,9 no pior par adjacente, contraste ≥3:1 na superfície)
+                const CORES = ["#3987e5", "#199e70", "#c98500", "#e66767", "#9085e9", "#d55181", "#d95926", "#008300"];
                 const data = inad.labels.map((lb: string, i: number) => {
                   const row: any = { month: lb };
                   inad.series.forEach((sr: any) => { row[sr.acronym] = sr.data[i]; });
@@ -192,7 +194,7 @@ export default function DashboardPage() {
                 return (
                   <ResponsiveContainer width="100%" height={220}>
                     <LineChart data={data}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2d3748" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#28324455" vertical={false} />
                       <XAxis dataKey="month" tick={{ fill: "#94a3b8", fontSize: 11 }} />
                       <YAxis allowDecimals={false} tick={{ fill: "#94a3b8", fontSize: 11 }} />
                       <Tooltip
@@ -203,7 +205,8 @@ export default function DashboardPage() {
                       {inad.series.map((sr: any, i: number) => (
                         <Line key={sr.acronym} type="monotone" dataKey={sr.acronym}
                           stroke={CORES[i % CORES.length]} strokeWidth={2}
-                          dot={{ fill: CORES[i % CORES.length], r: 3 }} />
+                          dot={{ fill: CORES[i % CORES.length], r: 2.5, strokeWidth: 0 }}
+                          activeDot={{ r: 5, stroke: "#1e2433", strokeWidth: 2 }} />
                       ))}
                     </LineChart>
                   </ResponsiveContainer>

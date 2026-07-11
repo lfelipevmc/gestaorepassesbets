@@ -32,7 +32,8 @@ const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "J
 function monthLabel(d: string) {
   try {
     const dt = new Date(d);
-    return dt.toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" });
+    const s = dt.toLocaleDateString("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" });
+    return s.charAt(0).toUpperCase() + s.slice(1);   // "Julho de 2026" (só a inicial)
   } catch { return d; }
 }
 
@@ -196,54 +197,80 @@ export default function CobrancasPage() {
             )}
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-6 stagger">
             {confederations
               .slice()
               .sort((a, b) => a.acronym.localeCompare(b.acronym))
               .filter(conf => byConf[conf.id.toString()]?.length)
               .map(conf => {
                 const confCycles = (byConf[conf.id.toString()] || []).slice().sort((a: any, b: any) => b.reference_month.localeCompare(a.reference_month));
+                const currentYm = new Date().toISOString().slice(0, 7);
                 return (
                   <div key={conf.id} className="card p-0 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-surface-border bg-surface flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 bg-primary/15 rounded-lg flex items-center justify-center"><span className="text-primary font-bold text-xs">{conf.acronym}</span></div>
-                        <div>
-                          <p className="font-semibold text-white text-sm">{conf.name}</p>
-                          <p className="text-[11px] text-muted">{confCycles.length} ciclo(s)</p>
+                    <div className="px-4 sm:px-5 py-3.5 border-b border-surface-border bg-gradient-to-r from-surface to-surface-light/40 flex items-center justify-between">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-primary/30 to-indigo-500/20 border border-primary/25">
+                          <span className="text-primary font-bold text-[11px] tracking-wide">{conf.acronym}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-white text-sm truncate">{conf.name}</p>
+                          <p className="text-[11px] text-muted">{confCycles.length} competência{confCycles.length !== 1 ? "s" : ""} em acompanhamento</p>
                         </div>
                       </div>
                     </div>
-                    <div className="table-wrap"><table className="w-full">
-                      <thead>
-                        <tr>
-                          <th className="table-th">Competência</th>
-                          <th className="table-th">Status</th>
-                          <th className="table-th">Criado em</th>
-                          <th className="table-th text-right pr-4">Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {confCycles.map((c: any) => (
-                          <tr key={c.id} className="hover:bg-surface-light/30 border-t border-surface-border/50">
-                            <td className="table-td font-medium text-white capitalize">{monthLabel(c.reference_month)}</td>
-                            <td className="table-td"><Badge status={c.status} /></td>
-                            <td className="table-td text-muted">{formatDate(c.created_at)}</td>
-                            <td className="table-td text-right pr-4">
-                              <div className="inline-flex gap-3">
-                                <Link href={`/cobrancas/${c.id}`} className="text-primary text-xs hover:underline">Abrir ciclo</Link>
-                                {me?.role === "admin" && (
-                                  <button onClick={async () => {
-                                    if (!confirm(`Arquivar o ciclo ${monthLabel(c.reference_month)} da ${conf.acronym}? O histórico fica preservado.`)) return;
-                                    try { await archiveCycle(c.id); fetchAll(); } catch (e: any) { toast.error(e.response?.data?.detail || "Erro ao arquivar"); }
-                                  }} className="text-danger text-xs hover:underline" title="Somente admin — histórico preservado">Arquivar</button>
+
+                    {/* Linha do tempo de competências */}
+                    <div className="divide-y divide-surface-border/60">
+                      {confCycles.map((c: any) => {
+                        const isCurrent = (c.reference_month || "").slice(0, 7) === currentYm;
+                        return (
+                          <Link
+                            key={c.id}
+                            href={`/cobrancas/${c.id}`}
+                            className="group flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3.5 transition-all duration-150 hover:bg-surface-light/40"
+                          >
+                            {/* marcador do mês */}
+                            <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 border transition-colors ${
+                              isCurrent
+                                ? "bg-primary/20 border-primary/40 text-primary"
+                                : "bg-surface border-surface-border text-slate-300 group-hover:border-slate-500/60"}`}>
+                              <span className="text-sm font-bold leading-none num">{(c.reference_month || "").slice(5, 7)}</span>
+                              <span className="text-[9px] uppercase tracking-wider opacity-70 mt-0.5">{(c.reference_month || "").slice(2, 4)}</span>
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-semibold text-white text-sm">{monthLabel(c.reference_month)}</p>
+                                {isCurrent && (
+                                  <span className="pill text-primary bg-primary/10 border-primary/30 !py-0.5 text-[10px]">
+                                    <span className="pill-dot bg-primary animate-pulse" />competência vigente
+                                  </span>
                                 )}
                               </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table></div>
+                              {c.created_at && <p className="text-[11px] text-muted mt-0.5">Criado em {formatDate(c.created_at)}</p>}
+                            </div>
+
+                            <Badge status={c.status} />
+
+                            {me?.role === "admin" && (
+                              <button
+                                onClick={async (e) => {
+                                  e.preventDefault(); e.stopPropagation();
+                                  if (!confirm(`Arquivar o ciclo ${monthLabel(c.reference_month)} da ${conf.acronym}? O histórico fica preservado.`)) return;
+                                  try { await archiveCycle(c.id); fetchAll(); } catch (err: any) { toast.error(err.response?.data?.detail || "Erro ao arquivar"); }
+                                }}
+                                className="hidden sm:inline-flex text-[11px] text-muted hover:text-danger px-2 py-1 rounded-md hover:bg-danger/10 transition-colors"
+                                title="Somente admin — histórico preservado"
+                              >Arquivar</button>
+                            )}
+
+                            <svg className="w-4 h-4 text-muted group-hover:text-primary group-hover:translate-x-0.5 transition-all flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </Link>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}

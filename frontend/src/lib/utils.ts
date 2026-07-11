@@ -36,6 +36,9 @@ export const STATUS_LABELS: Record<string, string> = {
   collecting: "Cobrando",
   checking: "Verificando",
   closed: "Fechado",
+  in_progress: "Em andamento",
+  completed: "Concluído",
+  archived: "Arquivado",
 };
 
 export const STATUS_COLORS: Record<string, string> = {
@@ -53,4 +56,7 @@ export const STATUS_COLORS: Record<string, string> = {
   closed: "text-muted bg-muted/10",
   not_sports: "text-slate-300 bg-slate-500/10",
   judicialized: "text-purple-300 bg-purple-500/10",
+  in_progress: "text-blue-300 bg-blue-500/10",
+  completed: "text-success bg-success/10",
+  archived: "text-muted bg-muted/10",
 };

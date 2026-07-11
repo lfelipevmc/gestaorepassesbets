@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import Header from "@/components/layout/Header";
 import Badge from "@/components/ui/Badge";
 import Modal from "@/components/ui/Modal";
 import {
@@ -27,13 +26,47 @@ function monthLabel(iso?: string) {
 }
 function monthShort(iso?: string) { if (!iso) return ""; const [y, m] = iso.split("-"); return `${String(m).padStart(2, "0")}/${y}`; }
 
-const CONC: Record<string, { label: string; cls: string }> = {
-  inadimplente: { label: "Inadimplente", cls: "text-danger bg-danger/10 border-danger/30" },
-  adimplente: { label: "Adimplente", cls: "text-success bg-success/10 border-success/30" },
-  consignacao: { label: "Consignação em Pagamento", cls: "text-warning bg-warning/10 border-warning/30" },
-  sem_obrigacao: { label: "Sem Obrigação Corrente", cls: "text-slate-300 bg-slate-500/10 border-slate-500/30" },
-  endr: { label: "ENDR", cls: "text-green-400 bg-green-900/30 border-green-700/40" },
+/* Paleta de STATUS (semântica de estado — sempre acompanhada de rótulo textual):
+   adimplente=verde, inadimplente=vermelho, ENDR=azul (informacional, distinto do
+   verde de "pago"), consignação=âmbar, sem obrigação=cinza. */
+const CONC: Record<string, { label: string; short: string; cls: string; dot: string; bar: string }> = {
+  adimplente:    { label: "Adimplente", short: "Adimplentes", cls: "text-success bg-success/10 border-success/30", dot: "bg-success", bar: "#22c55e" },
+  inadimplente:  { label: "Inadimplente", short: "Inadimplentes", cls: "text-danger bg-danger/10 border-danger/30", dot: "bg-danger", bar: "#ef4444" },
+  endr:          { label: "ENDR", short: "ENDR", cls: "text-blue-300 bg-blue-500/10 border-blue-500/30", dot: "bg-blue-400", bar: "#3b82f6" },
+  consignacao:   { label: "Consignação em Pagamento", short: "Consignação", cls: "text-warning bg-warning/10 border-warning/30", dot: "bg-warning", bar: "#f59e0b" },
+  sem_obrigacao: { label: "Sem Obrigação Corrente", short: "Sem Obrigação", cls: "text-slate-300 bg-slate-500/10 border-slate-500/40", dot: "bg-slate-400", bar: "#64748b" },
 };
+const CONC_ORDER = ["adimplente", "inadimplente", "endr", "consignacao", "sem_obrigacao"];
+
+/* Iniciais do operador para o avatar (duas letras estáveis) */
+function initials(label: string) {
+  const parts = (label || "?").trim().split(/\s+/);
+  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || parts[0]?.[1] || "")).toUpperCase();
+}
+const AVATAR_HUES = ["from-blue-500/30 to-indigo-500/20 text-blue-300", "from-emerald-500/25 to-teal-500/15 text-emerald-300",
+  "from-amber-500/25 to-orange-500/15 text-amber-300", "from-fuchsia-500/25 to-purple-500/15 text-fuchsia-300",
+  "from-cyan-500/25 to-sky-500/15 text-cyan-300"];
+const avatarCls = (id: number) => AVATAR_HUES[id % AVATAR_HUES.length];
+
+/* Anel de progresso (adimplência sobre cobráveis) */
+function ProgressRing({ pct, size = 72 }: { pct: number; size?: number }) {
+  const r = (size - 10) / 2;
+  const c = 2 * Math.PI * r;
+  const color = pct >= 70 ? "#22c55e" : pct >= 40 ? "#f59e0b" : "#ef4444";
+  return (
+    <div className="relative flex-shrink-0" style={{ width: size, height: size }} role="img" aria-label={`Adimplência ${pct}%`}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#2d3748" strokeWidth={7} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={7}
+          strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - pct / 100)}
+          style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.22,1,0.36,1)" }} />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-base font-bold text-white num leading-none">{pct}%</span>
+      </div>
+    </div>
+  );
+}
 
 export default function CollectionDetailPage() {
   const { id } = useParams();
@@ -49,6 +82,7 @@ export default function CollectionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState(0);
   const [search, setSearch] = useState("");
+  const [concFilter, setConcFilter] = useState<string>("");   // filtro pela legenda da barra
 
   // Ações da linha
   const [showContact, setShowContact] = useState<any>(null);
@@ -259,6 +293,7 @@ export default function CollectionDetailPage() {
   if (loading) return <AppShell><div className="text-muted">Carregando...</div></AppShell>;
 
   const rows = (board?.rows || []).filter((r: any) => {
+    if (concFilter && r.conclusion !== concFilter) return false;
     if (!search) return true;
     const t = search.toLowerCase();
     return r.label?.toLowerCase().includes(t) || r.company_name?.toLowerCase().includes(t) || (r.cnpj || "").includes(t);
@@ -268,48 +303,100 @@ export default function CollectionDetailPage() {
   const pct = (n: number) => total > 0 ? Math.round((n / total) * 100) : 0;
   const cobraveis = total - (counts.endr || 0) - (counts.sem_obrigacao || 0) - (counts.consignacao || 0);
   const rate = cobraveis > 0 ? Math.round(((counts.adimplente || 0) / cobraveis) * 100) : 0;
-
-  const summaryBoxes = [
-    { label: "Adimplência", value: `${rate}%`, sub: `${counts.adimplente || 0} de ${cobraveis} cobráveis`, color: rate >= 70 ? "text-success" : rate >= 40 ? "text-warning" : "text-danger" },
-    { label: "Adimplentes", value: counts.adimplente || 0, sub: `${pct(counts.adimplente || 0)}%`, color: "text-success" },
-    { label: "Inadimplentes", value: counts.inadimplente || 0, sub: `${pct(counts.inadimplente || 0)}%`, color: "text-danger" },
-    { label: "ENDR", value: counts.endr || 0, sub: `${pct(counts.endr || 0)}%`, color: "text-green-400" },
-    { label: "Consignação", value: counts.consignacao || 0, sub: `${pct(counts.consignacao || 0)}%`, color: "text-warning" },
-    { label: "Sem Obrigação", value: counts.sem_obrigacao || 0, sub: `${pct(counts.sem_obrigacao || 0)}%`, color: "text-slate-300" },
-  ];
+  const receivedMonth = (board?.rows || []).reduce((s: number, r: any) => s + (Number(r.received_total) || 0), 0);
 
   return (
     <AppShell>
-      <Header
-        title={`Ciclo — ${conf?.acronym || ""} · ${monthShort(cycle?.reference_month)}`}
-        icon="📨"
-        help="O ciclo é o espelho da base central para esta competência: a lista de operadores e as conclusões vêm da confederação — nada é duplicado. Aqui você prepara a notificação (somente inadimplentes vêm pré-selecionados), registra recebimentos e relatórios (gravados na base central), gera o Ofício SPA e acompanha a linha do tempo. O administrador pode arquivar o ciclo preservando o histórico."
-        subtitle={`${conf?.name} · Competência: ${monthLabel(cycle?.reference_month)} · espelho da relação da confederação (base central)`}
-        actions={
-          <>
-            <Badge status={cycle?.status || ""} />
-            <button onClick={() => openReview(1)} disabled={reviewLoading} className="btn-secondary">Preparar Notificação</button>
-            <button onClick={downloadActivity} className="btn-secondary">Relatório de Atividades</button>
-            <button onClick={() => { setSpaResult(null); setSpaModal(true); }} className="btn-primary">Gerar Ofício SPA</button>
-            {me?.role === "admin" && <button onClick={doArchive} className="btn-secondary text-danger" title="Somente admin — histórico preservado">Arquivar</button>}
-          </>
-        }
-      />
+      {/* ===== Hero da competência ===== */}
+      <div className="animate-fade-up mb-6">
+        <nav className="flex items-center gap-1.5 text-xs text-muted mb-3" aria-label="Navegação">
+          <a href="/cobrancas" className="hover:text-slate-200 transition-colors">Cobranças</a>
+          <span aria-hidden>/</span>
+          <span className="text-slate-300">{conf?.acronym}</span>
+        </nav>
 
-      {/* Resumo pela Conclusão */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-        {summaryBoxes.map((b, i) => (
-          <div key={i} className="card text-center py-3">
-            <p className={`text-2xl font-bold ${b.color}`}>{b.value}</p>
-            <p className="text-xs text-muted mt-0.5">{b.label}</p>
-            <p className="text-[11px] text-muted">{b.sub}</p>
+        <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6 justify-between">
+          <div className="flex items-center gap-4 min-w-0">
+            <ProgressRing pct={rate} />
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-[28px] font-bold text-white tracking-tight flex items-center gap-2.5 flex-wrap">
+                {monthLabel(cycle?.reference_month)}
+                <Badge status={cycle?.status || ""} />
+                <HelpTip title="Como funciona o ciclo" wide align="left"
+                  text="O ciclo é o espelho da base central para esta competência: a lista de operadores e as conclusões vêm da confederação — nada é duplicado. Prepare a notificação (somente inadimplentes vêm pré-selecionados), registre recebimentos e relatórios (gravados na base central), gere o Ofício SPA e acompanhe a linha do tempo. O administrador pode arquivar o ciclo preservando o histórico." />
+              </h1>
+              <p className="text-sm text-muted mt-1">
+                {conf?.name} · <span className="text-slate-300 num">{counts.adimplente || 0}</span> de{" "}
+                <span className="text-slate-300 num">{cobraveis}</span> cobráveis em dia
+                {receivedMonth > 0 && <> · <span className="text-success font-medium num whitespace-nowrap">{formatCurrency(receivedMonth)}</span> no mês</>}
+              </p>
+            </div>
           </div>
-        ))}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => openReview(1)} disabled={reviewLoading} className="btn-primary">
+              ✉ Preparar Notificação
+            </button>
+            <button onClick={() => { setSpaResult(null); setSpaModal(true); }} className="btn-secondary">Ofício SPA</button>
+            <button onClick={downloadActivity} className="btn-secondary">Atividades</button>
+            {me?.role === "admin" && (
+              <button onClick={doArchive} className="btn-ghost text-muted hover:text-danger" title="Somente admin — histórico preservado">Arquivar</button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ===== Composição da carteira (barra segmentada + legenda-filtro) ===== */}
+      <div className="card mb-6 animate-fade-up">
+        <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
+          <p className="text-sm font-semibold text-white">
+            Situação da carteira <span className="text-muted font-normal">— {total} operadores</span>
+          </p>
+          {concFilter && (
+            <button onClick={() => setConcFilter("")} className="text-xs text-primary hover:underline">
+              Limpar filtro ({CONC[concFilter]?.short})
+            </button>
+          )}
+        </div>
+
+        {/* barra 100% empilhada — separação de 2px entre segmentos; rótulos na legenda */}
+        <div className="flex h-3 rounded-full overflow-hidden animate-bar" role="img"
+          aria-label={CONC_ORDER.map(k => `${CONC[k].short}: ${counts[k] || 0}`).join(", ")}>
+          {CONC_ORDER.filter(k => (counts[k] || 0) > 0).map((k, i, arr) => (
+            <div key={k}
+              style={{ width: `${(counts[k] / total) * 100}%`, background: CONC[k].bar, marginLeft: i > 0 ? 2 : 0 }}
+              className={`transition-all duration-300 ${concFilter && concFilter !== k ? "opacity-25" : ""} ${i === 0 ? "rounded-l-full" : ""} ${i === arr.length - 1 ? "rounded-r-full" : ""}`} />
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-2 mt-3.5">
+          {CONC_ORDER.map(k => {
+            const n = counts[k] || 0;
+            const active = concFilter === k;
+            return (
+              <button key={k}
+                onClick={() => setConcFilter(active ? "" : k)}
+                disabled={n === 0}
+                aria-pressed={active}
+                className={`pill transition-all duration-150 active:scale-[0.97] ${
+                  n === 0 ? "opacity-35 cursor-default border-surface-border text-muted" :
+                  active ? `${CONC[k].cls} ring-2 ring-offset-2 ring-offset-surface-light ring-primary/60` :
+                  `${CONC[k].cls} hover:brightness-110 cursor-pointer`}`}
+                title={n > 0 ? `Filtrar a lista por ${CONC[k].label}` : undefined}
+              >
+                <span className={`pill-dot ${CONC[k].dot}`} />
+                {CONC[k].short}
+                <span className="num font-semibold">{n}</span>
+                <span className="text-[10px] opacity-70 num">{pct(n)}%</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-surface-border mb-6 overflow-x-auto items-center">
-        {["Operadores", `Comunicações (${emailStats.sent + emailStats.received || ""})`, `Linha do Tempo (${events.length})`].map((t, i) => (
+        {["Operadores", emailStats.sent + emailStats.received > 0 ? `Comunicações (${emailStats.sent + emailStats.received})` : "Comunicações", events.length > 0 ? `Linha do Tempo (${events.length})` : "Linha do Tempo"].map((t, i) => (
           <button key={i} onClick={() => setTab(i)}
             className={"px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px whitespace-nowrap " + (tab === i ? "border-primary text-primary" : "border-transparent text-muted hover:text-slate-200")}>
             {t}
@@ -329,58 +416,95 @@ export default function CollectionDetailPage() {
 
       {/* TAB 0 — Espelho da relação da confederação */}
       {tab === 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <input className="input max-w-xs" placeholder="Buscar operador..." value={search} onChange={e => setSearch(e.target.value)} />
-            <p className="text-xs text-muted">A Conclusão é editada na aba da confederação; recebimentos registrados aqui vão para a base central.</p>
+        <div className="space-y-3 animate-fade-up">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="relative max-w-xs w-full">
+              <svg className="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+              </svg>
+              <input className="input !pl-9" placeholder="Buscar operador ou CNPJ..." value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <p className="text-xs text-muted hidden md:block">A Conclusão é editada na aba da confederação; recebimentos registrados aqui vão para a base central.</p>
           </div>
-          <div className="card p-0 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-surface">
-                <tr>
-                  <th className="table-th">Operador</th>
-                  <th className="table-th">Conclusão</th>
-                  <th className="table-th">Recebido no mês</th>
-                  <th className="table-th">Último pagamento</th>
-                  <th className="table-th">Relatório</th>
-                  <th className="table-th">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r: any) => {
-                  const c = CONC[r.conclusion] || CONC.inadimplente;
-                  return (
-                    <tr key={r.operator_id} className="hover:bg-surface-light/20 align-top">
-                      <td className="table-td">
-                        <span className="font-medium text-white">{r.label}</span>
-                        {r.cnpj && <span className="block text-[11px] text-muted font-mono">{r.cnpj}</span>}
-                      </td>
-                      <td className="table-td">
-                        <span className={"px-2 py-0.5 rounded-full text-xs border " + c.cls}>{c.label}</span>
-                        {r.conclusion_manual && <span className="block text-[10px] text-muted mt-0.5">manual</span>}
-                      </td>
-                      <td className="table-td">{r.received_total ? <span className="text-success font-medium">{formatCurrency(r.received_total)}</span> : <span className="text-muted">—</span>}</td>
-                      <td className="table-td text-xs text-muted">
-                        {r.last_payment_date ? <>{formatDate(r.last_payment_date)}{r.last_payment_amount ? ` · ${formatCurrency(r.last_payment_amount)}` : ""}</> : "—"}
-                      </td>
-                      <td className="table-td">
-                        {r.report_url
-                          ? <a href={API_BASE + r.report_url} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline">Ver</a>
-                          : <span className="text-xs text-muted">—</span>}
-                      </td>
-                      <td className="table-td">
-                        <div className="flex flex-wrap gap-x-2 gap-y-1">
-                          <button onClick={() => setShowContact(operators.find(o => o.id === r.operator_id))} className="text-xs text-purple-300 hover:underline">Contactar</button>
-                          <button onClick={() => setShowReceipt(r)} className="text-xs text-success hover:underline">Registrar recebimento</button>
-                          <button onClick={() => { setReportRow(r); setReportFile(null); }} className="text-xs text-amber-400 hover:underline">Relatório</button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {rows.length === 0 && <tr><td colSpan={6} className="table-td text-center text-muted py-8">Nenhum operador encontrado</td></tr>}
-              </tbody>
-            </table>
+
+          <div className="card p-0 overflow-hidden">
+            <div className="table-wrap">
+              <table className="w-full text-sm min-w-[860px]">
+                <thead className="bg-surface/80">
+                  <tr>
+                    <th className="table-th">Operador</th>
+                    <th className="table-th">Conclusão</th>
+                    <th className="table-th text-right">Recebido no mês</th>
+                    <th className="table-th">Último pagamento</th>
+                    <th className="table-th text-center">Relatório</th>
+                    <th className="table-th text-right pr-5">Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r: any) => {
+                    const c = CONC[r.conclusion] || CONC.inadimplente;
+                    return (
+                      <tr key={r.operator_id} className="group hover:bg-surface-light/30 transition-colors">
+                        <td className="table-td">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${avatarCls(r.operator_id)} border border-white/5 flex items-center justify-center text-[11px] font-bold flex-shrink-0`} aria-hidden>
+                              {initials(r.label)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-medium text-white truncate">{r.label}</p>
+                              {r.cnpj && <p className="text-[11px] text-muted font-mono num">{r.cnpj}</p>}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="table-td">
+                          <span className={`pill ${c.cls}`}>
+                            <span className={`pill-dot ${c.dot}`} />{c.label}
+                            {r.conclusion_manual && <span className="text-[9px] opacity-70 border-l border-current/30 pl-1.5 ml-0.5">manual</span>}
+                          </span>
+                        </td>
+                        <td className="table-td text-right">
+                          {r.received_total
+                            ? <span className="text-success font-semibold num">{formatCurrency(r.received_total)}</span>
+                            : <span className="text-muted/60">—</span>}
+                        </td>
+                        <td className="table-td text-xs text-muted num">
+                          {r.last_payment_date ? <>{formatDate(r.last_payment_date)}{r.last_payment_amount ? <span className="text-slate-400"> · {formatCurrency(r.last_payment_amount)}</span> : ""}</> : <span className="text-muted/60">—</span>}
+                        </td>
+                        <td className="table-td text-center">
+                          {r.report_url
+                            ? <a href={API_BASE + r.report_url} target="_blank" rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-primary bg-primary/10 border border-primary/25 px-2 py-1 rounded-md hover:bg-primary/20 transition-colors">
+                                📄 Ver
+                              </a>
+                            : <span className="text-xs text-muted/60">—</span>}
+                        </td>
+                        <td className="table-td text-right pr-4">
+                          <div className="inline-flex gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => setShowContact(operators.find(o => o.id === r.operator_id))}
+                              className="text-[11px] text-purple-300 px-2 py-1 rounded-md hover:bg-purple-500/15 transition-colors" title="E-mail, WhatsApp ou telefone">
+                              Contactar
+                            </button>
+                            <button onClick={() => setShowReceipt(r)}
+                              className="text-[11px] text-success px-2 py-1 rounded-md hover:bg-success/15 transition-colors" title="Registrar recebimento na base central">
+                              Recebimento
+                            </button>
+                            <button onClick={() => { setReportRow(r); setReportFile(null); }}
+                              className="text-[11px] text-amber-400 px-2 py-1 rounded-md hover:bg-amber-500/15 transition-colors" title="Anexar relatório de apuração">
+                              Relatório
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {rows.length === 0 && (
+                    <tr><td colSpan={6} className="table-td text-center text-muted py-10">
+                      Nenhum operador encontrado{concFilter ? <> para o filtro <b>{CONC[concFilter]?.short}</b> — <button onClick={() => setConcFilter("")} className="text-primary hover:underline">limpar</button></> : ""}.
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -418,37 +542,79 @@ export default function CollectionDetailPage() {
       )}
 
       {/* TAB 2 — Linha do tempo */}
-      {tab === 2 && (
-        <div className="card p-0 overflow-hidden">
-          <div className="divide-y divide-surface-border">
-            {events.length === 0 ? <p className="p-4 text-muted text-sm">Nenhum evento registrado</p> : events.map(ev => (
-              <div key={ev.id} className="p-4 flex items-start gap-4">
-                <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm text-white">
-                    <span className="font-medium">{opName(ev.operator_id)}</span>{" — "}
-                    <code className="text-xs bg-surface px-1.5 py-0.5 rounded">{ev.event_type}</code>{" via "}
-                    <span className="text-muted">{ev.channel}</span>
-                  </p>
-                  {ev.notes && <p className="text-xs text-muted mt-1">{ev.notes}</p>}
-                  <p className="text-xs text-muted mt-1">{formatDateTime(ev.performed_at)}</p>
+      {tab === 2 && (() => {
+        const EV: Record<string, { icon: string; label: string; cls: string }> = {
+          notification_sent: { icon: "✉", label: "Notificação enviada", cls: "bg-primary/15 text-primary border-primary/30" },
+          payment_confirmed: { icon: "✓", label: "Recebimento confirmado", cls: "bg-success/15 text-success border-success/30" },
+          email_read: { icon: "↩", label: "Resposta recebida", cls: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
+          phone_contact: { icon: "☎", label: "Contato telefônico", cls: "bg-purple-500/15 text-purple-300 border-purple-500/30" },
+          manual_note: { icon: "✎", label: "Registro manual", cls: "bg-slate-500/15 text-slate-300 border-slate-500/30" },
+        };
+        return (
+          <div className="card p-0 overflow-hidden animate-fade-up">
+            {events.length === 0 ? (
+              <p className="p-6 text-muted text-sm text-center">Nenhum evento registrado nesta competência ainda.</p>
+            ) : (
+              <div className="relative pl-2">
+                {/* trilho vertical */}
+                <div className="absolute left-[27px] top-4 bottom-4 w-px bg-surface-border" aria-hidden />
+                <div className="divide-y divide-surface-border/50">
+                  {events.map(ev => {
+                    const e = EV[ev.event_type] || EV.manual_note;
+                    return (
+                      <div key={ev.id} className="p-4 flex items-start gap-3.5 relative">
+                        <div className={`w-8 h-8 rounded-full border flex items-center justify-center text-sm flex-shrink-0 relative z-10 bg-surface-light ${e.cls}`} aria-hidden>
+                          {e.icon}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-white">
+                            <span className="font-medium">{opName(ev.operator_id)}</span>
+                            <span className="text-muted"> — {e.label}</span>
+                            {ev.channel && <span className="text-[10px] text-muted uppercase tracking-wide border border-surface-border rounded px-1.5 py-px ml-2 align-middle">{ev.channel}</span>}
+                          </p>
+                          {ev.notes && <p className="text-xs text-slate-400 mt-1 leading-relaxed">{ev.notes}</p>}
+                          <p className="text-[11px] text-muted mt-1 num">{formatDateTime(ev.performed_at)}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            ))}
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ===== Revisão de Notificação ===== */}
       {review && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-surface-card border border-surface-border rounded-xl w-full max-w-4xl max-h-[92vh] overflow-y-auto">
-            <div className="p-5 border-b border-surface-border flex items-center justify-between sticky top-0 bg-surface-card z-10">
-              <div>
-                <h3 className="font-semibold text-white">Preparar Notificação — {conf?.acronym} · {monthLabel(cycle?.reference_month)}</h3>
-                <p className="text-xs text-muted">Somente inadimplentes vêm pré-selecionados; os demais grupos podem ser incluídos manualmente.</p>
+            <div className="p-5 border-b border-surface-border sticky top-0 bg-surface-card z-10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-white">Preparar Notificação — {conf?.acronym} · <span className="capitalize">{monthLabel(cycle?.reference_month)}</span></h3>
+                  <p className="text-xs text-muted">Somente inadimplentes vêm pré-selecionados; os demais grupos podem ser incluídos manualmente.</p>
+                </div>
+                <button onClick={() => setReview(null)} aria-label="Fechar" className="text-muted hover:text-white text-xl leading-none px-1">×</button>
               </div>
-              <button onClick={() => setReview(null)} className="text-muted hover:text-white text-xl">×</button>
+              {/* Indicador de etapas */}
+              <div className="flex items-center gap-2 mt-3" aria-label="Etapas do envio">
+                {[["edit", "1 · Redigir"], ["confirm", "2 · Conferir"], ["result", "3 · Comprovantes"]].map(([st, lb], i) => {
+                  const order = ["edit", "confirm", "result"];
+                  const done = order.indexOf(reviewStage) > i;
+                  const active = reviewStage === st;
+                  return (
+                    <div key={st} className="flex items-center gap-2">
+                      {i > 0 && <div className={`w-6 h-px ${done || active ? "bg-primary/60" : "bg-surface-border"}`} aria-hidden />}
+                      <span className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                        active ? "bg-primary/15 text-primary border-primary/40 font-semibold" :
+                        done ? "text-success border-success/30 bg-success/10" : "text-muted border-surface-border"}`}>
+                        {done ? "✓ " : ""}{lb}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {reviewStage === "edit" && (
