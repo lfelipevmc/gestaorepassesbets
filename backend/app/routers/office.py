@@ -88,3 +88,16 @@ async def upload_logo(file: UploadFile = File(...), db: Session = Depends(get_db
     db.refresh(office)
     log_action(db=db, action="UPDATE_OFFICE_LOGO", entity_type="OfficeSettings", entity_id=office.id, user_id=current_user.id)
     return office
+
+
+@router.get("/mailbox")
+def integrated_mailbox(current_user: User = Depends(get_current_user)):
+    """Caixa de e-mail dedicada usada em toda a comunicação com os agentes operadores.
+    Exposta para o frontend explicitar qual endereço está sincronizado."""
+    from ..services.email_service import get_mailbox
+    from ..config import settings
+    return {
+        "mailbox": get_mailbox(),
+        "folder_root": settings.REPASSES_FOLDER_ROOT,
+        "configured": bool(get_mailbox()),
+    }

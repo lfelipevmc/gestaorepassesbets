@@ -252,6 +252,7 @@ export const downloadEvidencePdf = (params: { month: string; confederation_id?: 
 
 // ---- Escritório ----
 export const getOffice = () => api.get("/api/office/");
+export const getMailbox = () => api.get("/api/office/mailbox");
 export const updateOffice = (data: any) => api.patch("/api/office/", data);
 export const uploadOfficeLogo = (formData: FormData) =>
   api.post("/api/office/upload-logo", formData, { headers: { "Content-Type": "multipart/form-data" } });

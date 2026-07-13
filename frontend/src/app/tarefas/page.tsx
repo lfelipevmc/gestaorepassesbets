@@ -5,6 +5,7 @@ import AppShell from "@/components/AppShell";
 import Header from "@/components/layout/Header";
 import Modal from "@/components/ui/Modal";
 import { getTasksBoard, checkTask, createReminder, toggleReminder, deleteReminder } from "@/lib/api";
+import MailboxBadge from "@/components/ui/MailboxBadge";
 import { toast } from "@/components/ui/Toast";
 
 const PRIORITY: Record<number, { label: string; cls: string }> = {
@@ -125,9 +126,12 @@ export default function TarefasPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             {cats.filter((c: any) => c.items.length > 0).map((c: any) => (
               <div key={c.id} className="card p-0 overflow-hidden">
-                <div className="px-4 py-3 bg-surface border-b border-surface-border flex items-center justify-between">
+                <div className="px-4 py-3 bg-surface border-b border-surface-border flex items-center justify-between gap-2 flex-wrap">
                   <p className="font-semibold text-white text-sm">{c.icon} {c.label}</p>
-                  <span className="text-xs bg-surface-border text-slate-300 px-2 py-0.5 rounded-full">{c.items.filter((i: any) => !i.done).length} pendente(s)</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {c.id === "respostas" && <MailboxBadge prefix="Caixa monitorada" />}
+                    <span className="text-xs bg-surface-border text-slate-300 px-2 py-0.5 rounded-full">{c.items.filter((i: any) => !i.done).length} pendente(s)</span>
+                  </div>
                 </div>
                 <div className="divide-y divide-surface-border/60 max-h-[420px] overflow-y-auto">
                   {c.items.map((i: any) => {

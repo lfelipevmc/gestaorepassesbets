@@ -54,10 +54,13 @@ def _archive_reply_as_document(db: Session, operator_id, cycle_id, subject, from
 
 
 def _parse_dt(s):
+    """Converte o horário UTC do Graph para o horário local do sistema (America/Sao_Paulo,
+    definido via TZ no container) e grava como datetime 'naive' — coerente com os demais
+    carimbos do banco. Sem isso, respostas apareceriam 3h adiantadas."""
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone().replace(tzinfo=None)
     except Exception:
         return None
 

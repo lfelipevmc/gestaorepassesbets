@@ -13,6 +13,7 @@ import {
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "@/components/ui/Toast";
 import HelpTip from "@/components/ui/HelpTip";
+import MailboxBadge from "@/components/ui/MailboxBadge";
 
 const TABS = ["Resumo", "Repasses (Fase 1)", "Repartição (Fase 2)", "E-mails"];
 const BTYPES: Record<string, string> = { confederacao: "Confederação", atleta: "Atleta", clube: "Clube/Entidade", federacao: "Federação", outro: "Outro" };
@@ -399,8 +400,11 @@ export default function FinanceiroPage() {
       {/* E-MAILS */}
       {tab === 3 && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted">Respostas das Bets importadas da caixa de entrada (M365), casadas pelo remetente e arquivadas como documento para auditoria.</p>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <p className="text-sm text-muted">Respostas das Bets importadas da caixa de entrada (M365), casadas pelo remetente e arquivadas como documento para auditoria.</p>
+              <div className="mt-2"><MailboxBadge prefix="Sincronizando a caixa" /></div>
+            </div>
             <button onClick={doSync} disabled={syncing} className="btn-primary">{syncing ? "Sincronizando..." : "Sincronizar Caixa de Entrada"}</button>
           </div>
 

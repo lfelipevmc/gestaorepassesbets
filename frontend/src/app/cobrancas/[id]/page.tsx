@@ -16,6 +16,7 @@ import { getUser } from "@/lib/auth";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/Toast";
 import HelpTip from "@/components/ui/HelpTip";
+import MailboxBadge from "@/components/ui/MailboxBadge";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -512,8 +513,11 @@ export default function CollectionDetailPage() {
       {/* TAB 1 — Comunicações */}
       {tab === 1 && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted">E-mails deste ciclo. {emailStats.sent} enviados · {emailStats.received} recebidos.</p>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <p className="text-sm text-muted">E-mails deste ciclo. {emailStats.sent} enviados · {emailStats.received} recebidos.</p>
+              <div className="mt-2"><MailboxBadge prefix="Sincronizando a caixa" /></div>
+            </div>
             <button onClick={doSyncEmails} disabled={syncing} className="btn-primary">{syncing ? "Sincronizando..." : "Sincronizar Caixa de Entrada"}</button>
           </div>
           <CycleEmailQueue emails={emails.filter(e => e.direction === "inbound" && !e.matched)} operators={operators} onLinked={loadEmails} />
