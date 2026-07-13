@@ -14,7 +14,7 @@ from ..models.user import User
 from ..schemas.collection import CycleCreate, CycleOut, EventCreate, EventOut
 from ..core.auth import get_current_user, require_office, require_admin
 from ..services.audit_service import log_action
-from ..services.notification_service import send_collection_notification, render_placeholders
+from ..services.notification_service import render_placeholders
 from ..services.email_service import send_email
 from ..services.scheduler import is_endr_associated
 from ..services.status_service import effective_conclusions, get_paid_map, LABELS_PT, month_start
@@ -33,6 +33,9 @@ class SendConfirmedRequest(BaseModel):
     body: str
     deadline: Optional[str] = None   # prazo textual para a chave {prazo}
     recipients: List[NotificationRecipient]
+    # Trava de segurança (política pós-incidente 12/07/2026): NENHUM e-mail sai
+    # para agentes operadores sem o usuário confirmar com a própria senha de login.
+    password: str
 
 
 class SpaLetterRequest(BaseModel):
@@ -179,10 +182,25 @@ def notification_preview(id: int, notification_number: int = 1, db: Session = De
 
 @router.post("/{id}/send-confirmed")
 def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
-    """Envia a notificação apenas aos destinatários confirmados, com a mensagem revisada."""
+    """Envia a notificação apenas aos destinatários confirmados, com a mensagem revisada.
+
+    ÚNICO caminho de envio de e-mail a agentes operadores em todo o sistema.
+    Exige a senha de login do usuário (verificada abaixo) — envios automáticos
+    foram abolidos em 13/07/2026."""
+    from ..core.auth import verify_password
+    if not data.password or not verify_password(data.password, current_user.hashed_password):
+        log_action(db=db, action="SEND_AUTH_FAIL", entity_type="CollectionCycle", entity_id=id,
+                   user_id=current_user.id,
+                   description=f"Tentativa de disparo com senha incorreta ({len(data.recipients)} destinatário(s)) — envio BLOQUEADO")
+        raise HTTPException(status_code=403, detail="Senha incorreta — o disparo não foi autorizado.")
+
     cycle = db.query(CollectionCycle).get(id)
     if not cycle:
         raise HTTPException(status_code=404, detail="Ciclo não encontrado")
+
+    log_action(db=db, action="SEND_AUTHORIZED", entity_type="CollectionCycle", entity_id=id,
+               user_id=current_user.id, confederation_id=cycle.confederation_id,
+               description=f"Disparo autorizado por senha: {data.notification_number}ª notificação, {len(data.recipients)} destinatário(s)")
     conf = db.query(Confederation).get(cycle.confederation_id)
     ref = cycle.reference_month.strftime("%m/%Y")
 

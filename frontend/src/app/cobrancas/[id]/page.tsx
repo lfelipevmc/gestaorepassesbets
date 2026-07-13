@@ -98,6 +98,7 @@ export default function CollectionDetailPage() {
   const [reviewStage, setReviewStage] = useState<"edit" | "confirm" | "result">("edit");
   const [reviewLoading, setReviewLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [sendPassword, setSendPassword] = useState("");   // trava: senha do login exigida no disparo
   const [sendResult, setSendResult] = useState<any>(null);
   const [proof, setProof] = useState<any>(null);
 
@@ -175,6 +176,7 @@ export default function CollectionDetailPage() {
     setReviewLoading(true);
     setReviewStage("edit");
     setSendResult(null);
+    setSendPassword("");
     try {
       const r = await getNotificationPreview(numId, num);
       const included = new Set<number>(r.data.recipients.map((x: any) => x.operator_id));
@@ -223,6 +225,7 @@ export default function CollectionDetailPage() {
   async function doSend() {
     const recipients = includedRecipients().map((o: any) => ({ operator_id: o.operator_id, email: o.emails?.[0] || null }));
     if (recipients.length === 0) { toast.warn("Selecione ao menos um destinatário."); return; }
+    if (!sendPassword) { toast.warn("Digite sua senha de login para autorizar o disparo."); return; }
     setSending(true);
     try {
       const r = await sendNotificationConfirmed(numId, {
@@ -231,7 +234,9 @@ export default function CollectionDetailPage() {
         body: review.message.body,
         deadline: review.deadline_text,
         recipients,
+        password: sendPassword,
       });
+      setSendPassword("");
       setSendResult(r.data);
       setReviewStage("result");
       fetchAll();
@@ -596,7 +601,7 @@ export default function CollectionDetailPage() {
             <div className="p-5 border-b border-surface-border sticky top-0 bg-surface-card z-10">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold text-white">Preparar Notificação — {conf?.acronym} · <span className="capitalize">{monthLabel(cycle?.reference_month)}</span></h3>
+                  <h3 className="font-semibold text-white">Preparar Notificação — {conf?.acronym} · {monthLabel(cycle?.reference_month)}</h3>
                   <p className="text-xs text-muted">Somente inadimplentes vêm pré-selecionados; os demais grupos podem ser incluídos manualmente.</p>
                 </div>
                 <button onClick={() => setReview(null)} aria-label="Fechar" className="text-muted hover:text-white text-xl leading-none px-1">×</button>
@@ -723,9 +728,31 @@ export default function CollectionDetailPage() {
                     </div>
                   ))}
                 </div>
+                {/* Trava de segurança: senha do login obrigatória (política pós-incidente) */}
+                <div className="bg-surface border border-primary/30 rounded-lg p-4">
+                  <label className="label flex items-center gap-1.5">
+                    🔒 Autorização por senha
+                  </label>
+                  <p className="text-xs text-muted mb-2">
+                    Nenhum e-mail é enviado aos agentes operadores sem esta confirmação. Digite a
+                    <b> sua senha de login</b> para autorizar o disparo — a autorização fica registrada na auditoria em seu nome.
+                  </p>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    className="input max-w-xs"
+                    placeholder="Sua senha de login"
+                    value={sendPassword}
+                    onChange={e => setSendPassword(e.target.value)}
+                  />
+                </div>
+
                 <div className="flex gap-3 justify-end">
                   <button onClick={() => setReviewStage("edit")} className="btn-secondary">← Voltar e editar</button>
-                  <button onClick={doSend} disabled={sending} className="btn-primary">{sending ? "Disparando..." : `Confirmar disparo (${includedRecipients().length})`}</button>
+                  <button onClick={doSend} disabled={sending || !sendPassword} className="btn-primary"
+                    title={!sendPassword ? "Digite sua senha para liberar o disparo" : undefined}>
+                    {sending ? "Disparando..." : `🔒 Autorizar e disparar (${includedRecipients().length})`}
+                  </button>
                 </div>
               </div>
             )}

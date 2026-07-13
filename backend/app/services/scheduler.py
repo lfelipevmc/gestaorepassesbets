@@ -1,16 +1,25 @@
+"""Rotinas agendadas do sistema.
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  POLÍTICA INEGOCIÁVEL (incidente de 12/07/2026):                          ║
+║  O sistema NUNCA envia e-mails ou mensagens automáticas aos agentes       ║
+║  operadores. Todo envio é iniciado manualmente por um usuário, revisado   ║
+║  na tela e CONFIRMADO COM A SENHA DE LOGIN (endpoint send-confirmed).     ║
+║  Nenhum job deste arquivo pode chamar send_email/notificações para Bets.  ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+Jobs permitidos: sincronizações de LEITURA (planilha MF, caixa de entrada),
+pesquisas de contato, alertas internos e o relatório mensal ao e-mail do
+PRÓPRIO escritório.
+"""
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from datetime import date, datetime
+from datetime import date
 import logging
 from ..database import SessionLocal
-from ..models.collection import CollectionCycle, CollectionEvent, EventType, EventChannel, CycleStatus
-from ..models.operator import BettingOperator, OperatorStatus
-from ..models.payment import Payment, PaymentStatus
+from ..models.collection import CollectionCycle, CycleStatus
 from ..models.confederation import Confederation
 from .mf_scraper import scrape_mf_operators
-from .notification_service import send_collection_notification
-from .email_service import read_inbox_emails
-from .ai_service import analyze_payment_email
 from .audit_service import log_action
 
 logger = logging.getLogger(__name__)
@@ -58,140 +67,23 @@ def job_sync_operators():
         db.close()
 
 
-def job_send_first_notifications():
-    today = date.today()
-
-    db = SessionLocal()
-    try:
-        if today.month == 1:
-            ref_month = date(today.year - 1, 12, 1)
-        else:
-            ref_month = date(today.year, today.month - 1, 1)
-
-        # Cada confederação tem seu próprio dia configurável para a 1ª notificação (padrão dia 12)
-        confederations = [c for c in db.query(Confederation).all() if (c.first_notification_day or 12) == today.day]
-
-        for conf in confederations:
-            cycle = get_or_create_cycle(db, conf.id, ref_month)
-            cycle.status = CycleStatus.collecting
-            db.commit()
-
-            from .status_service import effective_conclusions
-            eff = effective_conclusions(db, conf.id, ref_month)
-            inadimplentes = [oid for oid, v in eff.items() if v == "inadimplente"]
-            for op_id in inadimplentes:
-                op = db.query(BettingOperator).get(op_id)
-                if not op or op.status != OperatorStatus.active:
-                    continue
-                send_collection_notification(
-                    db=db,
-                    cycle_id=cycle.id,
-                    operator=op,
-                    confederation=conf,
-                    reference_month=ref_month.strftime("%m/%Y"),
-                    notification_number=1,
-                )
-
-        log_action(db=db, action="AUTO_NOTIFICATION_1", description=f"1ª rodada de notificações automáticas - referência {ref_month}")
-    except Exception as e:
-        logger.error(f"First notification job error: {e}")
-    finally:
-        db.close()
+# ─────────────────────────────────────────────────────────────────────────────
+# REMOVIDO EM 13/07/2026 (incidente): job_send_first_notifications e
+# job_send_second_notifications disparavam notificações automáticas às Bets
+# (8h00/8h30, no dia configurado de cada confederação). Envio agora é
+# EXCLUSIVAMENTE manual, via Ciclo → Preparar Notificação, com revisão dos
+# destinatários/mensagem e confirmação por senha de login.
+# Também removida a marcação automática de pagamento por IA
+# (_check_email_compliance) — mudanças de estado financeiro são manuais.
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-def job_check_compliance_day20():
-    today = date.today()
-    if today.day != 20:
-        return
-    _check_email_compliance()
-
-
-def job_send_second_notifications():
-    today = date.today()
-
-    db = SessionLocal()
-    try:
-        if today.month == 1:
-            ref_month = date(today.year - 1, 12, 1)
-        else:
-            ref_month = date(today.year, today.month - 1, 1)
-
-        # Dia configurável da 2ª notificação por confederação (padrão dia 22)
-        confederations = [c for c in db.query(Confederation).all() if (c.second_notification_day or 22) == today.day]
-        for conf in confederations:
-            cycle = db.query(CollectionCycle).filter(
-                CollectionCycle.confederation_id == conf.id,
-                CollectionCycle.reference_month == ref_month
-            ).first()
-            if not cycle:
-                continue
-
-            from .status_service import effective_conclusions
-            eff = effective_conclusions(db, conf.id, ref_month)
-            for op_id in [oid for oid, v in eff.items() if v == "inadimplente"]:
-                op = db.query(BettingOperator).get(op_id)
-                if not op or op.status != OperatorStatus.active:
-                    continue
-                send_collection_notification(
-                    db=db, cycle_id=cycle.id, operator=op, confederation=conf,
-                    reference_month=ref_month.strftime("%m/%Y"), notification_number=2,
-                )
-            db.commit()
-
-        log_action(db=db, action="AUTO_NOTIFICATION_2", description=f"2ª rodada de notificações automáticas")
-    except Exception as e:
-        logger.error(f"Second notification job error: {e}")
-    finally:
-        db.close()
-
-
-def job_final_compliance_and_report():
+def job_monthly_cycle_close():
+    """Dia 1º: apenas fecha (status) os ciclos do mês anterior. NÃO envia nada."""
     today = date.today()
     if today.day != 1:
         return
-
-    _check_email_compliance()
     _generate_monthly_reports()
-
-
-def _check_email_compliance():
-    db = SessionLocal()
-    try:
-        emails = read_inbox_emails(top=100)
-        operators = db.query(BettingOperator).all()
-        op_names = [op.fantasy_name or op.company_name for op in operators]
-
-        for email in emails:
-            body = email.get("body", {}).get("content", "")
-            result = analyze_payment_email(body, op_names)
-
-            if result.get("has_payment_confirmation"):
-                for op_name in result.get("confirmed_operators", []):
-                    op = next((o for o in operators if (o.fantasy_name or o.company_name).lower() in op_name.lower()), None)
-                    if op:
-                        payments = db.query(Payment).filter(
-                            Payment.operator_id == op.id,
-                            Payment.status.in_([PaymentStatus.pending, PaymentStatus.overdue])
-                        ).all()
-                        for p in payments:
-                            p.payment_confirmed_at = datetime.now()
-                            p.status = PaymentStatus.paid
-                            event = CollectionEvent(
-                                cycle_id=p.cycle_id,
-                                operator_id=op.id,
-                                event_type=EventType.payment_confirmed,
-                                channel=EventChannel.email,
-                                notes=f"Confirmado via leitura automática de email: {email.get('subject', '')}",
-                            )
-                            db.add(event)
-
-                db.commit()
-
-        log_action(db=db, action="EMAIL_COMPLIANCE_CHECK", description=f"Verificação de adimplência via email: {len(emails)} emails analisados")
-    except Exception as e:
-        logger.error(f"Email compliance check error: {e}")
-    finally:
-        db.close()
 
 
 def _generate_monthly_reports():
@@ -312,22 +204,22 @@ def job_monthly_office_report():
 
 
 def start_scheduler():
+    """Somente rotinas de LEITURA/organização e um e-mail interno ao escritório.
+    PROIBIDO adicionar aqui qualquer job que envie mensagem a agentes operadores."""
     scheduler.add_job(job_sync_operators, CronTrigger(hour=7, minute=0), id="sync_mf", replace_existing=True)
-    scheduler.add_job(job_send_first_notifications, CronTrigger(hour=8, minute=0), id="notify_1", replace_existing=True)
-    scheduler.add_job(job_check_compliance_day20, CronTrigger(hour=9, minute=0), id="check_20", replace_existing=True)
-    scheduler.add_job(job_send_second_notifications, CronTrigger(hour=8, minute=30), id="notify_2", replace_existing=True)
-    scheduler.add_job(job_final_compliance_and_report, CronTrigger(hour=9, minute=0), id="final_check", replace_existing=True)
     scheduler.add_job(
         job_weekly_contact_research,
         CronTrigger(day_of_week="sun", hour=6, minute=0),
         id="weekly_research",
         replace_existing=True,
     )
-    # Conciliação de respostas de e-mail: 3x ao dia
+    # Conciliação de respostas de e-mail (apenas LEITURA da caixa dedicada): 3x ao dia
     scheduler.add_job(job_sync_inbox, CronTrigger(hour="8,13,18", minute=15), id="sync_inbox", replace_existing=True)
-    # Alerta de prazo de repasse aos beneficiários
+    # Alerta interno de prazo de repasse aos beneficiários (registro em auditoria)
     scheduler.add_job(job_redistribution_deadline_alerts, CronTrigger(hour=7, minute=30), id="redis_deadline", replace_existing=True)
-    # Relatório mensal ao escritório (dia 1º às 6h)
+    # Fechamento de status dos ciclos do mês anterior (dia 1º) — sem envios
+    scheduler.add_job(job_monthly_cycle_close, CronTrigger(day=1, hour=5, minute=30), id="cycle_close", replace_existing=True)
+    # Relatório mensal ao e-mail do PRÓPRIO escritório (dia 1º às 6h) — interno
     scheduler.add_job(job_monthly_office_report, CronTrigger(day=1, hour=6, minute=0), id="monthly_report", replace_existing=True)
     scheduler.start()
-    logger.info("Scheduler started")
+    logger.info("Scheduler started (sem envios automáticos a operadores)")

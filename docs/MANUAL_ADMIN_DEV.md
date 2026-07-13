@@ -159,18 +159,28 @@ Ao criar endpoints de escrita, **sempre** registre.
 
 # 6. Rotinas automáticas (scheduler)
 
-`services/scheduler.py` — APScheduler, fuso **America/Sao_Paulo**:
+> 🚫 **POLÍTICA (incidente de 12/07/2026):** o sistema **NUNCA envia e-mails ou
+> mensagens automáticas aos agentes operadores**. Todo envio é manual, revisado
+> na tela e **autorizado com a senha de login** do usuário (único caminho:
+> `POST /api/collections/{id}/send-confirmed`; a autorização e as tentativas com
+> senha errada ficam na auditoria — `SEND_AUTHORIZED` / `SEND_AUTH_FAIL`).
+> É proibido adicionar jobs de envio a Bets no `scheduler.py`.
+
+`services/scheduler.py` — APScheduler, fuso **America/Sao_Paulo**. Apenas rotinas
+de leitura/organização e um e-mail interno ao escritório:
 
 | Horário | Job | Função |
 |---|---|---|
-| 06:00 dia 1º | `job_monthly_office_report` | Dossiê do mês anterior → e-mail do escritório (revisão) |
-| 06:00 dom | relatório semanal | Consolidado semanal |
-| 07:00 | `job_sync_operators` | Sincronização com a planilha SPA/MF |
-| 07:30 | `job_redistribution_deadline_alerts` | Alertas de prazo da Fase 2 |
-| 08:00 / 08:30 | `job_send_first/second_notifications` | Notificações automáticas (inadimplentes via `effective_conclusions`) |
-| 08:15, 13:15, 18:15 | `job_sync_inbox` | Importa respostas da caixa dedicada + arquiva por pasta |
-| 09:00 | verificações dia 20 / fim de mês | Compliance e relatório final |
+| 05:30 dia 1º | `job_monthly_cycle_close` | Fecha o status dos ciclos do mês anterior (sem envios) |
+| 06:00 dia 1º | `job_monthly_office_report` | Dossiê do mês anterior → e-mail do **próprio escritório** |
+| 06:00 dom | `job_weekly_contact_research` | Pesquisa de contatos públicos (gera sugestões) |
+| 07:00 | `job_sync_operators` | Sincronização com a planilha SPA/MF (leitura) |
+| 07:30 | `job_redistribution_deadline_alerts` | Alerta interno de prazos da Fase 2 (auditoria) |
+| 08:15, 13:15, 18:15 | `job_sync_inbox` | **Lê** respostas da caixa dedicada + arquiva por pasta |
 | 02:00 (cron do host) | `infra/backup.sh` | Backup GFS criptografado → Spaces |
+
+Os dias de 1ª/2ª notificação configurados por confederação passaram a alimentar
+apenas o painel **A Fazer** (sugestão de tarefa ao usuário) — nunca disparos.
 
 ---
 

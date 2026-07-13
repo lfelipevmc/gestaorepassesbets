@@ -202,8 +202,10 @@ De cima para baixo:
 
 1. **Preparar Notificação** → o sistema monta a lista com **apenas os inadimplentes
    pré-selecionados** (ENDR, adimplentes etc. podem ser incluídos à mão) e o texto do
-   modelo → revise → **Enviar**. Cada envio ganha um **protocolo** (ex.:
-   `CBTM-202607-00042`);
+   modelo → revise → confirme digitando **a sua senha de login** → **Disparar**.
+   🔒 *Nenhum e-mail sai do sistema sem essa autorização por senha — não existem
+   envios automáticos aos agentes operadores.* Cada envio ganha um **protocolo**
+   (ex.: `CBTM-202607-00042`);
 2. As **respostas** chegam sozinhas na aba Comunicações (sincronização automática);
 3. Quando a Bet paga: **Registrar recebimento** na linha dela → valor e data → o
    sistema grava na base central e a Conclusão vira **Adimplente** na hora;
