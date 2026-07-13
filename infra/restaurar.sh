@@ -15,10 +15,20 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 COMPOSE="docker compose -f docker-compose.prod.yml"
 
-set -a
-# shellcheck disable=SC1091
-source ./.env
-set +a
+# Carrega o .env de forma robusta (tolera valores com espaços/`=`/aspas)
+load_env() {
+  local file="${1:-./.env}"; [ -f "$file" ] || return 0
+  local key val
+  while IFS='=' read -r key val || [ -n "$key" ]; do
+    key="${key%%[[:space:]]}"; key="${key##[[:space:]]}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    val="${val%$'\r'}"
+    if [[ "$val" == \"*\" ]]; then val="${val#\"}"; val="${val%\"}";
+    elif [[ "$val" == \'*\' ]]; then val="${val#\'}"; val="${val%\'}"; fi
+    export "$key=$val"
+  done < "$file"
+}
+load_env ./.env
 
 : "${SPACES_KEY:?}"; : "${SPACES_SECRET:?}"; : "${SPACES_BUCKET:?}"
 : "${SPACES_REGION:=nyc3}"

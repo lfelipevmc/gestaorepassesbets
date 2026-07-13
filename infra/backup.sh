@@ -20,11 +20,22 @@ cd "$(dirname "$0")/.."          # raiz do projeto (/opt/gestaorepassesbets)
 PROJECT_DIR="$(pwd)"
 COMPOSE="docker compose -f docker-compose.prod.yml"
 
-# Carrega variáveis do .env
-set -a
-# shellcheck disable=SC1091
-source ./.env
-set +a
+# Carrega variáveis do .env de forma robusta — sem `source`, para tolerar valores com
+# espaços (ex.: REPASSES_FOLDER_ROOT=Gestão de Repasses), com `=` (secrets/base64) ou aspas.
+load_env() {
+  local file="${1:-./.env}"
+  [ -f "$file" ] || return 0
+  local key val
+  while IFS='=' read -r key val || [ -n "$key" ]; do
+    key="${key%%[[:space:]]}"; key="${key##[[:space:]]}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue   # ignora comentários/linhas inválidas
+    val="${val%$'\r'}"                                      # remove CR de arquivos salvos no Windows
+    if [[ "$val" == \"*\" ]]; then val="${val#\"}"; val="${val%\"}";
+    elif [[ "$val" == \'*\' ]]; then val="${val#\'}"; val="${val%\'}"; fi
+    export "$key=$val"
+  done < "$file"
+}
+load_env ./.env
 
 : "${SPACES_KEY:?Defina SPACES_KEY no .env}"
 : "${SPACES_SECRET:?Defina SPACES_SECRET no .env}"
