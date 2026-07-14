@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # File storage
     UPLOAD_DIR: str = "/app/uploads"
 
+    # URL pública do sistema (usada p/ montar links absolutos, ex.: logomarca no e-mail)
+    SITE_URL: Optional[str] = None
+
     # App
     APP_NAME: str = "Gestão de Haveres de Bets"
     ENVIRONMENT: str = "development"

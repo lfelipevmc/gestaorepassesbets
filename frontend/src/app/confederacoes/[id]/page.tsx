@@ -13,7 +13,8 @@ import {
 } from "@/lib/api";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { getUser } from "@/lib/auth";
-import { getConfOperatorsOverview, saveConfOperatorInfo, registerEndrReport } from "@/lib/api";
+import { getConfOperatorsOverview, saveConfOperatorInfo, registerEndrReport, getPhase1, getEndrMonthly } from "@/lib/api";
+import DirectPaymentModal from "@/components/finance/DirectPaymentModal";
 import { toast } from "@/components/ui/Toast";
 import HelpTip from "@/components/ui/HelpTip";
 
@@ -44,7 +45,7 @@ type Payment = {
   report_reference_month?: string; report_notes?: string; report_file_url?: string;
 };
 type ENDRPay = {
-  id: number; confederation_id: number; reference_month: string;
+  id: number; confederation_id: number; reference_month: string; reference_month_end?: string;
   amount_received: string; received_date: string; notes?: string;
   report_file_url?: string; bet_links: { id: number; operator_id: number }[];
 };
@@ -94,6 +95,12 @@ export default function ConfederationDetailPage() {
   const [filterMonth, setFilterMonth] = useState(toFirstOfMonth(today));
   const [monthPayments, setMonthPayments] = useState<Payment[]>([]);
   const [loadingMonth, setLoadingMonth] = useState(false);
+  // Receitas por Mês — fonte única (phase1: ciclos + avulsos + ENDR), dois regimes
+  const [regime, setRegime] = useState<"competencia" | "caixa">("competencia");
+  const [receitas, setReceitas] = useState<any[]>([]);
+  const [receitasTotal, setReceitasTotal] = useState(0);
+  const [showRepasse, setShowRepasse] = useState(false);
+  const [assocStartIds, setAssocStartIds] = useState<Set<number>>(new Set());
 
   const [showEndrForm, setShowEndrForm] = useState(false);
   const [endrForm, setEndrForm] = useState({ reference_month: "", amount_received: "", received_date: "", notes: "", operator_ids: [] as number[] });
@@ -141,10 +148,10 @@ export default function ConfederationDetailPage() {
 
   useEffect(() => {
     setLoadingMonth(true);
-    getPayments({ confederation_id: numId, month: filterMonth, limit: 300 })
-      .then(r => setMonthPayments(r.data))
+    getPhase1({ confederation_id: numId, month: filterMonth, regime })
+      .then(r => { setReceitas(r.data.items || []); setReceitasTotal(r.data.total || 0); })
       .finally(() => setLoadingMonth(false));
-  }, [numId, filterMonth]);
+  }, [numId, filterMonth, regime]);
 
   function flash(m: string) { setMsg(m); setTimeout(() => setMsg(""), 4000); }
 
@@ -163,13 +170,23 @@ export default function ConfederationDetailPage() {
     catch { flash("Erro ao enviar logomarca."); }
   }
 
+  // Item 8: quem já constava como associada ao ENDR na competência inicial do relatório
+  useEffect(() => {
+    const m = endrReportModal?.reference_month;
+    if (!m) { setAssocStartIds(new Set()); return; }
+    getEndrMonthly(m + "-01")
+      .then(r => setAssocStartIds(new Set<number>((r.data || []).map((a: any) => a.operator_id))))
+      .catch(() => setAssocStartIds(new Set()));
+  }, [endrReportModal?.reference_month]);
+
   async function saveEndrReport() {
     const m = endrReportModal;
     if (!m?.reference_month) { toast.warn("Informe a competência do relatório."); return; }
     if (!m.operator_ids?.length) { toast.warn("Selecione os operadores cobertos pelo relatório."); return; }
     try {
-      await registerEndrReport(m.payment.id, {
+      const resp = await registerEndrReport(m.payment.id, {
         reference_month: m.reference_month + "-01",
+        reference_month_end: m.reference_month_end ? m.reference_month_end + "-01" : null,
         operator_ids: m.operator_ids,
         create_associations: m.create_associations,
         notes: m.notes || null,
@@ -177,8 +194,13 @@ export default function ConfederationDetailPage() {
       setEndrReportModal(null);
       const r = await getEndrPayments({ confederation_id: numId });
       setEndrPayments(r.data);
+      const nao = resp.data?.not_previously_associated || [];
+      if (nao.length > 0) {
+        const nomes = nao.map((oid: number) => { const o = operators.find(x => x.id === oid); return o?.fantasy_name || o?.company_name || `#${oid}`; });
+        toast.warn(`⚠ Inconsistência registrada: ${nao.length} bet(s) do relatório NÃO constavam como associadas ao ENDR no período — ${nomes.slice(0, 4).join(", ")}${nomes.length > 4 ? "…" : ""}. Verifique.`);
+      }
       flash(m.create_associations
-        ? "Relatório registrado. Associações ENDR do mês criadas para os operadores informados."
+        ? "Relatório registrado. Associações ENDR do período criadas para os operadores informados."
         : "Relatório registrado.");
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Erro ao registrar o relatório ENDR");
@@ -556,64 +578,86 @@ export default function ConfederationDetailPage() {
         </div>
       )}
 
-      {/* TAB 2: RECEITAS POR MÊS */}
+      {/* TAB 2: RECEITAS POR MÊS — fonte única (ciclos + avulsos + ENDR) */}
       {tab === 3 && (
         <div className="space-y-4">
-          <div className="flex items-center gap-4">
-            <label className="text-sm text-muted">Mês de referência:</label>
-            <input type="month" value={filterMonth.slice(0, 7)}
-              onChange={e => setFilterMonth(e.target.value + "-01")}
-              className="bg-surface-border border border-surface-border rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary" />
-            <span className="text-sm text-muted capitalize">{displayMonth}</span>
+          <div className="flex items-center gap-3 flex-wrap justify-between">
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="text-sm text-muted">Mês:</label>
+              <input type="month" value={filterMonth.slice(0, 7)}
+                onChange={e => setFilterMonth(e.target.value + "-01")}
+                className="bg-surface-border border border-surface-border rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-primary" />
+              <div className="flex rounded-lg border border-surface-border overflow-hidden">
+                {(["competencia", "caixa"] as const).map(rg => (
+                  <button key={rg} onClick={() => setRegime(rg)}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${regime === rg ? "bg-primary text-white" : "text-muted hover:text-slate-200"}`}
+                    title={rg === "competencia" ? "Mês a que o pagamento se refere" : "Mês em que o valor foi recebido"}>
+                    {rg === "competencia" ? "Competência" : "Caixa"}
+                  </button>
+                ))}
+              </div>
+              <span className="text-sm text-muted capitalize">{displayMonth}</span>
+            </div>
+            <button onClick={() => setShowRepasse(true)} className="btn-primary">+ Registrar Repasse de Agente Operador</button>
           </div>
-          <div className="grid grid-cols-4 gap-4">
-            <div className="card text-center"><p className="text-3xl font-bold text-success mb-1">{monthPaid}</p><p className="text-xs text-muted">Adimplentes</p></div>
-            <div className="card text-center"><p className="text-3xl font-bold text-warning mb-1">{monthRptPend}</p><p className="text-xs text-muted">Pend. Relatório</p></div>
-            <div className="card text-center"><p className="text-3xl font-bold text-danger mb-1">{monthOverdue}</p><p className="text-xs text-muted">Inadimplentes</p></div>
-            <div className="card text-center"><p className="text-xl font-bold text-success mb-1">{formatCurrency(monthTotal)}</p><p className="text-xs text-muted">Recebido no Mês</p></div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div className="card text-center"><p className="text-xl font-bold text-success mb-1">{formatCurrency(receitasTotal)}</p><p className="text-xs text-muted">Recebido no mês ({regime === "competencia" ? "competência" : "caixa"})</p></div>
+            <div className="card text-center"><p className="text-3xl font-bold text-white mb-1">{receitas.length}</p><p className="text-xs text-muted">Lançamentos</p></div>
+            <div className="card text-center"><p className="text-3xl font-bold text-blue-300 mb-1">{receitas.filter((r: any) => r.source === "endr").length}</p><p className="text-xs text-muted">Repasses ENDR incluídos</p></div>
           </div>
+
           {loadingMonth ? <p className="text-muted text-sm">Carregando...</p> : (
             <div className="card p-0 overflow-hidden">
               <div className="table-wrap"><table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-surface-border bg-surface">
+                    <th className="table-th">Origem</th>
                     <th className="table-th">Operador</th>
-                    <th className="table-th">Valor Recebido</th>
-                    <th className="table-th">Valor Devido (operador)</th>
-                    <th className="table-th">Status</th>
-                    <th className="table-th">Relatório</th>
-                    <th className="table-th">Mês Competência</th>
-                    <th className="table-th"></th>
+                    <th className="table-th">Competência</th>
+                    <th className="table-th">Recebido em</th>
+                    <th className="table-th text-right">Valor</th>
+                    <th className="table-th text-center">Relatório</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {monthPayments.length === 0 && <tr><td colSpan={7} className="table-td text-center text-muted py-8">Nenhum pagamento no mês selecionado.</td></tr>}
-                  {monthPayments.map(p => {
-                    const op = opMap[p.operator_id];
-                    return (
-                      <tr key={p.id} className="border-b border-surface-border/50 hover:bg-surface-border/30">
-                        <td className="table-td text-white">{op?.fantasy_name || op?.company_name || ("#" + p.operator_id)}</td>
-                        <td className="table-td">{formatCurrency(parseFloat(p.amount_paid || "0"))}</td>
-                        <td className="table-td">{p.amount_due ? formatCurrency(parseFloat(p.amount_due)) : "—"}</td>
-                        <td className="table-td"><StatusBadge status={p.status} /></td>
-                        <td className="table-td">{p.report_received ? <span className="text-xs text-success">✓ Recebido</span> : <span className="text-xs text-warning">Pendente</span>}</td>
-                        <td className="table-td text-muted text-xs">{p.report_reference_month ? new Date(p.report_reference_month + "T12:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" }) : "—"}</td>
-                        <td className="table-td text-right flex gap-1 justify-end">
-                          {!p.report_received && p.amount_paid && (
-                            <button onClick={() => { setReportModal({ payId: p.id }); setReportForm({ report_reference_month: "", report_notes: "" }); }}
-                              className="px-2 py-1 text-xs bg-primary/15 text-primary border border-primary/30 rounded hover:bg-primary/25 transition-colors">Registrar Relat.</button>
-                          )}
-                          {p.report_file_url && (
-                            <a href={API_URL + p.report_file_url} target="_blank" rel="noreferrer" className="px-2 py-1 text-xs text-muted border border-surface-border rounded hover:bg-surface-border transition-colors">Ver arquivo</a>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {receitas.length === 0 && <tr><td colSpan={6} className="table-td text-center text-muted py-8">Nenhum recebimento no mês selecionado ({regime === "competencia" ? "por competência" : "por caixa"}).</td></tr>}
+                  {receitas.map((r: any) => (
+                    <tr key={r.source + r.id} className="border-b border-surface-border/50 hover:bg-surface-border/30">
+                      <td className="table-td">
+                        <span className={`pill !py-0.5 text-[10px] ${r.source === "endr" ? "text-blue-300 bg-blue-500/10 border-blue-500/30" : r.source === "direct" ? "text-success bg-success/10 border-success/30" : "text-slate-300 bg-slate-500/10 border-slate-500/30"}`}>
+                          {r.source === "endr" ? "ENDR" : r.source === "direct" ? "Repasse" : "Ciclo (legado)"}
+                        </span>
+                      </td>
+                      <td className="table-td text-white">{r.operator_label}</td>
+                      <td className="table-td text-xs text-muted num">
+                        {r.reference_month
+                          ? <>{new Date(r.reference_month + "T12:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" })}
+                              {r.reference_month_end ? <> – {new Date(r.reference_month_end + "T12:00:00").toLocaleDateString("pt-BR", { month: "short", year: "numeric" })}</> : null}</>
+                          : <span className="text-warning">a definir</span>}
+                      </td>
+                      <td className="table-td text-xs text-muted num">{r.received_date ? new Date(r.received_date + "T12:00:00").toLocaleDateString("pt-BR") : "—"}</td>
+                      <td className="table-td text-right text-success font-medium num">{formatCurrency(r.amount || 0)}</td>
+                      <td className="table-td text-center">
+                        {r.report_url
+                          ? <a href={API_URL + r.report_url} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline">Ver</a>
+                          : <span className="text-xs text-muted/60">—</span>}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table></div>
             </div>
           )}
+
+          <DirectPaymentModal
+            open={showRepasse}
+            onClose={() => setShowRepasse(false)}
+            onSaved={() => { getPhase1({ confederation_id: numId, month: filterMonth, regime }).then(r => { setReceitas(r.data.items || []); setReceitasTotal(r.data.total || 0); }); }}
+            operators={operators}
+            confederations={[]}
+            fixedConfederationId={numId}
+          />
         </div>
       )}
 
@@ -685,7 +729,7 @@ export default function ConfederationDetailPage() {
                   <p className="text-xs text-muted mt-0.5">Recebido em {formatDate(ep.received_date)} · {ep.bet_links.length ? ep.bet_links.length + " bet(s)" : "operadores a definir"}</p>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => setEndrReportModal({ payment: ep, reference_month: (ep.reference_month || "").slice(0, 7), operator_ids: ep.bet_links.map(b => b.operator_id), create_associations: true, notes: "" })}
+                  <button onClick={() => setEndrReportModal({ payment: ep, reference_month: (ep.reference_month || "").slice(0, 7), reference_month_end: (ep.reference_month_end || "").slice(0, 7), operator_ids: ep.bet_links.map(b => b.operator_id), create_associations: true, notes: "", search: "" })}
                     className="px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors">
                     {ep.reference_month && ep.bet_links.length ? "Editar relatório" : "Registrar relatório"}
                   </button>
@@ -853,24 +897,49 @@ export default function ConfederationDetailPage() {
           <div className="bg-surface-card border border-surface-border rounded-xl p-6 w-full max-w-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <h3 className="font-semibold text-white">Relatório do Repasse ENDR — {formatCurrency(parseFloat(endrReportModal.payment.amount_received))}</h3>
             <p className="text-xs text-muted">O relatório do ENDR informa a competência e a lista de operadores cobertos (sem individualizar valores). Registre-o aqui quando chegar.</p>
-            <div>
-              <label className="block text-xs text-muted mb-1">Competência (do relatório) *</label>
-              <input type="month" className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary max-w-[200px]"
-                value={endrReportModal.reference_month}
-                onChange={e => setEndrReportModal((m: any) => ({ ...m, reference_month: e.target.value }))} />
+            <div className="flex flex-wrap gap-4">
+              <div>
+                <label className="block text-xs text-muted mb-1">Competência inicial (do relatório) *</label>
+                <input type="month" className="bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary w-[180px]"
+                  value={endrReportModal.reference_month}
+                  onChange={e => setEndrReportModal((m: any) => ({ ...m, reference_month: e.target.value }))} />
+              </div>
+              <div>
+                <label className="block text-xs text-muted mb-1">Competência final <span className="normal-case">(opcional — para períodos, ex.: jan a mar)</span></label>
+                <input type="month" className="bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary w-[180px]"
+                  value={endrReportModal.reference_month_end || ""}
+                  onChange={e => setEndrReportModal((m: any) => ({ ...m, reference_month_end: e.target.value }))} />
+              </div>
             </div>
             <div>
               <label className="block text-xs text-muted mb-1">Operadores cobertos pelo repasse *</label>
+              <input type="text" placeholder="Pesquisar agente operador…"
+                className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary mb-2"
+                value={endrReportModal.search || ""}
+                onChange={e => setEndrReportModal((m: any) => ({ ...m, search: e.target.value }))} />
               <div className="grid grid-cols-3 gap-1.5 max-h-56 overflow-y-auto p-2 bg-surface-border rounded-lg">
-                {operators.filter(o => o.status === "active").map(op => (
-                  <label key={op.id} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={endrReportModal.operator_ids.includes(op.id)}
-                      onChange={e => setEndrReportModal((m: any) => ({ ...m, operator_ids: e.target.checked ? [...m.operator_ids, op.id] : m.operator_ids.filter((x: number) => x !== op.id) }))} />
-                    <span className="text-xs text-slate-300 truncate">{op.fantasy_name || op.company_name}</span>
-                  </label>
-                ))}
+                {operators.filter(o => o.status === "active")
+                  .filter(o => { const q = (endrReportModal.search || "").trim().toLowerCase(); return !q || (o.fantasy_name || "").toLowerCase().includes(q) || (o.company_name || "").toLowerCase().includes(q); })
+                  .map(op => {
+                    const selected = endrReportModal.operator_ids.includes(op.id);
+                    const semAssoc = selected && !assocStartIds.has(op.id);
+                    return (
+                      <label key={op.id} className="flex items-center gap-2 cursor-pointer min-w-0">
+                        <input type="checkbox" checked={selected}
+                          onChange={e => setEndrReportModal((m: any) => ({ ...m, operator_ids: e.target.checked ? [...m.operator_ids, op.id] : m.operator_ids.filter((x: number) => x !== op.id) }))} />
+                        <span className={`text-xs truncate ${semAssoc ? "text-warning" : "text-slate-300"}`}>{op.fantasy_name || op.company_name}</span>
+                        {semAssoc && <span className="flex-shrink-0 px-1 py-px text-[10px] bg-warning/15 text-warning rounded" title="Não constava como associada ao ENDR nesta competência">não associada</span>}
+                      </label>
+                    );
+                  })}
               </div>
               <p className="text-xs text-muted mt-1">{endrReportModal.operator_ids.length} operador(es) selecionado(s)</p>
+              {(() => {
+                const semAssoc = endrReportModal.operator_ids.filter((oid: number) => !assocStartIds.has(oid));
+                return semAssoc.length > 0 ? (
+                  <p className="text-xs text-warning mt-1">⚠ {semAssoc.length} operador(es) selecionado(s) não constavam como associados ao ENDR nesta competência. O registro é permitido, mas a inconsistência ficará destacada para verificação.</p>
+                ) : null;
+              })()}
             </div>
             <label className="flex items-start gap-2 text-sm text-slate-300 cursor-pointer">
               <input type="checkbox" className="mt-0.5" checked={endrReportModal.create_associations}

@@ -98,6 +98,7 @@ class OperatorBrand(Base):
     other_social = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    logo_url = Column(String, nullable=True)   # logomarca é POR MARCA (não por CNPJ)
 
     operator = relationship("BettingOperator", back_populates="brands")
 
@@ -130,6 +131,7 @@ class ENDREntity(Base):
     address = Column(String(500), nullable=True)
     notes = Column(Text, nullable=True)
     updated_at = Column(DateTime, onupdate=func.now())
+    logo_url = Column(String, nullable=True)
 
 
 class EndrAssociation(Base):

@@ -206,6 +206,17 @@ def tasks_board(db: Session = Depends(get_db), current_user: User = Depends(get_
             items.append(item(f"cyc2:{cy.id}", f"2ª notificação — {conf.acronym} ({ref})",
                               f"{inad} ainda inadimplente(s) após 1º envio. Dia programado: {d2}.", f"/cobrancas/{cy.id}",
                               1 if today.day >= d2 else 2, f"dia {d2}"))
+
+        # Prazos derivados do próprio ciclo (criados automaticamente na abertura — SSOT:
+        # calculados do ciclo + configuração da confederação, sem duplicar dados)
+        d_spa = min(d2 + 4, 28)
+        if inad > 0:
+            items.append(item(f"spa:{cy.id}", f"Ofício à SPA — {conf.acronym} ({ref})",
+                              f"Após a 2ª notificação, comunicar os {inad} inadimplente(s) ao regulador (Gerar Ofício SPA no ciclo).",
+                              f"/cobrancas/{cy.id}", 1 if today.day >= d_spa else 3, f"dia {d_spa}"))
+        items.append(item(f"ativid:{cy.id}", f"Relatório de Atividades — {conf.acronym} ({ref})",
+                          "Gerar o PDF de diligências do mês e arquivar/enviar ao cliente.",
+                          f"/cobrancas/{cy.id}", 1 if today.day >= 26 else 3, "fim do mês"))
     cats.append({"id": "cronograma", "label": "Cronograma dos ciclos", "icon": "📅", "items": items})
 
     # 2) Respostas aguardando análise

@@ -8,6 +8,7 @@ import {
   getEndrMonthly, getEndrAvailableOperators,
   addEndrMonthly, removeEndrMonthly,
   getEndrAcompanhamento, uploadEndrDocument, deleteEndrDocument,
+  uploadEndrLogo,
 } from "@/lib/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -28,7 +29,7 @@ function fmtMonth(ym?: string | null) {
 
 type ENDREntity = {
   id: number; name: string; cnpj?: string; website?: string;
-  phone?: string; email?: string; address?: string; notes?: string;
+  phone?: string; email?: string; address?: string; notes?: string; logo_url?: string;
 };
 type AssocRow = {
   assoc_id: number; operator_id: number; company_name: string;
@@ -96,6 +97,18 @@ export default function EndrPage() {
       setAssocs(ra.data);
       setAvailable(rv.data);
     } catch { /* ignore */ }
+  }
+
+  async function handleEntityLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fd = new FormData(); fd.append("file", file);
+    try {
+      const r = await uploadEndrLogo(fd);
+      setEntity(en => en ? { ...en, logo_url: r.data.logo_url } : en);
+      toast.success("Logomarca do ENDR atualizada — disponível para os PDFs.");
+    } catch (err: any) { toast.error(err.response?.data?.detail || "Erro ao enviar a logomarca."); }
+    e.target.value = "";
   }
 
   async function saveEntity() {
@@ -173,7 +186,18 @@ export default function EndrPage() {
       {/* Cadastro ENDR */}
       <div className="bg-surface-card border border-surface-border rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-white">Dados Cadastrais</h2>
+          <div className="flex items-center gap-3">
+            {entity?.logo_url
+              ? <img src={API_BASE + entity.logo_url} alt="Logo ENDR" className="h-12 w-12 object-contain rounded-lg border border-surface-border bg-surface" />
+              : <div className="h-12 w-12 rounded-lg border border-dashed border-surface-border flex items-center justify-center text-[10px] text-muted">sem logo</div>}
+            <div>
+              <h2 className="text-lg font-semibold text-white">Dados Cadastrais</h2>
+              <label className="text-xs text-primary hover:underline cursor-pointer">
+                {entity?.logo_url ? "Trocar logomarca" : "Enviar logomarca"}
+                <input type="file" accept="image/*" className="hidden" onChange={handleEntityLogoUpload} />
+              </label>
+            </div>
+          </div>
           {!editEntity ? (
             <button onClick={() => setEditEntity(true)} className="px-4 py-1.5 text-sm bg-primary/15 text-primary border border-primary/30 rounded-lg hover:bg-primary/25 transition-colors">
               Editar
@@ -311,7 +335,9 @@ export default function EndrPage() {
                         <td className="py-2 px-3 text-white font-medium">{p.acronym}</td>
                         <td className="py-2 px-3 text-slate-300">{new Date(p.received_date + "T12:00:00").toLocaleDateString("pt-BR")}</td>
                         <td className="py-2 px-3 text-slate-200">{fmtBRL(p.amount_received)}</td>
-                        <td className="py-2 px-3 capitalize">{p.reference_month ? fmtMonth(p.reference_month) : <span className="text-warning text-xs">a definir</span>}</td>
+                        <td className="py-2 px-3 capitalize">{p.reference_month
+                          ? <>{fmtMonth(p.reference_month)}{p.reference_month_end ? <> – {fmtMonth(p.reference_month_end)}</> : null}</>
+                          : <span className="text-warning text-xs">a definir</span>}</td>
                         <td className="py-2 px-3 text-slate-400 text-xs">{p.operators.length > 0 ? `${p.operators.length} bet(s)` : "—"}</td>
                         <td className="py-2 px-3">{p.report_file_url ? <a href={API_BASE + p.report_file_url} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline">Ver</a> : <span className="text-muted text-xs">—</span>}</td>
                       </tr>

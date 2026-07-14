@@ -76,6 +76,7 @@ class ENDRPaymentOut(BaseModel):
     id: int
     confederation_id: int
     reference_month: Optional[date] = None
+    reference_month_end: Optional[date] = None
     amount_received: Decimal
     received_date: date
     notes: Optional[str]

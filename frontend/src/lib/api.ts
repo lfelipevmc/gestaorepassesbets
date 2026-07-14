@@ -145,8 +145,10 @@ export const getComplianceReport = (cycleId: number) => api.get(`/api/reports/co
 export const downloadExcelReport = (cycleId: number) =>
   api.get(`/api/reports/compliance/${cycleId}/excel`, { responseType: "blob" });
 export const getCrossReport = (params?: any) => api.get("/api/reports/cross", { params });
-export const getConfMonthlyReport = (confederation_id: number, month: string) =>
-  api.get("/api/reports/by-confederation", { params: { confederation_id, month } });
+export const getConfMonthlyReport = (confederation_id: number, month: string, regime: string = "competencia") =>
+  api.get("/api/reports/by-confederation", { params: { confederation_id, month, regime } });
+export const getOperatorStatement = (operator_id: number, regime: string = "competencia") =>
+  api.get("/api/reports/by-operator", { params: { operator_id, regime } });
 export const uploadBetReport = (operatorId: number, confederationId: number, form: FormData) =>
   api.post(`/api/reports/bet-report/${operatorId}/${confederationId}`, form, { headers: { "Content-Type": "multipart/form-data" } });
 export const getEmailHistory = (operatorId: number) => api.get(`/api/documents/email-history/${operatorId}`);
@@ -247,12 +249,16 @@ export const linkEmailOperator = (emailId: number, data: { operator_id: number; 
   api.post(`/api/finance/emails/${emailId}/link`, data);
 
 // ---- Relatório de evidências ISO 9001 ----
-export const downloadEvidencePdf = (params: { month: string; confederation_id?: number }) =>
+export const downloadEvidencePdf = (params: any) =>
   api.get("/api/reports/evidence/pdf", { params, responseType: "blob" });
 
 // ---- Escritório ----
 export const getOffice = () => api.get("/api/office/");
 export const getMailbox = () => api.get("/api/office/mailbox");
+export const uploadBrandLogo = (operatorId: number, brandId: number, form: FormData) =>
+  api.post(`/api/operators/${operatorId}/brands/${brandId}/upload-logo`, form, { headers: { "Content-Type": "multipart/form-data" } });
+export const uploadEndrLogo = (form: FormData) =>
+  api.post("/api/endr/entity/upload-logo", form, { headers: { "Content-Type": "multipart/form-data" } });
 export const updateOffice = (data: any) => api.patch("/api/office/", data);
 export const uploadOfficeLogo = (formData: FormData) =>
   api.post("/api/office/upload-logo", formData, { headers: { "Content-Type": "multipart/form-data" } });

@@ -6,8 +6,10 @@ import Badge from "@/components/ui/Badge";
 import {
   getConfederations, getCollections, getOperators, getComplianceReport, downloadExcelReport,
   getCrossReport, downloadCrossExcel, downloadCrossPdf, downloadEvidencePdf, downloadCycleActivityPdf,
-  sendMonthlyToOffice, getConfMonthlyReport, uploadBetReport,
+  sendMonthlyToOffice, getConfMonthlyReport, uploadBetReport, getOperatorStatement,
 } from "@/lib/api";
+import PdfLogoModal from "@/components/reports/PdfLogoModal";
+import { formatDate } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -32,7 +34,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function RelatoriosPage() {
-  const [tab, setTab] = useState<"porconf" | "consolidado" | "ciclo" | "evidencias">("porconf");
+  const [tab, setTab] = useState<"porconf" | "poroperador" | "consolidado" | "ciclo" | "evidencias">("porconf");
   const [confederations, setConfederations] = useState<any[]>([]);
   const [cycles, setCycles] = useState<any[]>([]);
   const [operators, setOperators] = useState<any[]>([]);
@@ -50,14 +52,16 @@ export default function RelatoriosPage() {
 
       <div className="flex gap-2 mb-6 flex-wrap items-center">
         <button onClick={() => setTab("porconf")} className={tab === "porconf" ? "btn-primary" : "btn-secondary"}>Por Confederação</button>
+        <button onClick={() => setTab("poroperador")} className={tab === "poroperador" ? "btn-primary" : "btn-secondary"}>Por Operador</button>
         <button onClick={() => setTab("consolidado")} className={tab === "consolidado" ? "btn-primary" : "btn-secondary"}>Consolidado / Cruzado</button>
         <button onClick={() => setTab("ciclo")} className={tab === "ciclo" ? "btn-primary" : "btn-secondary"}>Por Ciclo</button>
         <button onClick={() => setTab("evidencias")} className={tab === "evidencias" ? "btn-primary" : "btn-secondary"}>Evidências (ISO 9001)</button>
         <span className="ml-auto">
           <HelpTip
-            title={{ porconf: "Por Confederação", consolidado: "Consolidado / Cruzado", ciclo: "Por Ciclo", evidencias: "Evidências (ISO 9001)" }[tab]}
+            title={{ porconf: "Por Confederação", poroperador: "Por Operador", consolidado: "Consolidado / Cruzado", ciclo: "Por Ciclo", evidencias: "Evidências (ISO 9001)" }[tab]}
             text={{
               porconf: "Visão mensal separada por confederação: cada Bet aparece uma única vez, com a conclusão efetiva, o recebido no mês e o relatório enviado pela Bet. Use ⬆ Anexar em cada linha para guardar o relatório daquela confederação/competência.",
+              poroperador: "Extrato individual do agente operador: todo o histórico de pagamentos (avulsos, ciclos e via ENDR), competências, documentos anexados e comunicações — alternando entre regime de competência e de caixa.",
               consolidado: "Relatório cruzado com filtros combináveis (confederação, mês, Bet, situação) e agregados por confederação e por mês. Exporte em Excel ou PDF para envio externo.",
               ciclo: "Fotografia de um ciclo específico: adimplentes, inadimplentes e pendentes de relatório, com o Relatório de Atividades (PDF) que evidencia as diligências do escritório no mês.",
               evidencias: "Dossiê mensal para auditoria ISO 9001/LGPD: notificações, respostas, valores e repartições da competência. Gere o PDF ou envie ao e-mail do escritório para revisão antes de encaminhar à confederação.",
@@ -67,6 +71,7 @@ export default function RelatoriosPage() {
       </div>
 
       {tab === "porconf" && <PorConfederacao confederations={confederations} />}
+      {tab === "poroperador" && <PorOperador operators={operators} />}
       {tab === "consolidado" && <Consolidado confederations={confederations} operators={operators} cycles={cycles} />}
       {tab === "ciclo" && <PorCiclo confederations={confederations} cycles={cycles} />}
       {tab === "evidencias" && <Evidencias confederations={confederations} />}
@@ -75,18 +80,32 @@ export default function RelatoriosPage() {
 }
 
 /* ------------------------- Por Confederação (item 13) ------------------------- */
+function RegimeToggle({ regime, onChange }: { regime: "competencia" | "caixa"; onChange: (r: "competencia" | "caixa") => void }) {
+  return (
+    <div className="flex rounded-lg border border-surface-border overflow-hidden" title="Competência: mês a que o repasse se refere. Caixa: mês em que o valor efetivamente entrou.">
+      {(["competencia", "caixa"] as const).map(rg => (
+        <button key={rg} type="button" onClick={() => onChange(rg)}
+          className={`px-3 py-1.5 text-xs transition-colors ${regime === rg ? "bg-primary text-white" : "bg-surface text-muted hover:text-white"}`}>
+          {rg === "competencia" ? "Competência" : "Caixa"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function PorConfederacao({ confederations }: { confederations: any[] }) {
   const [confId, setConfId] = useState("");
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [regime, setRegime] = useState<"competencia" | "caixa">("competencia");
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [uploadingId, setUploadingId] = useState<number | null>(null);
 
-  async function generate(cid = confId, m = month) {
+  async function generate(cid = confId, m = month, rg = regime) {
     if (!cid || !m) return;
     setLoading(true);
     try {
-      const r = await getConfMonthlyReport(parseInt(cid), `${m}-01`);
+      const r = await getConfMonthlyReport(parseInt(cid), `${m}-01`, rg);
       setReport(r.data);
     } catch (e: any) { toast.error(e.response?.data?.detail || "Erro ao gerar relatório"); }
     finally { setLoading(false); }
@@ -126,6 +145,10 @@ function PorConfederacao({ confederations }: { confederations: any[] }) {
             <label className="label">Competência *</label>
             <input type="month" className="input" value={month} onChange={e => setMonth(e.target.value)} />
           </div>
+          <div>
+            <label className="label">Regime</label>
+            <RegimeToggle regime={regime} onChange={rg => { setRegime(rg); generate(confId, month, rg); }} />
+          </div>
           <button onClick={() => generate()} disabled={!confId || loading} className="btn-primary">{loading ? "Gerando..." : "Gerar"}</button>
         </div>
       </div>
@@ -140,7 +163,7 @@ function PorConfederacao({ confederations }: { confederations: any[] }) {
             <Stat value={report.reports_received} label="Relatórios anexados" color="text-warning" />
             <div className="card text-center">
               <p className="text-2xl font-bold text-success">{formatCurrency(report.total_received)}</p>
-              <p className="text-xs text-muted">Recebido no mês</p>
+              <p className="text-xs text-muted">{regime === "caixa" ? "Recebido no mês (caixa)" : "Recebido na competência"}</p>
             </div>
           </div>
 
@@ -155,7 +178,7 @@ function PorConfederacao({ confederations }: { confederations: any[] }) {
                     <th className="table-th">Razão Social</th>
                     <th className="table-th">CNPJ</th>
                     <th className="table-th">Conclusão</th>
-                    <th className="table-th">Recebido no mês</th>
+                    <th className="table-th">{regime === "caixa" ? "Recebido no mês (caixa)" : "Recebido na competência"}</th>
                     <th className="table-th">Último pagamento</th>
                     <th className="table-th">Relatório da Bet</th>
                   </tr>
@@ -190,6 +213,140 @@ function PorConfederacao({ confederations }: { confederations: any[] }) {
         </>
       )}
     </>
+  );
+}
+
+/* ------------------------- Por Operador (extrato individual) ------------------------- */
+function PorOperador({ operators }: { operators: any[] }) {
+  const [search, setSearch] = useState("");
+  const [opId, setOpId] = useState("");
+  const [regime, setRegime] = useState<"competencia" | "caixa">("competencia");
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  const filtered = operators.filter(o => {
+    if (!search) return true;
+    const t = search.toLowerCase();
+    return (o.fantasy_name || "").toLowerCase().includes(t) || (o.company_name || "").toLowerCase().includes(t) || (o.cnpj || "").includes(t);
+  });
+
+  async function generate(oid = opId, rg = regime) {
+    if (!oid) return;
+    setLoading(true);
+    try {
+      const r = await getOperatorStatement(Number(oid), rg);
+      setData(r.data);
+    } catch (e: any) { toast.error(e.response?.data?.detail || "Erro ao gerar extrato"); }
+    finally { setLoading(false); }
+  }
+
+  const compRange = (r: any) => {
+    if (!r.reference_month) return "—";
+    const lbl = (d: string) => { const [y, m] = d.slice(0, 7).split("-"); return `${m}/${y}`; };
+    return r.reference_month_end ? `${lbl(r.reference_month)} – ${lbl(r.reference_month_end)}` : lbl(r.reference_month);
+  };
+
+  const SRC: Record<string, { label: string; cls: string }> = {
+    direct: { label: "Repasse", cls: "bg-primary/15 text-primary" },
+    legacy: { label: "Ciclo", cls: "bg-surface text-slate-300" },
+    endr: { label: "ENDR", cls: "bg-violet-500/15 text-violet-300" },
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="card">
+        <p className="text-xs text-muted mb-3">Extrato individual do agente operador: todos os pagamentos (avulsos, ciclos e via ENDR), competências, documentos e comunicações — a partir da base central única.</p>
+        <div className="flex gap-3 items-end flex-wrap">
+          <div>
+            <label className="label">Pesquisar</label>
+            <input className="input w-56" placeholder="Nome ou CNPJ..." value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Agente Operador *</label>
+            <select className="input min-w-[220px]" value={opId} onChange={e => { setOpId(e.target.value); if (e.target.value) generate(e.target.value); }}>
+              <option value="">Selecione...</option>
+              {filtered.map(o => <option key={o.id} value={o.id}>{o.fantasy_name || o.company_name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Regime</label>
+            <RegimeToggle regime={regime} onChange={rg => { setRegime(rg); generate(opId, rg); }} />
+          </div>
+          <button onClick={() => generate()} disabled={!opId || loading} className="btn-primary">{loading ? "Gerando..." : "Gerar Extrato"}</button>
+        </div>
+      </div>
+
+      {data && (
+        <>
+          <div className="card">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <h3 className="font-semibold text-white">{data.operator.label}</h3>
+                <p className="text-xs text-muted">{data.operator.company_name}{data.operator.cnpj ? ` · CNPJ ${data.operator.cnpj}` : ""}</p>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {Object.entries(data.totals_by_confederation || {}).map(([acr, v]: any) => (
+                  <span key={acr} className="px-2.5 py-1 text-xs rounded-full bg-surface border border-surface-border text-slate-200">{acr}: <b className="text-success">{formatCurrency(v)}</b></span>
+                ))}
+                <span className="px-2.5 py-1 text-xs rounded-full bg-success/10 border border-success/30 text-success">Total individualizado: <b>{formatCurrency(data.total_individualizado)}</b></span>
+                {data.endr_count > 0 && <span className="px-2.5 py-1 text-xs rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-300">{data.endr_count} repasse(s) via ENDR</span>}
+              </div>
+            </div>
+            <p className="text-xs text-muted mt-2">Comunicações: {data.emails?.sent || 0} enviadas · {data.emails?.received || 0} recebidas.</p>
+          </div>
+
+          <div className="card p-0 overflow-hidden">
+            <div className="p-4 border-b border-surface-border">
+              <h3 className="font-semibold text-white text-sm">Histórico de pagamentos ({data.rows.length}) — regime de {regime === "caixa" ? "caixa" : "competência"}</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-surface"><tr>
+                  <th className="table-th">Fonte</th><th className="table-th">Confederação</th><th className="table-th">Competência</th>
+                  <th className="table-th">Recebido em</th><th className="table-th">Valor</th><th className="table-th">Relatório</th>
+                </tr></thead>
+                <tbody>
+                  {data.rows.length === 0 && <tr><td colSpan={6} className="table-td text-center text-muted py-8">Nenhum pagamento registrado para este operador.</td></tr>}
+                  {data.rows.map((r: any) => (
+                    <tr key={`${r.source}-${r.id}`} className="border-b border-surface-border/50 hover:bg-surface-light/20">
+                      <td className="table-td"><span className={`text-xs px-2 py-0.5 rounded-full ${(SRC[r.source] || SRC.legacy).cls}`}>{(SRC[r.source] || SRC.legacy).label}</span></td>
+                      <td className="table-td">{r.acronym}</td>
+                      <td className="table-td">{compRange(r)}</td>
+                      <td className="table-td text-muted">{r.received_date ? formatDate(r.received_date) : "—"}</td>
+                      <td className="table-td">{r.individualized
+                        ? <span className="text-success font-medium">{formatCurrency(r.amount)}</span>
+                        : <span className="text-muted text-xs">não individualizado (repasse ENDR de {formatCurrency(r.endr_total)})</span>}</td>
+                      <td className="table-td">{r.report_url
+                        ? <a href={API_BASE + r.report_url} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline">Ver</a>
+                        : <span className="text-muted text-xs">—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {data.documents?.length > 0 && (
+            <div className="card p-0 overflow-hidden">
+              <div className="p-4 border-b border-surface-border">
+                <h3 className="font-semibold text-white text-sm">Documentos ({data.documents.length})</h3>
+              </div>
+              <div className="divide-y divide-surface-border/50">
+                {data.documents.map((d: any) => (
+                  <div key={d.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                    <div className="min-w-0">
+                      <p className="text-white truncate">{d.title || d.file_name}</p>
+                      <p className="text-xs text-muted">{d.document_type}{d.reference_month ? ` · competência ${d.reference_month.slice(0, 7)}` : ""}</p>
+                    </div>
+                    <span className="text-xs text-muted flex-shrink-0">{d.created_at ? formatDate(d.created_at) : ""}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -235,14 +392,16 @@ function Consolidado({ confederations, operators, cycles }: { confederations: an
     } finally { setDownloading(false); }
   }
 
-  async function downloadPdf() {
+  const [pdfModal, setPdfModal] = useState(false);
+  async function downloadPdf(logos: any) {
     setDownloading(true);
     try {
-      const r = await downloadCrossPdf(buildParams());
+      const r = await downloadCrossPdf({ ...buildParams(), ...logos });
       const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
       const a = document.createElement("a");
       a.href = url; a.download = "relatorio_consolidado.pdf"; a.click();
       URL.revokeObjectURL(url);
+      setPdfModal(false);
     } finally { setDownloading(false); }
   }
 
@@ -290,10 +449,15 @@ function Consolidado({ confederations, operators, cycles }: { confederations: an
         <div className="flex gap-3 mt-4">
           <button onClick={generate} disabled={loading} className="btn-primary">{loading ? "Gerando..." : "Aplicar Filtros"}</button>
           <button onClick={download} disabled={downloading} className="btn-secondary">{downloading ? "Baixando..." : "Exportar Excel"}</button>
-          <button onClick={downloadPdf} disabled={downloading} className="btn-secondary">{downloading ? "Baixando..." : "Exportar PDF"}</button>
+          <button onClick={() => setPdfModal(true)} disabled={downloading} className="btn-secondary">{downloading ? "Baixando..." : "Exportar PDF"}</button>
           <button onClick={() => { setFilters({ confederation_id: "", month: "", operator_id: "", status: "" }); }} className="btn-secondary">Limpar</button>
         </div>
       </div>
+
+      <PdfLogoModal open={pdfModal} onClose={() => setPdfModal(false)} busy={downloading}
+        onConfirm={opts => downloadPdf(opts)}
+        showConfederation={!!filters.confederation_id} showEndr
+        confederationLabel={confederations.find(c => String(c.id) === filters.confederation_id)?.acronym} />
 
       {report && (
         <>
@@ -567,18 +731,20 @@ function Evidencias({ confederations }: { confederations: any[] }) {
   const [downloading, setDownloading] = useState(false);
   const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState("");
+  const [pdfModal, setPdfModal] = useState(false);
 
-  async function download() {
+  async function download(logos: any = {}) {
     if (!month) { toast.warn("Selecione o mês de competência."); return; }
     setDownloading(true);
     try {
-      const params: any = { month: `${month}-01` };
+      const params: any = { month: `${month}-01`, ...logos };
       if (confId) params.confederation_id = Number(confId);
       const r = await downloadEvidencePdf(params);
       const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
       const a = document.createElement("a");
       a.href = url; a.download = `evidencias_${month.replace("-", "_")}.pdf`; a.click();
       URL.revokeObjectURL(url);
+      setPdfModal(false);
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Erro ao gerar o relatório de evidências.");
     } finally { setDownloading(false); }
@@ -625,7 +791,7 @@ function Evidencias({ confederations }: { confederations: any[] }) {
             <p className="text-xs text-muted mt-1">Deixe em branco para um dossiê completo.</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={download} disabled={downloading} className="btn-primary">
+            <button onClick={() => setPdfModal(true)} disabled={downloading} className="btn-primary">
               {downloading ? "Gerando..." : "⬇ Gerar PDF"}
             </button>
             <button onClick={sendToOffice} disabled={sending} className="btn-secondary">
@@ -636,6 +802,11 @@ function Evidencias({ confederations }: { confederations: any[] }) {
         {msg && <p className="text-xs text-primary mt-3">{msg}</p>}
         <p className="text-xs text-muted mt-3">"Enviar ao escritório" remete o dossiê ao e-mail cadastrado na aba Escritório, para revisão interna antes do encaminhamento à confederação.</p>
       </div>
+
+      <PdfLogoModal open={pdfModal} onClose={() => setPdfModal(false)} busy={downloading}
+        onConfirm={opts => download(opts)}
+        showConfederation={!!confId} showEndr
+        confederationLabel={confederations.find(c => String(c.id) === confId)?.acronym} />
     </div>
   );
 }

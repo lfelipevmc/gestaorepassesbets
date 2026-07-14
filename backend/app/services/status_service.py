@@ -52,9 +52,12 @@ def get_endr_set(db: Session, month: date) -> set:
     return {r.operator_id for r in rows}
 
 
-def get_paid_map(db: Session, confederation_id: int, month: date) -> dict:
-    """operator_id -> {'total','last_date','last_amount','report_url'} para a competência.
+def get_paid_map(db: Session, confederation_id: int, month: date, regime: str = "competencia") -> dict:
+    """operator_id -> {'total','last_date','last_amount','report_url'}.
 
+    regime="competencia": filtra pelo mês a que o pagamento se refere (reference_month).
+    regime="caixa": filtra pelo mês em que o valor foi RECEBIDO (received_date).
+    As CONCLUSÕES do sistema usam sempre competência; o regime de caixa é para visualização.
     Considera os recebimentos centrais (DirectPayment) e, para compatibilidade,
     os pagamentos legados registrados em ciclos antigos (Payment com amount_paid).
     """
@@ -73,7 +76,12 @@ def get_paid_map(db: Session, confederation_id: int, month: date) -> dict:
 
     dq = db.query(DirectPayment).filter(DirectPayment.confederation_id == confederation_id)
     if month:
-        dq = dq.filter(DirectPayment.reference_month == month)
+        if regime == "caixa":
+            from datetime import date as _date
+            nxt = _date(month.year + 1, 1, 1) if month.month == 12 else _date(month.year, month.month + 1, 1)
+            dq = dq.filter(DirectPayment.received_date >= month, DirectPayment.received_date < nxt)
+        else:
+            dq = dq.filter(DirectPayment.reference_month == month)
     for d in dq.all():
         add(d.operator_id, d.amount_received, d.received_date, d.report_file_url)
 
@@ -82,13 +90,18 @@ def get_paid_map(db: Session, confederation_id: int, month: date) -> dict:
         Payment.amount_paid.isnot(None), Payment.amount_paid > 0,
     )
     if month:
-        cycle_ids = [c.id for c in db.query(CollectionCycle).filter(
-            CollectionCycle.confederation_id == confederation_id,
-            CollectionCycle.reference_month == month,
-        ).all()]
-        if not cycle_ids:
-            return out
-        pq = pq.filter(Payment.cycle_id.in_(cycle_ids))
+        if regime == "caixa":
+            from datetime import date as _date
+            nxt = _date(month.year + 1, 1, 1) if month.month == 12 else _date(month.year, month.month + 1, 1)
+            pq = pq.filter(Payment.payment_date >= month, Payment.payment_date < nxt)
+        else:
+            cycle_ids = [c.id for c in db.query(CollectionCycle).filter(
+                CollectionCycle.confederation_id == confederation_id,
+                CollectionCycle.reference_month == month,
+            ).all()]
+            if not cycle_ids:
+                return out
+            pq = pq.filter(Payment.cycle_id.in_(cycle_ids))
     for p in pq.all():
         add(p.operator_id, p.amount_paid, p.payment_date, p.report_file_url)
     return out

@@ -111,11 +111,23 @@ def financial_summary(
 def phase1_received(
     confederation_id: Optional[int] = None,
     operator_id: Optional[int] = None,
-    month: Optional[date] = Query(None, description="Mês de competência (YYYY-MM-01)"),
+    month: Optional[date] = Query(None, description="Mês do filtro (YYYY-MM-01)"),
+    regime: str = Query("competencia", description="competencia = mês a que o pagamento se refere; caixa = mês em que foi recebido"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Fase 1 — repasses efetivamente recebidos (ciclos + lançamentos avulsos), base para a Repartição (Fase 2)."""
+    """Fase 1 — repasses efetivamente recebidos (ciclos + avulsos + ENDR), base única (SSOT).
+
+    Suporta os dois regimes: por COMPETÊNCIA (reference_month) ou por CAIXA (received_date)."""
+    def in_month_caixa(d):
+        return bool(d and month and d.year == month.year and d.month == month.month)
+    def in_month_comp(ref, ref_end=None):
+        if not month:
+            return True
+        if ref is None:
+            return False
+        end = ref_end or ref
+        return ref <= month <= end
     if current_user.role == "confederation_viewer":
         confederation_id = current_user.confederation_id
 
@@ -137,8 +149,12 @@ def phase1_received(
     for p in pq.all():
         cyc = db.query(CollectionCycle).get(p.cycle_id) if p.cycle_id else None
         ref = cyc.reference_month if cyc else None
-        if month and ref != month:
-            continue
+        if month:
+            if regime == "caixa":
+                if not in_month_caixa(p.payment_date):
+                    continue
+            elif not in_month_comp(ref):
+                continue
         c = confs.get(p.confederation_id)
         results.append({
             "source": "payment", "id": p.id, "confederation_id": p.confederation_id,
@@ -146,7 +162,7 @@ def phase1_received(
             "operator_label": op_label(p.operator_id),
             "reference_month": ref.isoformat() if ref else None,
             "amount": float(p.amount_paid or 0), "received_date": p.payment_date.isoformat() if p.payment_date else None,
-            "report_received": bool(p.report_received),
+            "report_received": bool(p.report_received), "report_url": p.report_file_url,
         })
 
     # Lançamentos avulsos (DirectPayment)
@@ -155,9 +171,13 @@ def phase1_received(
         dq = dq.filter(DirectPayment.confederation_id == confederation_id)
     if operator_id:
         dq = dq.filter(DirectPayment.operator_id == operator_id)
-    if month:
-        dq = dq.filter(DirectPayment.reference_month == month)
     for d in dq.all():
+        if month:
+            if regime == "caixa":
+                if not in_month_caixa(d.received_date):
+                    continue
+            elif not in_month_comp(d.reference_month):
+                continue
         c = confs.get(d.confederation_id)
         results.append({
             "source": "direct", "id": d.id, "confederation_id": d.confederation_id,
@@ -165,11 +185,41 @@ def phase1_received(
             "operator_label": op_label(d.operator_id),
             "reference_month": d.reference_month.isoformat() if d.reference_month else None,
             "amount": float(d.amount_received or 0), "received_date": d.received_date.isoformat() if d.received_date else None,
-            "report_received": bool(d.report_file_url),
+            "report_received": bool(d.report_file_url), "report_url": d.report_file_url,
+        })
+
+    # Repasses ENDR (tabela única endr_payments) — sincronizados automaticamente.
+    # Quando o filtro é por operador, listamos os repasses que o cobrem via bet_links,
+    # com amount não individualizado (não soma no total para não duplicar).
+    from ..models.payment import ENDRPayment, ENDRPaymentBetLink
+    eq = db.query(ENDRPayment)
+    if confederation_id:
+        eq = eq.filter(ENDRPayment.confederation_id == confederation_id)
+    for ep in eq.all():
+        if operator_id:
+            if not any(l.operator_id == operator_id for l in ep.bet_links):
+                continue
+        if month:
+            if regime == "caixa":
+                if not in_month_caixa(ep.received_date):
+                    continue
+            elif not in_month_comp(ep.reference_month, ep.reference_month_end):
+                continue
+        c = confs.get(ep.confederation_id)
+        ref_lbl = ep.reference_month.isoformat() if ep.reference_month else None
+        results.append({
+            "source": "endr", "id": ep.id, "confederation_id": ep.confederation_id,
+            "confederation_acronym": c.acronym if c else "?", "operator_id": None,
+            "operator_label": "ENDR (consolidado)" if not operator_id else "via ENDR (não individualizado)",
+            "reference_month": ref_lbl,
+            "reference_month_end": ep.reference_month_end.isoformat() if ep.reference_month_end else None,
+            "amount": float(ep.amount_received or 0) if not operator_id else None,
+            "received_date": ep.received_date.isoformat() if ep.received_date else None,
+            "report_received": bool(ep.report_file_url), "report_url": ep.report_file_url,
         })
 
     results.sort(key=lambda r: (r["received_date"] or ""), reverse=True)
-    return {"items": results, "total": sum(r["amount"] for r in results)}
+    return {"items": results, "total": sum((r["amount"] or 0) for r in results)}
 
 
 @router.get("/by-confederation")

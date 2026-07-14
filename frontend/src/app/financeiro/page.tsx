@@ -7,13 +7,16 @@ import {
   getRedistributions, createRedistribution, payRedistributionItem, deleteRedistribution,
   getBeneficiaries, createBeneficiary, updateBeneficiary, deleteBeneficiary,
   getDistributionRules, getFinanceEmails, syncEmails,
-  getDirectPayments, createDirectPayment, deleteDirectPayment, getOperators, getPhase1,
+  deleteDirectPayment, getOperators, getPhase1,
   suggestEmailOperator, linkEmailOperator,
 } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "@/components/ui/Toast";
 import HelpTip from "@/components/ui/HelpTip";
 import MailboxBadge from "@/components/ui/MailboxBadge";
+import DirectPaymentModal from "@/components/finance/DirectPaymentModal";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const TABS = ["Resumo", "Repasses (Fase 1)", "Repartição (Fase 2)", "E-mails"];
 const BTYPES: Record<string, string> = { confederacao: "Confederação", atleta: "Atleta", clube: "Clube/Entidade", federacao: "Federação", outro: "Outro" };
@@ -39,10 +42,8 @@ export default function FinanceiroPage() {
   const [phase1Total, setPhase1Total] = useState(0);
   const [p1Op, setP1Op] = useState("");
   const [p1Month, setP1Month] = useState("");
+  const [p1Regime, setP1Regime] = useState<"competencia" | "caixa">("competencia");
   const [showDirectForm, setShowDirectForm] = useState(false);
-  const [directForm, setDirectForm] = useState({ operator_id: "", confederation_id: "", reference_month: new Date().toISOString().slice(0, 7), amount_received: "", received_date: todayISO(), notes: "" });
-  const [savingDirect, setSavingDirect] = useState(false);
-  const [directPayments, setDirectPayments] = useState<any[]>([]);
 
   // Fase 2 — repartição
   const [f2sub, setF2sub] = useState<"repart" | "benef">("repart");
@@ -84,14 +85,13 @@ export default function FinanceiroPage() {
   }, [activeConf]);
 
   function loadPhase1() {
-    const params: any = {};
+    const params: any = { regime: p1Regime };
     if (activeConf) params.confederation_id = Number(activeConf);
     if (p1Op) params.operator_id = Number(p1Op);
     if (p1Month) params.month = p1Month + "-01";
     getPhase1(params).then(r => { setPhase1(r.data.items); setPhase1Total(r.data.total); });
-    getDirectPayments(params).then(r => setDirectPayments(r.data));
   }
-  useEffect(() => { if (tab === 1) loadPhase1(); }, [p1Op, p1Month]);
+  useEffect(() => { if (tab === 1) loadPhase1(); }, [p1Op, p1Month, p1Regime]);
 
   function loadRedis() {
     const params: any = {};
@@ -111,26 +111,6 @@ export default function FinanceiroPage() {
   }
   useEffect(() => { if (tab === 2 && f2sub === "repart") loadRedis(); }, [onlyOverdue, f2sub]);
   useEffect(() => { if (tab === 2 && f2sub === "benef") loadBen(); }, [f2sub]);
-
-  async function handleSaveDirectPayment(e: React.FormEvent) {
-    e.preventDefault();
-    if (!directForm.operator_id) { toast.warn("Selecione o agente operador."); return; }
-    setSavingDirect(true);
-    try {
-      await createDirectPayment(Number(directForm.operator_id), {
-        confederation_id: Number(directForm.confederation_id),
-        reference_month: directForm.reference_month ? directForm.reference_month + "-01" : null,
-        amount_received: parseFloat(directForm.amount_received),
-        received_date: directForm.received_date,
-        notes: directForm.notes || undefined,
-      });
-      setShowDirectForm(false);
-      setDirectForm({ operator_id: "", confederation_id: confs[0]?.id?.toString() || "", reference_month: new Date().toISOString().slice(0, 7), amount_received: "", received_date: todayISO(), notes: "" });
-      loadPhase1();
-      flash("Lançamento registrado na Fase 1.");
-    } catch (err: any) { toast.error(err.response?.data?.detail || "Erro ao registrar lançamento."); }
-    setSavingDirect(false);
-  }
 
   async function handleDeleteDirect(opId: number, payId: number) {
     if (!confirm("Excluir este lançamento avulso?")) return;
@@ -248,7 +228,7 @@ export default function FinanceiroPage() {
       {/* FASE 1 — REPASSES RECEBIDOS */}
       {tab === 1 && (
         <div className="space-y-4">
-          <p className="text-sm text-muted">Repasses efetivamente recebidos das Bets: provenientes de ciclos de cobrança ou de lançamentos avulsos. Estes valores são a origem das repartições da Fase 2.</p>
+          <p className="text-sm text-muted">Repasses efetivamente recebidos das Bets: ciclos de cobrança, lançamentos avulsos e repasses do ENDR — tudo a partir da base central única. Estes valores são a origem das repartições da Fase 2.</p>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3 flex-wrap">
               <select className="input w-56" value={p1Op} onChange={e => setP1Op(e.target.value)}>
@@ -256,57 +236,27 @@ export default function FinanceiroPage() {
                 {operators.map(o => <option key={o.id} value={o.id}>{o.fantasy_name || o.company_name}</option>)}
               </select>
               <input type="month" className="input w-44" value={p1Month} onChange={e => setP1Month(e.target.value)} />
+              <div className="flex rounded-lg border border-surface-border overflow-hidden" title="Competência: mês a que o repasse se refere. Caixa: mês em que o valor entrou.">
+                {(["competencia", "caixa"] as const).map(rg => (
+                  <button key={rg} onClick={() => setP1Regime(rg)}
+                    className={`px-3 py-1.5 text-xs transition-colors ${p1Regime === rg ? "bg-primary text-white" : "bg-surface text-muted hover:text-white"}`}>
+                    {rg === "competencia" ? "Competência" : "Caixa"}
+                  </button>
+                ))}
+              </div>
             </div>
-            <button onClick={() => { setDirectForm(f => ({ ...f, confederation_id: activeConf || confs[0]?.id?.toString() || "" })); setShowDirectForm(true); }} className="btn-primary">+ Novo Lançamento Avulso</button>
+            <button onClick={() => setShowDirectForm(true)} className="btn-primary">+ Novo Lançamento Avulso</button>
           </div>
 
           <div className="card"><p className="text-xs text-muted">Total recebido (filtros aplicados)</p><p className="text-2xl font-bold text-success">{formatCurrency(phase1Total)}</p></div>
 
-          {showDirectForm && (
-            <div className="card border border-primary/20 bg-primary/5">
-              <h4 className="font-semibold text-white mb-3">Registrar Lançamento Avulso (Fase 1)</h4>
-              <form onSubmit={handleSaveDirectPayment} className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="label">Agente Operador (Bet) *</label>
-                    <select className="input" required value={directForm.operator_id} onChange={e => setDirectForm(f => ({ ...f, operator_id: e.target.value }))}>
-                      <option value="">Selecione...</option>
-                      {operators.map(o => <option key={o.id} value={o.id}>{o.fantasy_name || o.company_name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="label">Confederação *</label>
-                    <select className="input" required value={directForm.confederation_id} onChange={e => setDirectForm(f => ({ ...f, confederation_id: e.target.value }))}>
-                      <option value="">Selecione...</option>
-                      {confs.map(c => <option key={c.id} value={c.id}>{c.acronym} — {c.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="label">Mês de Referência (competência)</label>
-                    <input className="input" type="month" value={directForm.reference_month} onChange={e => setDirectForm(f => ({ ...f, reference_month: e.target.value }))} />
-                    <p className="text-xs text-muted mt-1">Opcional — se aguarda o relatório da Bet, deixe em branco e defina depois no cadastro da Bet.</p>
-                  </div>
-                  <div>
-                    <label className="label">Data do Recebimento *</label>
-                    <input className="input" type="date" required value={directForm.received_date} onChange={e => setDirectForm(f => ({ ...f, received_date: e.target.value }))} />
-                    <p className="text-xs text-muted mt-1">Formato dia/mês/ano. Data em que o valor entrou no caixa.</p>
-                  </div>
-                  <div>
-                    <label className="label">Valor Recebido (R$) *</label>
-                    <input className="input" type="number" step="0.01" min="0.01" required placeholder="Ex.: 1500.00 (use ponto para centavos)" value={directForm.amount_received} onChange={e => setDirectForm(f => ({ ...f, amount_received: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="label">Observações</label>
-                    <input className="input" placeholder="Ex.: TED recebido referente a abril/2026" value={directForm.notes} onChange={e => setDirectForm(f => ({ ...f, notes: e.target.value }))} />
-                  </div>
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <button type="button" className="btn-secondary" onClick={() => setShowDirectForm(false)}>Cancelar</button>
-                  <button type="submit" className="btn-primary" disabled={savingDirect}>{savingDirect ? "Salvando..." : "Registrar Lançamento"}</button>
-                </div>
-              </form>
-            </div>
-          )}
+          <DirectPaymentModal
+            open={showDirectForm}
+            onClose={() => setShowDirectForm(false)}
+            onSaved={() => { loadPhase1(); flash("Lançamento registrado na Fase 1."); }}
+            operators={operators}
+            confederations={confs}
+          />
 
           <div className="card p-0 overflow-hidden">
             <div className="table-wrap"><table className="w-full text-sm">
@@ -323,13 +273,17 @@ export default function FinanceiroPage() {
                   <tr key={`${p.source}-${p.id}`} className="border-b border-surface-border/50 hover:bg-surface-border/20">
                     <td className="table-td">{p.source === "direct"
                       ? <span className="text-xs bg-primary/15 text-primary px-2 py-0.5 rounded-full">Avulso</span>
-                      : <span className="text-xs bg-surface px-2 py-0.5 rounded-full text-slate-300">Ciclo</span>}</td>
+                      : p.source === "endr"
+                        ? <span className="text-xs bg-violet-500/15 text-violet-300 px-2 py-0.5 rounded-full">ENDR</span>
+                        : <span className="text-xs bg-surface px-2 py-0.5 rounded-full text-slate-300">Ciclo</span>}</td>
                     <td className="table-td font-medium text-white">{p.operator_label}</td>
                     <td className="table-td">{p.confederation_acronym}</td>
-                    <td className="table-td">{monthBR(p.reference_month)}</td>
-                    <td className="table-td text-success font-medium">{formatCurrency(p.amount)}</td>
+                    <td className="table-td">{monthBR(p.reference_month)}{p.reference_month_end ? ` – ${monthBR(p.reference_month_end)}` : ""}</td>
+                    <td className="table-td text-success font-medium">{p.amount == null ? <span className="text-muted font-normal text-xs">não individualizado</span> : formatCurrency(p.amount)}</td>
                     <td className="table-td text-muted">{p.received_date ? formatDate(p.received_date) : "—"}</td>
-                    <td className="table-td">{p.report_received ? <span className="text-success text-xs">✓</span> : <span className="text-muted text-xs">—</span>}</td>
+                    <td className="table-td">{p.report_url
+                      ? <a href={API_URL + p.report_url} target="_blank" rel="noreferrer" className="text-primary text-xs hover:underline">Ver</a>
+                      : p.report_received ? <span className="text-success text-xs">✓</span> : <span className="text-muted text-xs">—</span>}</td>
                     <td className="table-td">{p.source === "direct" && <button className="text-danger text-xs hover:underline" onClick={() => handleDeleteDirect(p.operator_id, p.id)}>Excluir</button>}</td>
                   </tr>
                 ))}

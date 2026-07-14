@@ -242,7 +242,7 @@ def generate_excel_report(db: Session, cycle_id: int) -> bytes:
     return output.getvalue()
 
 
-def generate_cross_pdf(db: Session, confederation_id=None, month=None, operator_id=None, status=None) -> bytes:
+def generate_cross_pdf(db: Session, confederation_id=None, month=None, operator_id=None, status=None, logos: dict = None) -> bytes:
     """Gera o relatório consolidado/individualizado em PDF, respeitando os filtros aplicados."""
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
@@ -262,7 +262,11 @@ def generate_cross_pdf(db: Session, confederation_id=None, month=None, operator_
     styles = getSampleStyleSheet()
     small = styles["BodyText"]; small.fontSize = 7; small.leading = 9
 
-    elements = [Paragraph("Relatório Consolidado de Repasses", styles["Title"])]
+    logos = logos or {}
+    elements = logo_header_flowables(db, include_office=logos.get("office"),
+                                     confederation_id=confederation_id if logos.get("confederation") else None,
+                                     include_endr=logos.get("endr"))
+    elements += [Paragraph("Relatório Consolidado de Repasses", styles["Title"])]
     filtros = []
     if confederation_id:
         c = db.query(Confederation).get(confederation_id)
@@ -303,3 +307,67 @@ def generate_cross_pdf(db: Session, confederation_id=None, month=None, operator_
     doc.build(elements)
     buf.seek(0)
     return buf.getvalue()
+
+
+def logo_header_flowables(db: Session, include_office=False, confederation_id=None, include_endr=False):
+    """Linha de logomarcas no cabeçalho dos PDFs — escolhida pelo usuário no popup de geração.
+    Bets: a logomarca é POR MARCA e aparece nos relatórios de listagem de operadores."""
+    import os
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Image, Table as _T, Spacer as _S
+
+    urls = []
+    if include_office:
+        from ..models.office import OfficeSettings
+        off = db.query(OfficeSettings).first()
+        if off and off.logo_url:
+            urls.append(off.logo_url)
+    if confederation_id:
+        c = db.query(Confederation).get(confederation_id)
+        if c and getattr(c, "logo_url", None):
+            urls.append(c.logo_url)
+    if include_endr:
+        from ..models.operator import ENDREntity
+        e = db.query(ENDREntity).first()
+        if e and getattr(e, "logo_url", None):
+            urls.append(e.logo_url)
+
+    imgs = []
+    for u in urls:
+        fp = ("/app" + u) if u.startswith("/uploads") else u
+        if not os.path.exists(fp):
+            continue
+        try:
+            img = Image(fp)
+            ratio = (img.drawWidth / img.drawHeight) if img.drawHeight else 1
+            img.drawHeight = 1.6 * cm
+            img.drawWidth = min(5.5 * cm, 1.6 * cm * ratio)
+            imgs.append(img)
+        except Exception:
+            continue
+    if not imgs:
+        return []
+    t = _T([imgs])
+    t.hAlign = "LEFT"
+    return [t, _S(1, 10)]
+
+
+def brand_logo_image(brand, height_cm=0.8):
+    """Miniatura da logomarca de uma MARCA para linhas de tabela (ou None)."""
+    import os
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Image
+    u = getattr(brand, "logo_url", None)
+    if not u:
+        return None
+    fp = ("/app" + u) if u.startswith("/uploads") else u
+    if not os.path.exists(fp):
+        return None
+    try:
+        img = Image(fp)
+        ratio = (img.drawWidth / img.drawHeight) if img.drawHeight else 1
+        img.drawHeight = height_cm * cm
+        img.drawWidth = min(3 * cm, height_cm * cm * ratio)
+        return img
+    except Exception:
+        return None

@@ -99,6 +99,7 @@ export default function CollectionDetailPage() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendPassword, setSendPassword] = useState("");   // trava: senha do login exigida no disparo
+  const [sendEmail, setSendEmail] = useState("");          // trava: e-mail do login exigido no disparo
   const [sendResult, setSendResult] = useState<any>(null);
   const [proof, setProof] = useState<any>(null);
 
@@ -177,6 +178,7 @@ export default function CollectionDetailPage() {
     setReviewStage("edit");
     setSendResult(null);
     setSendPassword("");
+    setSendEmail("");
     try {
       const r = await getNotificationPreview(numId, num);
       const included = new Set<number>(r.data.recipients.map((x: any) => x.operator_id));
@@ -200,6 +202,21 @@ export default function CollectionDetailPage() {
     });
   }
 
+  // Item 1: selecionar/desmarcar todos os operadores de uma seção de uma vez
+  function toggleGroup(list: any[], select: boolean) {
+    setReview((rv: any) => {
+      const s = new Set<number>(rv.included);
+      list.forEach((o: any) => { if (select) s.add(o.operator_id); else s.delete(o.operator_id); });
+      return { ...rv, included: s };
+    });
+  }
+  const GroupToggle = ({ list }: { list: any[] }) => list?.length > 1 ? (
+    <span className="inline-flex gap-2 ml-2">
+      <button type="button" onClick={() => toggleGroup(list, true)} className="text-[11px] text-primary hover:underline">Selecionar todos</button>
+      <button type="button" onClick={() => toggleGroup(list, false)} className="text-[11px] text-muted hover:underline">Desmarcar todos</button>
+    </span>
+  ) : null;
+
   const allGroups = () => review ? [
     ...review.recipients, ...(review.paid || []), ...(review.endr || []),
     ...(review.consignacao || []), ...(review.sem_obrigacao || []),
@@ -219,13 +236,15 @@ export default function CollectionDetailPage() {
       .replace(/\{ano\}/g, ano || "")
       .replace(/\{prazo\}/g, review.deadline_text || "10 (dez) dias")
       .replace(/\{valor\}/g, "valor a ser apurado pelo agente operador")
-      .replace(/\{escritorio\}/g, office?.signature_name || office?.name || "Escritório");
+      .replace(/\{escritorio\}/g, office?.signature_name || office?.name || "Escritório")
+      .replace(/\{usuario\}/g, me?.name || "[nome do usuário]")
+      .replace(/\{logomarca\}/g, office?.logo_url ? "[logomarca do escritório]" : "[logomarca — cadastre em Configurações]");
   }
 
   async function doSend() {
     const recipients = includedRecipients().map((o: any) => ({ operator_id: o.operator_id, email: o.emails?.[0] || null }));
     if (recipients.length === 0) { toast.warn("Selecione ao menos um destinatário."); return; }
-    if (!sendPassword) { toast.warn("Digite sua senha de login para autorizar o disparo."); return; }
+    if (!sendEmail || !sendPassword) { toast.warn("Digite seu e-mail e sua senha de login para autorizar o disparo."); return; }
     setSending(true);
     try {
       const r = await sendNotificationConfirmed(numId, {
@@ -234,9 +253,11 @@ export default function CollectionDetailPage() {
         body: review.message.body,
         deadline: review.deadline_text,
         recipients,
+        email: sendEmail,
         password: sendPassword,
       });
       setSendPassword("");
+      setSendEmail("");
       setSendResult(r.data);
       setReviewStage("result");
       fetchAll();
@@ -530,7 +551,7 @@ export default function CollectionDetailPage() {
             <div className="table-wrap"><table className="w-full text-sm">
               <thead className="bg-surface"><tr>
                 <th className="table-th">Tipo</th><th className="table-th">Data</th><th className="table-th">Bet</th>
-                <th className="table-th">Assunto</th><th className="table-th">Endereço</th><th className="table-th"></th>
+                <th className="table-th">Assunto</th><th className="table-th">Endereço</th><th className="table-th">Resposta</th><th className="table-th"></th>
               </tr></thead>
               <tbody>
                 {emails.map(e => (
@@ -540,10 +561,15 @@ export default function CollectionDetailPage() {
                     <td className="table-td text-xs">{e.operator_label || "—"}</td>
                     <td className="table-td">{e.subject || "(sem assunto)"}</td>
                     <td className="table-td text-xs text-muted">{e.direction === "outbound" ? e.to_addr : e.from_addr}</td>
+                    <td className="table-td">
+                      {e.direction === "outbound" && (e.replied
+                        ? <span className="text-xs text-success">✓ Respondido{e.replied_at ? ` (${formatDate(e.replied_at)})` : ""}</span>
+                        : <span className="text-xs text-muted">Sem resposta</span>)}
+                    </td>
                     <td className="table-td">{e.direction === "outbound" && <button onClick={() => openProof(e.id)} className="text-xs text-primary hover:underline">Comprovante</button>}</td>
                   </tr>
                 ))}
-                {emails.length === 0 && <tr><td colSpan={6} className="table-td text-center text-muted py-8">Nenhum e-mail vinculado a este ciclo ainda.</td></tr>}
+                {emails.length === 0 && <tr><td colSpan={7} className="table-td text-center text-muted py-8">Nenhum e-mail vinculado a este ciclo ainda.</td></tr>}
               </tbody>
             </table></div>
           </div>
@@ -658,7 +684,7 @@ export default function CollectionDetailPage() {
 
                   {/* Inadimplentes (pré-selecionados) */}
                   <div>
-                    <h4 className="text-sm font-semibold text-white mb-2">Inadimplentes <span className="text-muted font-normal">(pré-selecionados)</span></h4>
+                    <h4 className="text-sm font-semibold text-white mb-2">Inadimplentes <span className="text-muted font-normal">(pré-selecionados)</span><GroupToggle list={review.recipients} /></h4>
                     <div className="border border-surface-border rounded-lg divide-y divide-surface-border max-h-52 overflow-y-auto">
                       {review.recipients.map((o: any) => (
                         <label key={o.operator_id} className="flex items-center gap-3 p-2.5 hover:bg-surface-light/20 cursor-pointer">
@@ -675,7 +701,7 @@ export default function CollectionDetailPage() {
                   <div className="grid grid-cols-2 gap-4">
                     {[["Adimplentes", review.paid], ["ENDR (suspensos)", review.endr], ["Consignação em Pagamento", review.consignacao], ["Sem Obrigação Corrente", review.sem_obrigacao]].map(([title, list]: any, gi: number) => (
                       <div key={gi}>
-                        <h4 className="text-sm font-semibold text-white mb-2">{title} <span className="text-muted font-normal">({(list || []).length} — incluir?)</span></h4>
+                        <h4 className="text-sm font-semibold text-white mb-2">{title} <span className="text-muted font-normal">({(list || []).length} — incluir?)</span><GroupToggle list={list || []} /></h4>
                         <div className="border border-surface-border rounded-lg divide-y divide-surface-border max-h-36 overflow-y-auto">
                           {(list || []).map((o: any) => (
                             <label key={o.operator_id} className="flex items-center gap-2 p-2 text-xs hover:bg-surface-light/20 cursor-pointer">
@@ -692,7 +718,7 @@ export default function CollectionDetailPage() {
                   {/* Mensagem */}
                   <div>
                     <h4 className="text-sm font-semibold text-white mb-2">Mensagem</h4>
-                    <p className="text-xs text-muted mb-2">Chaves ({"{bet}"}, {"{confederacaosigla}"}, {"{mes}"}, {"{ano}"}, {"{prazo}"}, {"{escritorio}"}) são preenchidas automaticamente.</p>
+                    <p className="text-xs text-muted mb-2">Chaves ({"{bet}"}, {"{confederacaosigla}"}, {"{mes}"}, {"{ano}"}, {"{prazo}"}, {"{escritorio}"}, {"{usuario}"}, {"{logomarca}"}) são preenchidas automaticamente.</p>
                     <input className="input mb-2" value={review.message.subject} onChange={e => setReview((rv: any) => ({ ...rv, message: { ...rv.message, subject: e.target.value } }))} />
                     <textarea className="input h-40 resize-none text-sm" value={review.message.body} onChange={e => setReview((rv: any) => ({ ...rv, message: { ...rv.message, body: e.target.value } }))} />
                   </div>
@@ -728,29 +754,40 @@ export default function CollectionDetailPage() {
                     </div>
                   ))}
                 </div>
-                {/* Trava de segurança: senha do login obrigatória (política pós-incidente) */}
+                {/* Trava de segurança: e-mail + senha do login obrigatórios (política pós-incidente) */}
                 <div className="bg-surface border border-primary/30 rounded-lg p-4">
                   <label className="label flex items-center gap-1.5">
-                    🔒 Autorização por senha
+                    🔒 Autorização por e-mail e senha
                   </label>
                   <p className="text-xs text-muted mb-2">
-                    Nenhum e-mail é enviado aos agentes operadores sem esta confirmação. Digite a
-                    <b> sua senha de login</b> para autorizar o disparo — a autorização fica registrada na auditoria em seu nome.
+                    Nenhum e-mail é enviado aos agentes operadores sem esta confirmação. Digite o
+                    <b> seu e-mail</b> e a <b>sua senha de login</b> para autorizar o disparo — ficam registrados
+                    na auditoria <b>quem autorizou, quando e quantas mensagens</b> foram disparadas.
                   </p>
-                  <input
-                    type="password"
-                    autoComplete="current-password"
-                    className="input max-w-xs"
-                    placeholder="Sua senha de login"
-                    value={sendPassword}
-                    onChange={e => setSendPassword(e.target.value)}
-                  />
+                  <div className="flex flex-wrap gap-3">
+                    <input
+                      type="email"
+                      autoComplete="username"
+                      className="input max-w-xs"
+                      placeholder="Seu e-mail de login"
+                      value={sendEmail}
+                      onChange={e => setSendEmail(e.target.value)}
+                    />
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      className="input max-w-xs"
+                      placeholder="Sua senha de login"
+                      value={sendPassword}
+                      onChange={e => setSendPassword(e.target.value)}
+                    />
+                  </div>
                 </div>
 
                 <div className="flex gap-3 justify-end">
                   <button onClick={() => setReviewStage("edit")} className="btn-secondary">← Voltar e editar</button>
-                  <button onClick={doSend} disabled={sending || !sendPassword} className="btn-primary"
-                    title={!sendPassword ? "Digite sua senha para liberar o disparo" : undefined}>
+                  <button onClick={doSend} disabled={sending || !sendPassword || !sendEmail} className="btn-primary"
+                    title={!sendPassword || !sendEmail ? "Digite seu e-mail e sua senha para liberar o disparo" : undefined}>
                     {sending ? "Disparando..." : `🔒 Autorizar e disparar (${includedRecipients().length})`}
                   </button>
                 </div>

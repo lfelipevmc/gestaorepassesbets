@@ -34,7 +34,8 @@ class SendConfirmedRequest(BaseModel):
     deadline: Optional[str] = None   # prazo textual para a chave {prazo}
     recipients: List[NotificationRecipient]
     # Trava de segurança (política pós-incidente 12/07/2026): NENHUM e-mail sai
-    # para agentes operadores sem o usuário confirmar com a própria senha de login.
+    # para agentes operadores sem o usuário se identificar com E-MAIL + SENHA de login.
+    email: str
     password: str
 
 
@@ -188,11 +189,12 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
     Exige a senha de login do usuário (verificada abaixo) — envios automáticos
     foram abolidos em 13/07/2026."""
     from ..core.auth import verify_password
-    if not data.password or not verify_password(data.password, current_user.hashed_password):
+    email_ok = (data.email or "").strip().lower() == (current_user.email or "").strip().lower()
+    if not email_ok or not data.password or not verify_password(data.password, current_user.hashed_password):
         log_action(db=db, action="SEND_AUTH_FAIL", entity_type="CollectionCycle", entity_id=id,
                    user_id=current_user.id,
-                   description=f"Tentativa de disparo com senha incorreta ({len(data.recipients)} destinatário(s)) — envio BLOQUEADO")
-        raise HTTPException(status_code=403, detail="Senha incorreta — o disparo não foi autorizado.")
+                   description=f"Tentativa de disparo com credenciais incorretas ({len(data.recipients)} destinatário(s)) — envio BLOQUEADO")
+        raise HTTPException(status_code=403, detail="E-mail ou senha incorretos — o disparo não foi autorizado.")
 
     cycle = db.query(CollectionCycle).get(id)
     if not cycle:
@@ -200,13 +202,22 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
 
     log_action(db=db, action="SEND_AUTHORIZED", entity_type="CollectionCycle", entity_id=id,
                user_id=current_user.id, confederation_id=cycle.confederation_id,
-               description=f"Disparo autorizado por senha: {data.notification_number}ª notificação, {len(data.recipients)} destinatário(s)")
+               description=(f"Disparo autorizado por {current_user.email}: {data.notification_number}ª notificação, "
+                            f"{len(data.recipients)} destinatário(s)"))
     conf = db.query(Confederation).get(cycle.confederation_id)
     ref = cycle.reference_month.strftime("%m/%Y")
 
     from ..models.office import OfficeSettings
+    from ..config import settings as _settings
     office = db.query(OfficeSettings).first()
     office_name = (office.signature_name or office.name) if office else None
+    # {logomarca}: imagem da logomarca do escritório embutida no HTML do e-mail
+    logomarca_html = ""
+    if office and office.logo_url:
+        base = (_settings.SITE_URL or "").rstrip("/")
+        if base:
+            logomarca_html = f'<img src="{base}{office.logo_url}" alt="{office_name or "Escritório"}" style="max-height:64px;max-width:240px"/>'
+    usuario_nome = current_user.name or current_user.email
 
     sent, failed = 0, 0
     results = []
@@ -217,8 +228,8 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
             results.append({"operator_id": rec.operator_id, "label": "—", "email": rec.email, "ok": False, "reason": "operador inexistente"})
             continue
         to_addr = [rec.email] if rec.email else _operator_emails(op)[:3]
-        subject = render_placeholders(data.subject, op, conf, ref, prazo=data.deadline, escritorio=office_name)
-        body = render_placeholders(data.body, op, conf, ref, prazo=data.deadline, escritorio=office_name)
+        subject = render_placeholders(data.subject, op, conf, ref, prazo=data.deadline, escritorio=office_name, usuario=usuario_nome)
+        body = render_placeholders(data.body, op, conf, ref, prazo=data.deadline, escritorio=office_name, usuario=usuario_nome, logomarca=logomarca_html)
         ok = bool(to_addr) and send_email(to=to_addr, subject=subject, body=body,
                                           confederation_acronym=conf.acronym)
         ev = CollectionEvent(
@@ -482,8 +493,29 @@ def cycle_emails(id: int, db: Session = Depends(get_db), current_user: User = De
     op_ids = list({m.operator_id for m in msgs if m.operator_id})
     op_map = {o.id: _operator_label(o) for o in db.query(BettingOperator).filter(BettingOperator.id.in_(op_ids)).all()} if op_ids else {}
 
+    # Resposta por envio: casada pelo fio de conversa (conversationId) ou, na falta dele,
+    # por resposta posterior do MESMO operador. Registro permanece permanente na base.
+    inbound = [m for m in msgs if (getattr(m.direction, "value", m.direction) == "inbound")]
+    conv_in = {}
+    for im in inbound:
+        if im.graph_conversation_id:
+            conv_in.setdefault(im.graph_conversation_id, []).append(im)
+
+    def reply_for(m):
+        if getattr(m.direction, "value", m.direction) != "outbound":
+            return None
+        cands = conv_in.get(m.graph_conversation_id or "", [])
+        if not cands and m.operator_id:
+            cands = [im for im in inbound if im.operator_id == m.operator_id and
+                     (im.received_at or im.created_at) and m.sent_at and (im.received_at or im.created_at) >= m.sent_at]
+        if not cands:
+            return None
+        cands.sort(key=lambda x: (x.received_at or x.created_at))
+        return cands[0]
+
     out = []
     for m in msgs:
+        rep = reply_for(m)
         out.append({
             "id": m.id,
             "direction": m.direction.value if hasattr(m.direction, "value") else m.direction,
@@ -494,6 +526,9 @@ def cycle_emails(id: int, db: Session = Depends(get_db), current_user: User = De
             "from_addr": m.from_addr,
             "to_addr": m.to_addr,
             "matched": m.matched,
+            "protocol": m.protocol,
+            "replied": bool(rep),
+            "replied_at": (rep.received_at or rep.created_at).isoformat() if rep else None,
             "sent_at": m.sent_at.isoformat() if m.sent_at else None,
             "received_at": m.received_at.isoformat() if m.received_at else None,
         })

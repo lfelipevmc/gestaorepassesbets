@@ -78,7 +78,8 @@ class ENDRPayment(Base):
     __tablename__ = "endr_payments"
     id = Column(Integer, primary_key=True)
     confederation_id = Column(Integer, ForeignKey("confederations.id"), nullable=False)
-    reference_month = Column(Date, nullable=True)   # competência: definida ao receber o relatório
+    reference_month = Column(Date, nullable=True)   # competência inicial: definida ao receber o relatório
+    reference_month_end = Column(Date, nullable=True) # competência final (repasse cobre um PERÍODO, ex.: jan–mar)
     amount_received = Column(Numeric(15, 2), nullable=False)
     received_date = Column(Date, nullable=False)
     notes = Column(Text, nullable=True)

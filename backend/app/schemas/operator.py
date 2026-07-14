@@ -55,6 +55,7 @@ class BrandOut(BaseModel):
     facebook: Optional[str]
     other_social: Optional[str]
     created_at: datetime
+    logo_url: Optional[str] = None
 
     class Config:
         from_attributes = True

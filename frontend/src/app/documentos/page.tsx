@@ -334,6 +334,9 @@ function EmailHistory({ operators, confederations }: { operators: any[]; confede
               <div key={m.id} className={`card border-l-4 ${out ? "border-l-primary" : "border-l-success"}`}>
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <span className={`text-[10px] px-2 py-0.5 rounded-full ${out ? "bg-primary/15 text-primary" : "bg-success/15 text-success"}`}>{out ? "ENVIADO" : "RESPOSTA RECEBIDA"}</span>
+                  {out && (m.replied
+                    ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-success/15 text-success">✓ Respondido{m.replied_at ? ` em ${new Date(m.replied_at).toLocaleDateString("pt-BR")}` : ""}</span>
+                    : <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface text-muted">Sem resposta</span>)}
                   {confAcr(m.confederation_id) && <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface text-muted">{confAcr(m.confederation_id)}</span>}
                   {m.protocol && <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface text-muted font-mono">Protocolo {m.protocol}</span>}
                   <span className="text-[11px] text-muted ml-auto">{when ? new Date(when).toLocaleString("pt-BR") : "—"}</span>

@@ -540,6 +540,8 @@ def operator_confederation_summary(id: int, db: Session = Depends(get_db), curre
 @router.get("/export/pdf")
 def export_operators_pdf(
     status: Optional[OperatorStatus] = None,
+    logo_office: int = 0,
+    logo_brands: int = 0,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -563,10 +565,15 @@ def export_operators_pdf(
     styles = getSampleStyleSheet()
     small = styles["BodyText"]; small.fontSize = 7; small.leading = 9
 
-    el = [Paragraph("Agentes Operadores — Base Cadastral", styles["Title"]),
+    from ..services.report_service import logo_header_flowables, brand_logo_image
+    el = logo_header_flowables(db, include_office=bool(logo_office))
+    el += [Paragraph("Agentes Operadores — Base Cadastral", styles["Title"]),
           Paragraph(f"{len(ops)} operadores · Gerado em {_dt.now().strftime('%d/%m/%Y %H:%M')}", styles["Normal"]),
           Spacer(1, 0.4*cm)]
-    data = [["Razão Social", "Nome Fantasia", "CNPJ", "Autorização", "Status", "E-mail principal", "Marcas"]]
+    header = ["Razão Social", "Nome Fantasia", "CNPJ", "Autorização", "Status", "E-mail principal", "Marcas"]
+    if logo_brands:
+        header.append("Logomarca")
+    data = [header]
     for op in ops:
         emails = [c.value for c in op.contacts if c.type == ContactType.email and c.value]
         for r in op.responsibles:
@@ -580,8 +587,11 @@ def export_operators_pdf(
             (op.status.value if hasattr(op.status, "value") else str(op.status)),
             Paragraph(emails[0] if emails else "—", small),
             Paragraph(", ".join(b.name for b in op.brands) or "—", small),
-        ])
-    t = Table(data, colWidths=[6.5*cm, 4*cm, 3.4*cm, 2.4*cm, 1.8*cm, 5*cm, 4.6*cm], repeatRows=1)
+        ] + ([next((img for img in (brand_logo_image(b) for b in op.brands) if img), "—")] if logo_brands else []))
+    widths = [6.5*cm, 4*cm, 3.4*cm, 2.4*cm, 1.8*cm, 5*cm, 4.6*cm]
+    if logo_brands:
+        widths = [6*cm, 3.6*cm, 3.2*cm, 2.2*cm, 1.6*cm, 4.4*cm, 3.6*cm, 3*cm]
+    t = Table(data, colWidths=widths, repeatRows=1)
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e293b")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -595,3 +605,26 @@ def export_operators_pdf(
     buf.seek(0)
     return StreamingResponse(buf, media_type="application/pdf",
                              headers={"Content-Disposition": "attachment; filename=agentes_operadores.pdf"})
+
+
+@router.post("/{id}/brands/{brand_id}/upload-logo")
+async def upload_brand_logo(id: int, brand_id: int, file: UploadFile = File(...),
+                            db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Logomarca da MARCA (a identidade visual das Bets é por marca, não por CNPJ)."""
+    from ..models.operator import OperatorBrand
+    brand = db.query(OperatorBrand).filter(OperatorBrand.id == brand_id, OperatorBrand.operator_id == id).first()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Marca não encontrada")
+    import os, uuid, shutil
+    updir = "/app/uploads/logos"
+    os.makedirs(updir, exist_ok=True)
+    ext = os.path.splitext(file.filename or "logo.png")[1].lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
+        raise HTTPException(status_code=400, detail="Envie uma imagem (png/jpg/webp/svg).")
+    filename = f"brand_{brand_id}_{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(updir, filename), "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    brand.logo_url = f"/uploads/logos/{filename}"
+    db.commit()
+    log_action(db=db, action="UPLOAD_BRAND_LOGO", entity_type="OperatorBrand", entity_id=brand_id, user_id=current_user.id)
+    return {"logo_url": brand.logo_url}

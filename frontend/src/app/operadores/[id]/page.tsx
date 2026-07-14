@@ -16,6 +16,7 @@ import {
   getDirectPayments, createDirectPayment, deleteDirectPayment, updateDirectPayment,
   getConfederations, uploadDocument, downloadDocument,
   getOperatorMonthlyHistory, getOperatorComplianceScore, getOperatorConfSummary,
+  uploadBrandLogo,
 } from "@/lib/api";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/Toast";
@@ -360,6 +361,18 @@ export default function OperatorDetailPage() {
     }
   }
 
+  async function handleBrandLogoUpload(brandId: number, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fd = new FormData(); fd.append("file", file);
+    try {
+      await uploadBrandLogo(numId, brandId, fd);
+      fetchData();
+      toast.success("Logomarca da marca atualizada — usada nos PDFs que incluem logomarcas por marca.");
+    } catch (err: any) { toast.error(err.response?.data?.detail || "Erro ao enviar a logomarca."); }
+    e.target.value = "";
+  }
+
   async function handleDeleteBrand(brandId: number) {
     if (!confirm("Remover esta marca?")) return;
     await deleteBrand(numId, brandId);
@@ -607,8 +620,17 @@ export default function OperatorDetailPage() {
               {brands.map((brand: any) => (
                 <div key={brand.id} className="card space-y-3">
                   <div className="flex items-start justify-between">
-                    <h4 className="font-semibold text-white">{brand.name}</h4>
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {brand.logo_url
+                        ? <img src={(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000") + brand.logo_url} alt={`Logo ${brand.name}`} className="h-10 w-10 object-contain rounded border border-surface-border bg-surface flex-shrink-0" />
+                        : <div className="h-10 w-10 rounded border border-dashed border-surface-border flex items-center justify-center text-[10px] text-muted flex-shrink-0">sem logo</div>}
+                      <h4 className="font-semibold text-white truncate">{brand.name}</h4>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <label className="text-primary text-xs hover:underline cursor-pointer">
+                        {brand.logo_url ? "Trocar logo" : "Enviar logo"}
+                        <input type="file" accept="image/*" className="hidden" onChange={e => handleBrandLogoUpload(brand.id, e)} />
+                      </label>
                       <button onClick={() => openEditBrand(brand)} className="text-primary text-xs hover:underline">Editar</button>
                       <button onClick={() => handleDeleteBrand(brand.id)} className="text-danger text-xs hover:underline">Remover</button>
                     </div>

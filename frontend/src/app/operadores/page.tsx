@@ -9,6 +9,7 @@ import { getOperators, createOperator, importOperators, getSyncStatus, researchA
 import { getUser } from "@/lib/auth";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { toast } from "@/components/ui/Toast";
+import PdfLogoModal from "@/components/reports/PdfLogoModal";
 
 const PAGE_SIZE = 50;
 
@@ -39,6 +40,20 @@ export default function OperadoresPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [pdfModal, setPdfModal] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  async function handleExportPdf(logos: any) {
+    setPdfBusy(true);
+    try {
+      const r = await exportOperatorsPdf({ status: statusFilter || undefined, logo_office: logos.logo_office, logo_brands: logos.logo_brands });
+      const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+      const a = document.createElement("a"); a.href = url; a.download = "agentes_operadores.pdf"; a.click();
+      URL.revokeObjectURL(url);
+      setPdfModal(false);
+    } catch { toast.error("Erro ao gerar PDF."); }
+    finally { setPdfBusy(false); }
+  }
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [researchingAll, setResearchingAll] = useState(false);
@@ -224,14 +239,7 @@ export default function OperadoresPage() {
             <button onClick={() => setShowImport(true)} className="btn-secondary">
               Importar Planilha
             </button>
-            <button onClick={async () => {
-              try {
-                const r = await exportOperatorsPdf({ status: statusFilter || undefined });
-                const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
-                const a = document.createElement("a"); a.href = url; a.download = "agentes_operadores.pdf"; a.click();
-                URL.revokeObjectURL(url);
-              } catch { toast.error("Erro ao gerar PDF."); }
-            }} className="btn-secondary">⬇ PDF</button>
+            <button onClick={() => setPdfModal(true)} className="btn-secondary">⬇ PDF</button>
             <button onClick={() => setShowCreate(true)} className="btn-primary">
               + Novo Operador
             </button>
@@ -351,6 +359,10 @@ export default function OperadoresPage() {
       <Modal isOpen={showColsModal} onClose={() => setShowColsModal(false)} title="Colunas da tabela">
         <ColsConfig current={visibleCols} onSave={saveCols} onCancel={() => setShowColsModal(false)} />
       </Modal>
+
+      {/* Modal: logomarcas do PDF de operadores */}
+      <PdfLogoModal open={pdfModal} onClose={() => setPdfModal(false)} busy={pdfBusy}
+        onConfirm={handleExportPdf} showBrands />
 
       {/* Pagination */}
       {totalPages > 1 && (

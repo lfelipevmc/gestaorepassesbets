@@ -25,7 +25,7 @@ const OCCASIONS: Record<string, string> = {
   receipt_ack: "Confirmação de Recebimento",
   custom: "Personalizado",
 };
-const PLACEHOLDERS = ["{bet}", "{confederacao}", "{confederacaosigla}", "{mes}", "{ano}", "{valor}", "{prazo}", "{escritorio}"];
+const PLACEHOLDERS = ["{bet}", "{confederacao}", "{confederacaosigla}", "{mes}", "{ano}", "{valor}", "{prazo}", "{escritorio}", "{usuario}", "{logomarca}"];
 
 const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 

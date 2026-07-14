@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/endr", tags=["endr"])
 
 class ENDREntityOut(BaseModel):
     id: int
+    logo_url: Optional[str] = None
     name: Optional[str]
     cnpj: Optional[str]
     website: Optional[str]
@@ -231,6 +232,7 @@ def endr_acompanhamento(db: Session = Depends(get_db), current_user: User = Depe
             "id": p.id, "confederation_id": p.confederation_id,
             "acronym": conf_map.get(p.confederation_id, "?"),
             "reference_month": p.reference_month.isoformat() if p.reference_month else None,
+            "reference_month_end": p.reference_month_end.isoformat() if p.reference_month_end else None,
             "amount_received": float(p.amount_received or 0),
             "received_date": p.received_date.isoformat(),
             "report_file_url": p.report_file_url,
@@ -257,14 +259,20 @@ def endr_acompanhamento(db: Session = Depends(get_db), current_user: User = Depe
         if m > 12:
             m, y = 1, y + 1
 
-    # relatórios por competência
+    # relatórios por competência (um repasse pode cobrir um PERÍODO de meses)
     reports_by_month: dict = {}
     for p in payments:
         if p.reference_month:
-            reports_by_month.setdefault(p.reference_month.strftime("%Y-%m"), []).append({
-                "payment_id": p.id, "acronym": conf_map.get(p.confederation_id, "?"),
-                "amount": float(p.amount_received or 0), "operators_count": len(p.bet_links),
-            })
+            mm = p.reference_month.replace(day=1)
+            fim = (p.reference_month_end or p.reference_month).replace(day=1)
+            n_meses = (fim.year - mm.year) * 12 + (fim.month - mm.month) + 1
+            while mm <= fim:
+                reports_by_month.setdefault(mm.strftime("%Y-%m"), []).append({
+                    "payment_id": p.id, "acronym": conf_map.get(p.confederation_id, "?"),
+                    "amount": float(p.amount_received or 0), "operators_count": len(p.bet_links),
+                    "period_months": n_meses,
+                })
+                mm = date(mm.year + 1, 1, 1) if mm.month == 12 else date(mm.year, mm.month + 1, 1)
 
     timeline = []
     prev: set = set()
@@ -356,3 +364,22 @@ def delete_endr_document(doc_id: int, db: Session = Depends(get_db), current_use
     db.commit()
     log_action(db=db, action="DELETE_ENDR_DOCUMENT", entity_type="Document", entity_id=doc_id, user_id=current_user.id)
     return {"ok": True}
+
+
+@router.post("/entity/upload-logo")
+async def upload_endr_logo(file: UploadFile = File(...), db: Session = Depends(get_db),
+                           current_user: User = Depends(require_office)):
+    entity = _get_or_create_entity(db)
+    import os, uuid, shutil
+    updir = "/app/uploads/logos"
+    os.makedirs(updir, exist_ok=True)
+    ext = os.path.splitext(file.filename or "logo.png")[1].lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
+        raise HTTPException(status_code=400, detail="Envie uma imagem (png/jpg/webp/svg).")
+    filename = f"endr_{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(updir, filename), "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    entity.logo_url = f"/uploads/logos/{filename}"
+    db.commit()
+    log_action(db=db, action="UPLOAD_ENDR_LOGO", entity_type="ENDREntity", entity_id=entity.id, user_id=current_user.id)
+    return {"logo_url": entity.logo_url}

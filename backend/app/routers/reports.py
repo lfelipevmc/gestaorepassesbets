@@ -55,12 +55,14 @@ def cross_report_pdf(
     month: Optional[date] = Query(None),
     operator_id: Optional[int] = None,
     status: Optional[PaymentStatus] = None,
+    logo_office: int = 0, logo_conf: int = 0, logo_endr: int = 0,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     if current_user.role == "confederation_viewer":
         confederation_id = current_user.confederation_id
-    data = generate_cross_pdf(db, confederation_id, month, operator_id, status)
+    data = generate_cross_pdf(db, confederation_id, month, operator_id, status,
+                              logos={"office": bool(logo_office), "confederation": bool(logo_conf), "endr": bool(logo_endr)})
     return StreamingResponse(
         io.BytesIO(data), media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=relatorio_consolidado.pdf"},
@@ -71,6 +73,7 @@ def cross_report_pdf(
 def evidence_report_pdf(
     month: date = Query(..., description="Mês de competência (YYYY-MM-01)"),
     confederation_id: Optional[int] = None,
+    logo_office: int = 0, logo_conf: int = 0, logo_endr: int = 0,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -78,7 +81,8 @@ def evidence_report_pdf(
     from ..services.evidence_report import generate_evidence_pdf
     if current_user.role == "confederation_viewer":
         confederation_id = current_user.confederation_id
-    data = generate_evidence_pdf(db, month, confederation_id)
+    data = generate_evidence_pdf(db, month, confederation_id,
+                                 logos={"office": bool(logo_office), "confederation": bool(logo_conf), "endr": bool(logo_endr)})
     fname = f"evidencias_{month.strftime('%Y_%m')}.pdf"
     return StreamingResponse(
         io.BytesIO(data), media_type="application/pdf",
@@ -161,7 +165,8 @@ def compliance_report_excel(cycle_id: int, db: Session = Depends(get_db), curren
 @router.get("/by-confederation")
 def report_by_confederation(
     confederation_id: int,
-    month: date = Query(..., description="Competência (YYYY-MM-01)"),
+    month: date = Query(..., description="Mês do filtro (YYYY-MM-01)"),
+    regime: str = Query("competencia", description="competencia | caixa (mês do recebimento)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -172,8 +177,8 @@ def report_by_confederation(
     from ..models.operator import BettingOperator, OperatorStatus
     from ..services.status_service import effective_conclusions, get_paid_map, LABELS_PT
 
-    conclusions = effective_conclusions(db, confederation_id, month)
-    paid = get_paid_map(db, confederation_id, month)
+    conclusions = effective_conclusions(db, confederation_id, month)   # Conclusão é sempre por competência
+    paid = get_paid_map(db, confederation_id, month, regime=regime)     # valores seguem o regime escolhido
     ops = db.query(BettingOperator).filter(BettingOperator.status == OperatorStatus.active).order_by(BettingOperator.company_name).all()
 
     rows, counts = [], {}
@@ -263,3 +268,101 @@ async def upload_bet_report(
                user_id=current_user.id, confederation_id=confederation_id,
                description=f"Relatório da Bet #{operator_id} — competência {ref.strftime('%m/%Y')}")
     return {"report_file_url": url, "attached_to_payment": bool(dp), "document_id": doc.id}
+
+
+@router.get("/by-operator")
+def report_by_operator(
+    operator_id: int,
+    regime: str = Query("competencia", description="competencia | caixa"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Extrato individual do agente operador (ou dos repasses ENDR que o cobrem):
+    histórico completo de pagamentos, competências, documentos e comunicações.
+    Fonte única: direct_payments + payments legados + endr_payments (via bet_links)."""
+    from ..models.operator import BettingOperator
+    from ..models.payment import DirectPayment, Payment, ENDRPayment, ENDRPaymentBetLink
+    from ..models.collection import CollectionCycle
+    from ..models.document import Document
+    from ..models.messaging import EmailMessage, EmailDirection
+    from ..models.confederation import Confederation
+
+    op = db.query(BettingOperator).get(operator_id)
+    if not op:
+        raise HTTPException(status_code=404, detail="Operador não encontrado")
+    conf_map = {c.id: c.acronym for c in db.query(Confederation).all()}
+
+    rows = []
+    # Recebimentos centrais (avulsos + registrados no ciclo)
+    for d in db.query(DirectPayment).filter(DirectPayment.operator_id == operator_id).all():
+        rows.append({
+            "source": "direct", "id": d.id,
+            "confederation_id": d.confederation_id, "acronym": conf_map.get(d.confederation_id, "?"),
+            "reference_month": d.reference_month.isoformat() if d.reference_month else None,
+            "reference_month_end": None,
+            "received_date": d.received_date.isoformat() if d.received_date else None,
+            "amount": float(d.amount_received or 0), "individualized": True,
+            "report_url": d.report_file_url, "notes": d.notes,
+        })
+    # Legado (ciclos antigos)
+    for p in db.query(Payment).filter(Payment.operator_id == operator_id,
+                                      Payment.amount_paid.isnot(None), Payment.amount_paid > 0).all():
+        cyc = db.query(CollectionCycle).get(p.cycle_id) if p.cycle_id else None
+        rows.append({
+            "source": "legacy", "id": p.id,
+            "confederation_id": p.confederation_id, "acronym": conf_map.get(p.confederation_id, "?"),
+            "reference_month": cyc.reference_month.isoformat() if cyc else None,
+            "reference_month_end": None,
+            "received_date": p.payment_date.isoformat() if p.payment_date else None,
+            "amount": float(p.amount_paid or 0), "individualized": True,
+            "report_url": p.report_file_url, "notes": p.notes,
+        })
+    # Repasses ENDR que cobrem este operador (valor NÃO individualizado — não soma)
+    links = db.query(ENDRPaymentBetLink).filter(ENDRPaymentBetLink.operator_id == operator_id).all()
+    for l in links:
+        ep = l.endr_payment
+        if not ep:
+            continue
+        rows.append({
+            "source": "endr", "id": ep.id,
+            "confederation_id": ep.confederation_id, "acronym": conf_map.get(ep.confederation_id, "?"),
+            "reference_month": ep.reference_month.isoformat() if ep.reference_month else None,
+            "reference_month_end": ep.reference_month_end.isoformat() if ep.reference_month_end else None,
+            "received_date": ep.received_date.isoformat() if ep.received_date else None,
+            "amount": None, "endr_total": float(ep.amount_received or 0), "individualized": False,
+            "report_url": ep.report_file_url, "notes": ep.notes,
+        })
+
+    # Ordenação conforme o regime escolhido
+    key = (lambda r: r["received_date"] or "") if regime == "caixa" else (lambda r: r["reference_month"] or r["received_date"] or "")
+    rows.sort(key=key, reverse=True)
+
+    totals_by_conf = {}
+    for r in rows:
+        if r["individualized"]:
+            totals_by_conf[r["acronym"]] = totals_by_conf.get(r["acronym"], 0.0) + (r["amount"] or 0)
+
+    docs = [{
+        "id": d.id, "title": d.title, "file_name": d.file_name,
+        "document_type": d.document_type.value if hasattr(d.document_type, "value") else d.document_type,
+        "reference_month": d.reference_month.isoformat() if d.reference_month else None,
+        "created_at": d.created_at.isoformat() if d.created_at else None,
+    } for d in db.query(Document).filter(Document.operator_id == operator_id)
+        .order_by(Document.created_at.desc()).limit(100).all()]
+
+    sent = db.query(EmailMessage).filter(EmailMessage.operator_id == operator_id,
+                                         EmailMessage.direction == EmailDirection.outbound).count()
+    received = db.query(EmailMessage).filter(EmailMessage.operator_id == operator_id,
+                                             EmailMessage.direction == EmailDirection.inbound).count()
+
+    return {
+        "operator": {"id": op.id, "label": op.fantasy_name or op.company_name,
+                     "company_name": op.company_name, "cnpj": op.cnpj},
+        "regime": regime,
+        "rows": rows,
+        "totals_by_confederation": totals_by_conf,
+        "total_individualizado": sum(totals_by_conf.values()),
+        "endr_count": sum(1 for r in rows if r["source"] == "endr"),
+        "documents": docs,
+        "emails": {"sent": sent, "received": received},
+    }

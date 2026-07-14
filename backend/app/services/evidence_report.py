@@ -26,7 +26,7 @@ def _brl(v):
     return ("R$ {:,.2f}".format(float(v or 0))).replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def generate_evidence_pdf(db: Session, month: date, confederation_id=None) -> bytes:
+def generate_evidence_pdf(db: Session, month: date, confederation_id=None, logos: dict = None) -> bytes:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.units import cm
@@ -49,6 +49,11 @@ def generate_evidence_pdf(db: Session, month: date, confederation_id=None) -> by
     confs = confs.all()
 
     el = []
+    from .report_service import logo_header_flowables
+    logos = logos or {}
+    el += logo_header_flowables(db, include_office=logos.get("office"),
+                                confederation_id=confederation_id if logos.get("confederation") else None,
+                                include_endr=logos.get("endr"))
     el.append(Paragraph("Relatório de Evidências — Gestão de Repasses", h1))
     el.append(Paragraph(
         f"Mês de competência: <b>{month.strftime('%m/%Y')}</b> · "

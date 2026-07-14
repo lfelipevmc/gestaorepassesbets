@@ -14,11 +14,11 @@ class _SafeDict(dict):
         return "{" + key + "}"
 
 
-def render_placeholders(text: str, operator, confederation, reference_month: str, amount=None, prazo: str = None, escritorio: str = None) -> str:
+def render_placeholders(text: str, operator, confederation, reference_month: str, amount=None, prazo: str = None, escritorio: str = None, usuario: str = None, logomarca: str = None) -> str:
     """Substitui placeholders padronizados no texto do template.
 
     reference_month no formato "MM/AAAA". Chaves suportadas:
-    {bet} {confederacao} {confederacaosigla} {mes} {ano} {valor} {prazo} {escritorio}
+    {bet} {confederacao} {confederacaosigla} {mes} {ano} {valor} {prazo} {escritorio} {usuario} {logomarca}
     Chaves desconhecidas são preservadas (não quebram o envio).
     """
     valor = "R$ {:,.2f}".format(float(amount)).replace(",", "X").replace(".", ",").replace("X", ".") if amount else "valor a ser apurado pelo agente operador"
@@ -37,6 +37,8 @@ def render_placeholders(text: str, operator, confederation, reference_month: str
         valor=valor,
         prazo=prazo or "10 (dez) dias",
         escritorio=escritorio or "Escritório Jurídico - Gestão de Haveres de Bets",
+        usuario=usuario or "",
+        logomarca=logomarca or "",
     )
     try:
         return (text or "").format_map(data)

@@ -107,7 +107,20 @@ def email_history(operator_id: int, db: Session = Depends(get_db), current_user=
             .filter(EmailMessage.operator_id == operator_id)
             .order_by(EmailMessage.created_at.desc())
             .all())
+    inbound = [m for m in msgs if (getattr(m.direction, "value", m.direction) == "inbound")]
+    def _replied(m):
+        if getattr(m.direction, "value", m.direction) != "outbound":
+            return None
+        cands = [im for im in inbound if (m.graph_conversation_id and im.graph_conversation_id == m.graph_conversation_id)]
+        if not cands:
+            cands = [im for im in inbound if m.sent_at and (im.received_at or im.created_at) and (im.received_at or im.created_at) >= m.sent_at]
+        if not cands:
+            return None
+        cands.sort(key=lambda x: (x.received_at or x.created_at))
+        return (cands[0].received_at or cands[0].created_at)
     return [{
+        "replied_at": (_replied(m).isoformat() if _replied(m) else None),
+        "replied": bool(_replied(m)),
         "id": m.id,
         "direction": m.direction.value if hasattr(m.direction, "value") else m.direction,
         "subject": m.subject,
