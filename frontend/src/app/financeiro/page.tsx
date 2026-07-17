@@ -61,7 +61,7 @@ export default function FinanceiroPage() {
 
   useEffect(() => {
     getConfederations().then(r => setConfs(r.data));
-    getOperators({ limit: 300 }).then(r => setOperators(r.data));
+    getOperators({ limit: 1000 }).then(r => setOperators(r.data));
   }, []);
   function loadSummary() {
     const params: any = {};

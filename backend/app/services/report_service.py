@@ -15,6 +15,10 @@ def get_compliance_report(db: Session, cycle_id: int) -> dict:
     confederation = db.query(Confederation).get(cycle.confederation_id)
     payments = db.query(Payment).filter(Payment.cycle_id == cycle_id).all()
 
+    # Valores recebidos vêm da BASE CENTRAL (direct_payments + legado) — fonte única
+    from ..services.status_service import get_paid_map
+    paid_map = get_paid_map(db, cycle.confederation_id, cycle.reference_month)
+
     # Adimplente = pagou E enviou relatório. report_pending = pagou mas relatório ainda pendente.
     paid = [p for p in payments if p.status == PaymentStatus.paid]
     report_pending = [p for p in payments if p.status == PaymentStatus.report_pending]
@@ -23,6 +27,10 @@ def get_compliance_report(db: Session, cycle_id: int) -> dict:
 
     def payment_to_dict(p: Payment):
         op = db.query(BettingOperator).get(p.operator_id)
+        pm = paid_map.get(p.operator_id) or {}
+        recebido = pm.get("total") or (float(p.amount_paid) if p.amount_paid else None)
+        data_pgto = pm.get("last_date").isoformat() if pm.get("last_date") else (
+            p.payment_date.isoformat() if p.payment_date else None)
         return {
             "operator_id": op.id,
             "company_name": op.company_name,
@@ -31,15 +39,15 @@ def get_compliance_report(db: Session, cycle_id: int) -> dict:
             "status": p.status,
             "base_calculo": float(p.base_calculo) if p.base_calculo else None,
             "amount_due": float(p.amount_due) if p.amount_due else None,
-            "amount_paid": float(p.amount_paid) if p.amount_paid else None,
-            "payment_date": p.payment_date.isoformat() if p.payment_date else None,
+            "amount_paid": recebido,
+            "payment_date": data_pgto,
             "report_received": bool(p.report_received),
             "report_reference_month": p.report_reference_month.isoformat() if p.report_reference_month else None,
             "payment_confirmed_at": p.payment_confirmed_at.isoformat() if p.payment_confirmed_at else None,
         }
 
-    # Total recebido = regime de caixa (valor efetivamente recebido no ciclo)
-    total_received = sum(float(p.amount_paid or 0) for p in payments)
+    # Total recebido no ciclo = soma da base central da competência (inclui avulsos)
+    total_received = sum(float(v.get("total") or 0) for v in paid_map.values())
 
     return {
         "cycle_id": cycle_id,
@@ -94,6 +102,19 @@ def get_cross_report(db: Session, confederation_id=None, month=None, operator_id
     # caches para evitar N+1 repetido
     op_cache, conf_cache, cycle_cache = {}, {}, {}
 
+    # Valores recebidos por operador × confederação × competência a partir da
+    # BASE CENTRAL (direct_payments + legado), via get_paid_map (fonte única).
+    from ..services.status_service import get_paid_map
+    paid_map_cache: dict = {}
+
+    def paid_info(conf_id, ref_month, op_id):
+        if not conf_id or not ref_month:
+            return {}
+        key = (conf_id, ref_month)
+        if key not in paid_map_cache:
+            paid_map_cache[key] = get_paid_map(db, conf_id, ref_month)
+        return paid_map_cache[key].get(op_id) or {}
+
     def op(i):
         if i not in op_cache:
             op_cache[i] = db.query(BettingOperator).get(i)
@@ -114,6 +135,10 @@ def get_cross_report(db: Session, confederation_id=None, month=None, operator_id
         o = op(p.operator_id)
         c = conf(p.confederation_id)
         cy = cyc(p.cycle_id)
+        pm = paid_info(p.confederation_id, cy.reference_month if cy else None, p.operator_id)
+        recebido = float(pm.get("total") or 0) or (float(p.amount_paid) if p.amount_paid else 0.0)
+        data_pgto = pm.get("last_date").isoformat() if pm.get("last_date") else (
+            p.payment_date.isoformat() if p.payment_date else None)
         rows.append({
             "payment_id": p.id,
             "operator_id": p.operator_id,
@@ -128,10 +153,10 @@ def get_cross_report(db: Session, confederation_id=None, month=None, operator_id
             "status_label": STATUS_LABELS_PT.get(p.status.value if hasattr(p.status, "value") else p.status, p.status),
             "base_calculo": float(p.base_calculo) if p.base_calculo else 0.0,
             "amount_due": float(p.amount_due) if p.amount_due else 0.0,
-            "amount_paid": float(p.amount_paid) if p.amount_paid else 0.0,
+            "amount_paid": recebido,
             "report_received": bool(p.report_received),
             "report_reference_month": p.report_reference_month.isoformat() if p.report_reference_month else None,
-            "payment_date": p.payment_date.isoformat() if p.payment_date else None,
+            "payment_date": data_pgto,
         })
 
     # ordena por confederação, mês, Bet

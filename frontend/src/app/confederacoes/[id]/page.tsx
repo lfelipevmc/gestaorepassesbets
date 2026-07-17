@@ -14,6 +14,7 @@ import {
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { getUser } from "@/lib/auth";
 import { getConfOperatorsOverview, saveConfOperatorInfo, registerEndrReport, getPhase1, getEndrMonthly } from "@/lib/api";
+import { operatorMatches, operatorLabel } from "@/lib/operatorSearch";
 import DirectPaymentModal from "@/components/finance/DirectPaymentModal";
 import { toast } from "@/components/ui/Toast";
 import HelpTip from "@/components/ui/HelpTip";
@@ -129,7 +130,7 @@ export default function ConfederationDetailPage() {
       getConfederation(numId),
       getCollections({ confederation_id: numId }),
       getPayments({ confederation_id: numId, limit: 500 }),
-      getOperators({ limit: 300 }),
+      getOperators({ limit: 1000 }),
       getEndrPayments({ confederation_id: numId }),
       getDistributionRules(numId),
       getDocuments({ confederation_id: numId }),
@@ -196,7 +197,7 @@ export default function ConfederationDetailPage() {
       setEndrPayments(r.data);
       const nao = resp.data?.not_previously_associated || [];
       if (nao.length > 0) {
-        const nomes = nao.map((oid: number) => { const o = operators.find(x => x.id === oid); return o?.fantasy_name || o?.company_name || `#${oid}`; });
+        const nomes = nao.map((oid: number) => { const o = operators.find(x => x.id === oid); return o ? operatorLabel(o) : `#${oid}`; });
         toast.warn(`⚠ Inconsistência registrada: ${nao.length} bet(s) do relatório NÃO constavam como associadas ao ENDR no período — ${nomes.slice(0, 4).join(", ")}${nomes.length > 4 ? "…" : ""}. Verifique.`);
       }
       flash(m.create_associations
@@ -693,12 +694,12 @@ export default function ConfederationDetailPage() {
               </div>
               <div>
                 <label className="block text-xs text-muted mb-2">Bets cobertas <span className="text-slate-500">(opcional — o relatório do ENDR, que chega ~30 dias depois, informa a lista; registre depois em "Registrar relatório")</span></label>
-                <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto p-2 bg-surface-border rounded-lg">
-                  {operators.filter(o => o.status === "active").map(op => (
-                    <label key={op.id} className="flex items-center gap-2 cursor-pointer">
+                <div className="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto p-2 bg-surface-border rounded-lg">
+                  {operators.map(op => (
+                    <label key={op.id} className="flex items-center gap-2 cursor-pointer min-w-0">
                       <input type="checkbox" checked={endrForm.operator_ids.includes(op.id)}
                         onChange={e => setEndrForm(f => ({ ...f, operator_ids: e.target.checked ? [...f.operator_ids, op.id] : f.operator_ids.filter(x => x !== op.id) }))} />
-                      <span className="text-xs text-slate-300 truncate">{op.fantasy_name || op.company_name}</span>
+                      <span className="text-xs text-slate-300 truncate" title={operatorLabel(op)}>{operatorLabel(op)}</span>
                     </label>
                   ))}
                 </div>
@@ -913,13 +914,14 @@ export default function ConfederationDetailPage() {
             </div>
             <div>
               <label className="block text-xs text-muted mb-1">Operadores cobertos pelo repasse *</label>
-              <input type="text" placeholder="Pesquisar agente operador…"
+              <input type="text" placeholder="Pesquisar por razão social, fantasia, CNPJ, marca…"
                 className="w-full bg-surface-border border border-surface-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary mb-2"
                 value={endrReportModal.search || ""}
                 onChange={e => setEndrReportModal((m: any) => ({ ...m, search: e.target.value }))} />
-              <div className="grid grid-cols-3 gap-1.5 max-h-56 overflow-y-auto p-2 bg-surface-border rounded-lg">
-                {operators.filter(o => o.status === "active")
-                  .filter(o => { const q = (endrReportModal.search || "").trim().toLowerCase(); return !q || (o.fantasy_name || "").toLowerCase().includes(q) || (o.company_name || "").toLowerCase().includes(q); })
+              <p className="text-[11px] text-muted mb-1.5">Fonte: cadastro central de Agentes Operadores — todos os {operators.length} cadastrados estão disponíveis.</p>
+              <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto p-2 bg-surface-border rounded-lg">
+                {operators
+                  .filter(o => operatorMatches(o, endrReportModal.search || ""))
                   .map(op => {
                     const selected = endrReportModal.operator_ids.includes(op.id);
                     const semAssoc = selected && !assocStartIds.has(op.id);
@@ -927,7 +929,7 @@ export default function ConfederationDetailPage() {
                       <label key={op.id} className="flex items-center gap-2 cursor-pointer min-w-0">
                         <input type="checkbox" checked={selected}
                           onChange={e => setEndrReportModal((m: any) => ({ ...m, operator_ids: e.target.checked ? [...m.operator_ids, op.id] : m.operator_ids.filter((x: number) => x !== op.id) }))} />
-                        <span className={`text-xs truncate ${semAssoc ? "text-warning" : "text-slate-300"}`}>{op.fantasy_name || op.company_name}</span>
+                        <span className={`text-xs truncate ${semAssoc ? "text-warning" : "text-slate-300"}`} title={operatorLabel(op)}>{operatorLabel(op)}</span>
                         {semAssoc && <span className="flex-shrink-0 px-1 py-px text-[10px] bg-warning/15 text-warning rounded" title="Não constava como associada ao ENDR nesta competência">não associada</span>}
                       </label>
                     );

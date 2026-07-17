@@ -3,6 +3,7 @@ import { useState } from "react";
 import Modal from "@/components/ui/Modal";
 import { createDirectPayment } from "@/lib/api";
 import { toast } from "@/components/ui/Toast";
+import { operatorMatches, operatorLabel } from "@/lib/operatorSearch";
 
 /**
  * Registro de repasse recebido de um Agente Operador (lançamento na BASE CENTRAL —
@@ -50,11 +51,7 @@ export default function DirectPaymentModal({
     finally { setSaving(false); }
   }
 
-  const filtered = operators.filter((o: any) => {
-    if (!opSearch) return true;
-    const t = opSearch.toLowerCase();
-    return (o.fantasy_name || "").toLowerCase().includes(t) || (o.company_name || "").toLowerCase().includes(t) || (o.cnpj || "").includes(t);
-  });
+  const filtered = operators.filter((o: any) => operatorMatches(o, opSearch));
 
   return (
     <Modal isOpen={open} onClose={onClose} title="Registrar Repasse de Agente Operador">
@@ -62,10 +59,11 @@ export default function DirectPaymentModal({
         <p className="text-xs text-muted">Lançamento gravado na <b>base central</b> (fonte única): aparece no Financeiro, no ciclo da competência, na ficha da Bet e nos relatórios — sem redigitação.</p>
         <div>
           <label className="label">Agente Operador *</label>
-          <input className="input mb-2" placeholder="Pesquisar por nome ou CNPJ..." value={opSearch} onChange={e => setOpSearch(e.target.value)} />
+          <input className="input mb-2" placeholder="Pesquisar por qualquer dado do cadastro (razão social, fantasia, CNPJ, marca, contato...)"
+            value={opSearch} onChange={e => setOpSearch(e.target.value)} />
           <select className="input" required value={f.operator_id} onChange={e => setF(x => ({ ...x, operator_id: e.target.value }))}>
-            <option value="">Selecione...</option>
-            {filtered.map((o: any) => <option key={o.id} value={o.id}>{o.fantasy_name || o.company_name}</option>)}
+            <option value="">Selecione... ({filtered.length} operador{filtered.length === 1 ? "" : "es"})</option>
+            {filtered.map((o: any) => <option key={o.id} value={o.id}>{operatorLabel(o)}</option>)}
           </select>
         </div>
         {!fixedConfederationId && (

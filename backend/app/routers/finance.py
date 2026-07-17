@@ -36,23 +36,28 @@ def financial_summary(
         confederation_id = current_user.confederation_id
 
     pay_q = db.query(Payment)
+    direct_q = db.query(DirectPayment)
     endr_q = db.query(ENDRPayment)
     redis_q = db.query(Redistribution)
     if confederation_id:
         pay_q = pay_q.filter(Payment.confederation_id == confederation_id)
+        direct_q = direct_q.filter(DirectPayment.confederation_id == confederation_id)
         endr_q = endr_q.filter(ENDRPayment.confederation_id == confederation_id)
         redis_q = redis_q.filter(Redistribution.confederation_id == confederation_id)
     if month:
         cycle_ids = [c.id for c in db.query(CollectionCycle.id).filter(CollectionCycle.reference_month == month).all()]
         pay_q = pay_q.filter(Payment.cycle_id.in_(cycle_ids)) if cycle_ids else pay_q.filter(false())
+        direct_q = direct_q.filter(DirectPayment.reference_month == month)
         endr_q = endr_q.filter(ENDRPayment.reference_month == month)
         redis_q = redis_q.filter(Redistribution.reference_month == month)
 
     payments = pay_q.all()
+    direct_payments = direct_q.all()
     endr_payments = endr_q.all()
     redistributions = redis_q.all()
 
-    receita_direct = sum(_f(p.amount_paid) for p in payments)
+    # Receita direta = lançamentos da base central (direct_payments) + ciclos legados
+    receita_direct = sum(_f(p.amount_paid) for p in payments) + sum(_f(d.amount_received) for d in direct_payments)
     receita_endr = sum(_f(e.amount_received) for e in endr_payments)
     receita_total = receita_direct + receita_endr
 
@@ -229,9 +234,12 @@ def summary_by_confederation(db: Session = Depends(get_db), current_user: User =
     confs = db.query(Confederation).all()
     for c in confs:
         payments = db.query(Payment).filter(Payment.confederation_id == c.id).all()
+        directs = db.query(DirectPayment).filter(DirectPayment.confederation_id == c.id).all()
         endr = db.query(ENDRPayment).filter(ENDRPayment.confederation_id == c.id).all()
         redis = db.query(Redistribution).filter(Redistribution.confederation_id == c.id).all()
-        receita = sum(_f(p.amount_paid) for p in payments) + sum(_f(e.amount_received) for e in endr)
+        receita = (sum(_f(p.amount_paid) for p in payments)
+                   + sum(_f(d.amount_received) for d in directs)
+                   + sum(_f(e.amount_received) for e in endr))
         repassado = sum(_f(it.amount) for r in redis for it in r.items if it.status == ItemStatus.paid)
         pendente = sum(_f(it.amount) for r in redis for it in r.items if it.status != ItemStatus.paid)
         overdue = len([r for r in redis if r.deadline_date and r.deadline_date < date.today() and r.status != RedistributionStatus.completed])
