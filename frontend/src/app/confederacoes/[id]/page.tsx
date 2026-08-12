@@ -15,12 +15,13 @@ import { formatDate, formatCurrency } from "@/lib/utils";
 import { getUser } from "@/lib/auth";
 import { getConfOperatorsOverview, saveConfOperatorInfo, registerEndrReport, getPhase1, getEndrMonthly } from "@/lib/api";
 import { operatorMatches, operatorLabel } from "@/lib/operatorSearch";
+import PresentationTab from "@/components/confederation/PresentationTab";
 import DirectPaymentModal from "@/components/finance/DirectPaymentModal";
 import { toast } from "@/components/ui/Toast";
 import HelpTip from "@/components/ui/HelpTip";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const TABS = ["Visão Geral", "Cadastro", "Ciclos de Cobrança", "Receitas por Mês", "Repasses ENDR", "Regras de Rateio"];
+const TABS = ["Visão Geral", "Cadastro", "Ciclos de Cobrança", "Receitas por Mês", "Repasses ENDR", "Regras de Rateio", "📽 Apresentação"];
 
 const TAB_HELP: string[] = [
   "Todos os agentes operadores vistos por esta confederação. Os dados cadastrais e o ENDR são somente leitura (espelho da base central); você edita aqui a Conclusão do mês (com opção automática), as Anotações e as Anotações Adicionais. Arraste a borda dos títulos para redimensionar colunas.",
@@ -29,6 +30,7 @@ const TAB_HELP: string[] = [
   "Receitas mês a mês: soma dos recebimentos das Bets (por ciclo e avulsos) e repasses ENDR na competência.",
   "Repasses recebidos do ENDR. O valor chega antes do relatório (~30 dias): registre o recebimento e depois use 'Registrar relatório' para informar a competência e os operadores cobertos — isso suspende a cobrança individual deles no mês.",
   "Percentuais de repartição aos beneficiários. Somente o administrador edita — as alterações valem para as repartições futuras.",
+  "Dashboard-relatório para as reuniões de monitoramento: resultados, trabalho desenvolvido, recebimentos (direto × ENDR), pendências e próximos passos. Use o Modo apresentação para projetar em tela cheia e exporte o PDF para enviar após a reunião.",
 ];
 
 type Conf = {
@@ -342,6 +344,9 @@ export default function ConfederationDetailPage() {
 
       {/* TAB 0: VISÃO GERAL */}
       {tab === 0 && <ConfOverview confId={numId} sigla={conf.acronym} />}
+
+      {/* TAB 6: APRESENTAÇÃO (reuniões de monitoramento) */}
+      {tab === 6 && <PresentationTab confId={numId} />}
 
       {/* TAB 2: CICLOS DE COBRANÇA */}
       {tab === 2 && (

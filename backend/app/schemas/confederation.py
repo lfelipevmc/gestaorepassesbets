@@ -98,6 +98,7 @@ class ConfederationUpdate(BaseModel):
     second_notification_deadline_days: Optional[int] = None
     closing_day: Optional[int] = None
     redistribution_deadline_days: Optional[int] = None
+    next_steps: Optional[str] = None
 
 
 class ConfederationOut(BaseModel):
@@ -117,6 +118,7 @@ class ConfederationOut(BaseModel):
     regulation_file_url: Optional[str]
     regulation_online_url: Optional[str]
     rateio_rules: Optional[str]
+    next_steps: Optional[str] = None
     contact_email: Optional[str]
     finance_email: Optional[str]
     payment_due_day: int

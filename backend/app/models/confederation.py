@@ -38,6 +38,8 @@ class Confederation(Base):
     closing_day = Column(Integer, default=1)                      # dia (mês seguinte) para fechamento/ofício SPA
     # Prazo (dias) para repasse aos beneficiários finais após o recebimento (ex: CBW 90 dias)
     redistribution_deadline_days = Column(Integer, nullable=True)
+    # Encaminhamentos combinados nas reuniões de monitoramento (aba Apresentação)
+    next_steps = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

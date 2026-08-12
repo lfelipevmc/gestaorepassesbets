@@ -55,6 +55,10 @@ export const getConfederations = () => api.get("/api/confederations/");
 export const getConfederation = (id: number) => api.get(`/api/confederations/${id}`);
 export const createConfederation = (data: any) => api.post("/api/confederations/", data);
 export const updateConfederation = (id: number, data: any) => api.patch(`/api/confederations/${id}`, data);
+export const getConfPresentation = (id: number, month?: string) =>
+  api.get(`/api/confederations/${id}/presentation`, { params: month ? { month } : {} });
+export const downloadConfPresentationPdf = (id: number, params?: any) =>
+  api.get(`/api/confederations/${id}/presentation/pdf`, { params, responseType: "blob" });
 export const uploadConfederationLogo = (id: number, formData: FormData) =>
   api.post(`/api/confederations/${id}/upload-logo`, formData, { headers: { "Content-Type": "multipart/form-data" } });
 export const uploadConfederationRegulation = (id: number, formData: FormData) =>
