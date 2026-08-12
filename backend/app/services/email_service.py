@@ -44,7 +44,9 @@ def send_email(to: List[str], subject: str, body: str, cc: Optional[List[str]] =
     - `mailbox`: força uma caixa específica (padrão: a caixa dedicada de repasses).
     - `confederation_acronym`: se informado, guarda uma cópia do enviado na subpasta da
       confederação (na caixa dedicada), mantendo as comunicações organizadas.
-    attachments: lista de {filename, content_bytes(base64 str), content_type}.
+    attachments: lista de {filename, content_bytes(base64 str), content_type,
+                            is_inline(bool, opcional), content_id(str, opcional)} —
+    anexos inline (is_inline+content_id) permitem referenciar imagens no corpo via cid:.
     """
     token = get_access_token()
     box = mailbox or get_mailbox()
@@ -59,14 +61,20 @@ def send_email(to: List[str], subject: str, body: str, cc: Optional[List[str]] =
         "ccRecipients": [{"emailAddress": {"address": addr}} for addr in (cc or [])],
     }
     if attachments:
-        message["attachments"] = [
-            {
+        atts = []
+        for a in attachments:
+            att = {
                 "@odata.type": "#microsoft.graph.fileAttachment",
                 "name": a["filename"],
                 "contentType": a.get("content_type", "application/octet-stream"),
                 "contentBytes": a["content_bytes"],
-            } for a in attachments
-        ]
+            }
+            if a.get("is_inline"):
+                att["isInline"] = True
+                if a.get("content_id"):
+                    att["contentId"] = a["content_id"]
+            atts.append(att)
+        message["attachments"] = atts
 
     # Envio organizado por confederação: cria o rascunho na subpasta da confederação e
     # dispara a partir dele, deixando a cópia arquivada naquela pasta.

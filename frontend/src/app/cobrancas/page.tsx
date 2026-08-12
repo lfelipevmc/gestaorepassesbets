@@ -383,6 +383,7 @@ export default function CobrancasPage() {
               </div>
               <textarea className="input h-48 resize-none font-mono text-xs" value={editing.body || ""} onChange={e => setEditing((s: any) => ({ ...s, body: e.target.value }))} />
               <p className="text-xs text-muted mt-1">Os campos entre chaves são substituídos automaticamente no envio.</p>
+              <p className="text-xs text-primary mt-1">🖼 A logomarca do escritório (Configurações → Escritório) é inserida automaticamente ao <b>final</b> de todo e-mail enviado. Para posicioná-la em outro ponto, use a chave {"{logomarca}"}.</p>
             </div>
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input type="checkbox" checked={editing.active ?? true} onChange={e => setEditing((s: any) => ({ ...s, active: e.target.checked }))} /> Ativo

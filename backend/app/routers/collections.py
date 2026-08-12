@@ -94,7 +94,16 @@ def _operator_label(op: BettingOperator) -> str:
 
 
 def _operator_emails(op: BettingOperator) -> List[str]:
-    return [c.value for c in op.contacts if c.type == ContactType.email and c.value]
+    """TODOS os e-mails cadastrados do operador (contatos + responsáveis), sem duplicatas."""
+    emails = [c.value for c in op.contacts if c.type == ContactType.email and c.value]
+    emails += [r.email for r in op.responsibles if r.email]
+    seen, out = set(), []
+    for e in emails:
+        k = e.strip().lower()
+        if k and k not in seen:
+            seen.add(k)
+            out.append(e.strip())
+    return out
 
 
 def _has_paid(db: Session, cycle: CollectionCycle, operator_id: int) -> bool:
@@ -211,12 +220,38 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
     from ..config import settings as _settings
     office = db.query(OfficeSettings).first()
     office_name = (office.signature_name or office.name) if office else None
-    # {logomarca}: imagem da logomarca do escritório embutida no HTML do e-mail
+    # Logomarca do escritório: anexada INLINE (cid:) para exibir mesmo quando o
+    # destinatário bloqueia imagens remotas; fallback para URL absoluta do site.
     logomarca_html = ""
+    logo_attachment = None
     if office and office.logo_url:
-        base = (_settings.SITE_URL or "").rstrip("/")
-        if base:
-            logomarca_html = f'<img src="{base}{office.logo_url}" alt="{office_name or "Escritório"}" style="max-height:64px;max-width:240px"/>'
+        import base64 as _b64
+        import mimetypes as _mt
+        import os as _os
+        for _base_dir in ("/app", "."):
+            _p = _base_dir + office.logo_url
+            if _os.path.isfile(_p):
+                try:
+                    with open(_p, "rb") as _fh:
+                        _content = _b64.b64encode(_fh.read()).decode()
+                    logo_attachment = {
+                        "filename": _os.path.basename(_p),
+                        "content_bytes": _content,
+                        "content_type": _mt.guess_type(_p)[0] or "image/png",
+                        "is_inline": True,
+                        "content_id": "logo-escritorio",
+                    }
+                    logomarca_html = f'<img src="cid:logo-escritorio" alt="{office_name or "Escritório"}" style="max-height:64px;max-width:240px"/>'
+                except Exception:
+                    logo_attachment = None
+                break
+        if not logomarca_html:
+            base = (_settings.SITE_URL or "").rstrip("/")
+            if base:
+                logomarca_html = f'<img src="{base}{office.logo_url}" alt="{office_name or "Escritório"}" style="max-height:64px;max-width:240px"/>'
+    # A logomarca entra automaticamente ao FINAL de todo e-mail, exceto se o modelo
+    # já a posiciona manualmente via {logomarca}.
+    append_logo = bool(logomarca_html) and "{logomarca}" not in (data.body or "")
     usuario_nome = current_user.name or current_user.email
 
     sent, failed = 0, 0
@@ -227,11 +262,15 @@ def send_confirmed(id: int, data: SendConfirmedRequest, db: Session = Depends(ge
             failed += 1
             results.append({"operator_id": rec.operator_id, "label": "—", "email": rec.email, "ok": False, "reason": "operador inexistente"})
             continue
-        to_addr = [rec.email] if rec.email else _operator_emails(op)[:3]
+        # Envia para TODOS os e-mails cadastrados do operador (contatos + responsáveis)
+        to_addr = _operator_emails(op) or ([rec.email] if rec.email else [])
         subject = render_placeholders(data.subject, op, conf, ref, prazo=data.deadline, escritorio=office_name, usuario=usuario_nome)
         body = render_placeholders(data.body, op, conf, ref, prazo=data.deadline, escritorio=office_name, usuario=usuario_nome, logomarca=logomarca_html)
+        if append_logo:
+            body = body.rstrip() + "\n\n" + logomarca_html
         ok = bool(to_addr) and send_email(to=to_addr, subject=subject, body=body,
-                                          confederation_acronym=conf.acronym)
+                                          confederation_acronym=conf.acronym,
+                                          attachments=[logo_attachment] if (logo_attachment and logomarca_html in body) else None)
         ev = CollectionEvent(
             cycle_id=cycle.id, operator_id=op.id,
             event_type=EventType.notification_sent, channel=EventChannel.email,
@@ -567,6 +606,37 @@ def email_send_proof(id: int, email_id: int, db: Session = Depends(get_db), curr
         "reference_month": cycle.reference_month.strftime("%m/%Y") if cycle else None,
         "protocol": em.protocol,
     }
+
+
+@router.get("/{id}/email/{email_id}/proof/pdf")
+def email_send_proof_pdf(id: int, email_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Comprovante individual de envio em PDF compacto (1 página)."""
+    from fastapi.responses import StreamingResponse
+    from ..services.proof_service import generate_email_proof_pdf
+    import io as _io
+    pdf = generate_email_proof_pdf(db, id, email_id)
+    if not pdf:
+        raise HTTPException(status_code=404, detail="Registro de e-mail não encontrado")
+    return StreamingResponse(_io.BytesIO(pdf), media_type="application/pdf",
+                             headers={"Content-Disposition": f"attachment; filename=comprovante_{email_id}.pdf"})
+
+
+@router.get("/{id}/proofs/pdf")
+def cycle_proofs_pdf(id: int, mode: str = "list", db: Session = Depends(get_db), current_user: User = Depends(require_office)):
+    """Comprovantes de TODOS os envios do ciclo em um único PDF.
+
+    mode="list": consolidado em lista (protocolo/operador/destinatários/data) + texto padrão;
+    mode="full": comprovantes individuais completos, sequenciais, um por página."""
+    from fastapi.responses import StreamingResponse
+    from ..services.proof_service import generate_cycle_proofs_pdf
+    import io as _io
+    cycle = db.query(CollectionCycle).get(id)
+    if not cycle:
+        raise HTTPException(status_code=404, detail="Ciclo não encontrado")
+    pdf = generate_cycle_proofs_pdf(db, id, mode="full" if mode == "full" else "list")
+    suffix = "individuais" if mode == "full" else "lista"
+    return StreamingResponse(_io.BytesIO(pdf), media_type="application/pdf",
+                             headers={"Content-Disposition": f"attachment; filename=comprovantes_{suffix}_ciclo{id}.pdf"})
 
 
 @router.get("/{id}/activity-report/pdf")

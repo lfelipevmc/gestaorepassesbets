@@ -270,6 +270,10 @@ export const getCycleEmails = (id: number) => api.get(`/api/collections/${id}/em
 export const syncCycleEmails = (id: number) => api.post(`/api/collections/${id}/sync-emails`);
 export const getEmailProof = (id: number, emailId: number) =>
   api.get(`/api/collections/${id}/email/${emailId}/proof`);
+export const downloadEmailProofPdf = (id: number, emailId: number) =>
+  api.get(`/api/collections/${id}/email/${emailId}/proof/pdf`, { responseType: "blob" });
+export const downloadCycleProofsPdf = (id: number, mode: "list" | "full") =>
+  api.get(`/api/collections/${id}/proofs/pdf`, { params: { mode }, responseType: "blob" });
 export const registerPaymentReport = (id: number, data: any) =>
   api.post(`/api/payments/${id}/register-report`, data);
 export const downloadCycleActivityPdf = (id: number) =>

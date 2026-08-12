@@ -10,6 +10,7 @@ import {
   getNotificationPreview, sendNotificationConfirmed, generateSpaLetter, downloadSpaLetter,
   getTemplates, getOffice, addCollectionEvent,
   getCycleEmails, syncCycleEmails, getEmailProof, downloadCycleActivityPdf,
+  downloadEmailProofPdf, downloadCycleProofsPdf,
   suggestEmailOperator, linkEmailOperator,
 } from "@/lib/api";
 import { getUser } from "@/lib/auth";
@@ -267,8 +268,32 @@ export default function CollectionDetailPage() {
   }
 
   async function openProof(emailId: number) {
-    try { const r = await getEmailProof(numId, emailId); setProof(r.data); }
+    try { const r = await getEmailProof(numId, emailId); setProof({ ...r.data, email_id: emailId }); }
     catch { toast.warn("Comprovante indisponível."); }
+  }
+
+  const [proofBusy, setProofBusy] = useState(false);
+  async function handleProofPdf(emailId: number) {
+    setProofBusy(true);
+    try {
+      const r = await downloadEmailProofPdf(numId, emailId);
+      const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+      const a = document.createElement("a"); a.href = url; a.download = `comprovante_${emailId}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { toast.error("Erro ao gerar o comprovante em PDF."); }
+    finally { setProofBusy(false); }
+  }
+
+  async function handleProofsPdf(mode: "list" | "full") {
+    setProofBusy(true);
+    try {
+      const r = await downloadCycleProofsPdf(numId, mode);
+      const url = URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url; a.download = `comprovantes_${mode === "full" ? "individuais" : "lista"}_ciclo${numId}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { toast.error("Erro ao gerar os comprovantes consolidados."); }
+    finally { setProofBusy(false); }
   }
 
   // ---------- SPA / atividades / arquivar ----------
@@ -544,7 +569,21 @@ export default function CollectionDetailPage() {
               <p className="text-sm text-muted">E-mails deste ciclo. {emailStats.sent} enviados · {emailStats.received} recebidos.</p>
               <div className="mt-2"><MailboxBadge prefix="Sincronizando a caixa" /></div>
             </div>
-            <button onClick={doSyncEmails} disabled={syncing} className="btn-primary">{syncing ? "Sincronizando..." : "Sincronizar Caixa de Entrada"}</button>
+            <div className="flex gap-2 flex-wrap">
+              {emailStats.sent > 0 && (
+                <>
+                  <button onClick={() => handleProofsPdf("list")} disabled={proofBusy} className="btn-secondary"
+                    title="Um PDF com todos os envios em formato de lista (protocolo, operador, destinatários, data) + o texto padrão da notificação">
+                    {proofBusy ? "Gerando..." : "⬇ Comprovantes (lista)"}
+                  </button>
+                  <button onClick={() => handleProofsPdf("full")} disabled={proofBusy} className="btn-secondary"
+                    title="Um PDF com os comprovantes individuais completos, um por página, reunidos sequencialmente">
+                    {proofBusy ? "Gerando..." : "⬇ Comprovantes (individuais)"}
+                  </button>
+                </>
+              )}
+              <button onClick={doSyncEmails} disabled={syncing} className="btn-primary">{syncing ? "Sincronizando..." : "Sincronizar Caixa de Entrada"}</button>
+            </div>
           </div>
           <CycleEmailQueue emails={emails.filter(e => e.direction === "inbound" && !e.matched)} operators={operators} onLinked={loadEmails} />
           <div className="card p-0 overflow-hidden">
@@ -690,7 +729,9 @@ export default function CollectionDetailPage() {
                         <label key={o.operator_id} className="flex items-center gap-3 p-2.5 hover:bg-surface-light/20 cursor-pointer">
                           <input type="checkbox" checked={review.included.has(o.operator_id)} onChange={() => toggleInclude(o.operator_id)} />
                           <span className="text-sm text-white flex-1">{o.label}</span>
-                          <span className={`text-xs ${o.emails?.length ? "text-muted" : "text-danger"}`}>{o.emails?.[0] || "sem e-mail"}</span>
+                          <span className={`text-xs ${o.emails?.length ? "text-muted" : "text-danger"}`}>
+                            {o.emails?.length ? `${o.emails[0]}${o.emails.length > 1 ? ` +${o.emails.length - 1}` : ""}` : "sem e-mail"}
+                          </span>
                         </label>
                       ))}
                       {review.recipients.length === 0 && <p className="p-3 text-xs text-muted">Nenhum inadimplente na competência. 🎉</p>}
@@ -730,12 +771,18 @@ export default function CollectionDetailPage() {
                       <p className="text-white font-medium mb-3">{renderPreview(review.message.subject)}</p>
                       <p className="text-xs text-muted mb-1">Corpo:</p>
                       <p className="text-slate-200 whitespace-pre-line">{renderPreview(review.message.body)}</p>
+                      {!review.message.body?.includes("{logomarca}") && (
+                        <p className="text-xs text-primary mt-3 pt-2 border-t border-surface-border/60">
+                          🖼 A logomarca do escritório é inserida automaticamente ao final do e-mail
+                          {office?.logo_url ? "" : " (cadastre-a em Configurações → Escritório)"}.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
                 <div className="p-5 border-t border-surface-border flex gap-3 justify-end sticky bottom-0 bg-surface-card">
                   <button onClick={() => setReview(null)} className="btn-secondary">Cancelar</button>
-                  <button onClick={() => setReviewStage("confirm")} className="btn-primary">Revisar envio →</button>
+                  <button onClick={() => { setSendEmail(""); setSendPassword(""); setReviewStage("confirm"); }} className="btn-primary">Revisar envio →</button>
                 </div>
               </>
             )}
@@ -746,11 +793,14 @@ export default function CollectionDetailPage() {
                   <p className="text-warning font-semibold text-sm mb-1">⚠ Atenção — disparo de e-mails</p>
                   <p className="text-sm text-slate-200">Ao confirmar, o sistema enviará imediatamente a <b>{review.notification_number}ª notificação</b> para <b>{includedRecipients().length}</b> agente(s) operador(es). Esta ação não pode ser desfeita.</p>
                 </div>
+                <p className="text-xs text-muted">Cada notificação será enviada para <b>todos os e-mails cadastrados</b> do agente operador (contatos e responsáveis).</p>
                 <div className="border border-surface-border rounded-lg divide-y divide-surface-border max-h-60 overflow-y-auto">
                   {includedRecipients().map((o: any) => (
-                    <div key={o.operator_id} className="flex items-center justify-between p-2.5 text-sm">
-                      <span className="text-white">{o.label}</span>
-                      <span className={`text-xs ${o.emails?.length ? "text-muted" : "text-danger"}`}>{o.emails?.[0] || "sem e-mail — não receberá"}</span>
+                    <div key={o.operator_id} className="flex items-start justify-between gap-3 p-2.5 text-sm">
+                      <span className="text-white flex-shrink-0">{o.label}</span>
+                      <span className={`text-xs text-right break-all ${o.emails?.length ? "text-muted" : "text-danger"}`}>
+                        {o.emails?.length ? o.emails.join(", ") : "sem e-mail — não receberá"}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -764,24 +814,30 @@ export default function CollectionDetailPage() {
                     <b> seu e-mail</b> e a <b>sua senha de login</b> para autorizar o disparo — ficam registrados
                     na auditoria <b>quem autorizou, quando e quantas mensagens</b> foram disparadas.
                   </p>
-                  <div className="flex flex-wrap gap-3">
+                  {/* Campos SEM autofill/salvamento: o usuário deve digitar as credenciais
+                      a cada disparo (nomes não padronizados + autocomplete desativado). */}
+                  <form autoComplete="off" onSubmit={e => e.preventDefault()} className="flex flex-wrap gap-3">
+                    <input type="text" name="hidden_user" autoComplete="username" className="hidden" tabIndex={-1} aria-hidden="true" />
+                    <input type="password" name="hidden_pass" autoComplete="current-password" className="hidden" tabIndex={-1} aria-hidden="true" />
                     <input
                       type="email"
-                      autoComplete="username"
+                      name="auth-disparo-mail"
+                      autoComplete="off"
                       className="input max-w-xs"
-                      placeholder="Seu e-mail de login"
+                      placeholder="Digite seu e-mail de login"
                       value={sendEmail}
                       onChange={e => setSendEmail(e.target.value)}
                     />
                     <input
                       type="password"
-                      autoComplete="current-password"
+                      name="auth-disparo-key"
+                      autoComplete="new-password"
                       className="input max-w-xs"
-                      placeholder="Sua senha de login"
+                      placeholder="Digite sua senha de login"
                       value={sendPassword}
                       onChange={e => setSendPassword(e.target.value)}
                     />
-                  </div>
+                  </form>
                 </div>
 
                 <div className="flex gap-3 justify-end">
@@ -844,7 +900,9 @@ export default function CollectionDetailPage() {
               <div className="border border-surface-border rounded-lg p-3 bg-surface text-slate-200 whitespace-pre-line text-xs max-h-60 overflow-y-auto">{proof.body}</div>
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={() => window.print()} className="btn-secondary">Imprimir</button>
+              <button onClick={() => handleProofPdf(proof.email_id)} disabled={proofBusy} className="btn-secondary">
+                {proofBusy ? "Gerando..." : "⬇ Baixar PDF (1 página)"}
+              </button>
               <button onClick={() => setProof(null)} className="btn-primary">Fechar</button>
             </div>
           </div>
