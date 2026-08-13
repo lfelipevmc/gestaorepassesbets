@@ -379,9 +379,9 @@ def confederation_presentation(id: int, month: str = None, db: Session = Depends
     ev_q = db.query(CollectionEvent).filter(CollectionEvent.cycle_id.in_(cycle_ids)) if cycle_ids else None
     timeline = []
     if ev_q is not None:
-        for ev in ev_q.order_by(CollectionEvent.created_at.desc()).limit(14).all():
+        for ev in ev_q.order_by(CollectionEvent.performed_at.desc()).limit(14).all():
             timeline.append({
-                "date": ev.created_at.isoformat() if ev.created_at else None,
+                "date": ev.performed_at.isoformat() if ev.performed_at else None,
                 "type": ev.event_type.value if hasattr(ev.event_type, "value") else str(ev.event_type),
                 "operator": op_label(ev.operator_id) if ev.operator_id else None,
                 "notes": (ev.notes or "")[:160],
@@ -495,6 +495,7 @@ def confederation_presentation(id: int, month: str = None, db: Session = Depends
             "pendentes_relatorio": endr_pend_rel,
             "ultimos": endr_last,
         },
+        "pendencias": pendencias,
         "proximos": {
             "cronograma": cronograma,
             "next_steps": conf.next_steps or "",

@@ -112,7 +112,7 @@ export default function PresentationTab({ confId }: { confId: number }) {
 
   const s = data.summary;
   const t = data.trabalho;
-  const chartData = data.monthly.map((m: any) => ({ ...m, total: m.direto + m.endr }));
+  const chartData = (data.monthly || []).map((m: any) => ({ ...m, total: m.direto + m.endr }));
   const concOrder = ["adimplente", "endr", "consignacao", "sem_obrigacao", "inadimplente"];
   const concTotal = Math.max(s.bets_total, 1);
 
@@ -176,11 +176,11 @@ export default function PresentationTab({ confId }: { confId: number }) {
           <Stat value={t.oficios_spa} label="Ofícios à SPA" />
           <Stat value={t.relatorios_anexados} label="Relatórios arquivados" />
         </div>
-        {t.timeline.length > 0 && (
+        {(t.timeline || []).length > 0 && (
           <div className="card mt-4">
             <p className="text-xs text-muted mb-3">Últimas diligências registradas</p>
             <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-              {t.timeline.map((ev: any, i: number) => (
+              {(t.timeline || []).map((ev: any, i: number) => (
                 <div key={i} className="flex items-start gap-3 text-sm">
                   <span className="text-[11px] text-muted num flex-shrink-0 w-28">{ev.date ? formatDateTime(ev.date) : "—"}</span>
                   <span className="text-slate-200 flex-shrink-0">{EV_LABEL[ev.type] || ev.type}</span>
@@ -213,7 +213,7 @@ export default function PresentationTab({ confId }: { confId: number }) {
             </BarChart>
           </ResponsiveContainer>
         </div>
-        {data.recebimentos_mes.length > 0 && (
+        {(data.recebimentos_mes || []).length > 0 && (
           <div className="card p-0 overflow-hidden mt-4">
             <div className="p-3 border-b border-surface-border"><p className="text-sm font-semibold text-white">Recebimentos individualizados em {data.month_label}</p></div>
             <div className="table-wrap"><table className="w-full text-sm">
@@ -222,7 +222,7 @@ export default function PresentationTab({ confId }: { confId: number }) {
                 <th className="table-th">Último pagamento</th><th className="table-th">Relatório</th>
               </tr></thead>
               <tbody>
-                {data.recebimentos_mes.map((r: any) => (
+                {(data.recebimentos_mes || []).map((r: any) => (
                   <tr key={r.operator_id} className="border-b border-surface-border/50">
                     <td className="table-td text-white">{r.label}</td>
                     <td className="table-td text-success num">{formatCurrency(r.total)}</td>
@@ -246,7 +246,7 @@ export default function PresentationTab({ confId }: { confId: number }) {
           <Stat value={data.endr.pendentes_relatorio} label="Aguardando relatório"
             color={data.endr.pendentes_relatorio > 0 ? "text-warning" : "text-success"} />
         </div>
-        {data.endr.ultimos.length > 0 && (
+        {(data.endr?.ultimos || []).length > 0 && (
           <div className="card p-0 overflow-hidden">
             <div className="table-wrap"><table className="w-full text-sm">
               <thead className="bg-surface"><tr>
@@ -254,7 +254,7 @@ export default function PresentationTab({ confId }: { confId: number }) {
                 <th className="table-th">Competência</th><th className="table-th">Bets no relatório</th><th className="table-th">Relatório</th>
               </tr></thead>
               <tbody>
-                {data.endr.ultimos.map((r: any, i: number) => (
+                {(data.endr?.ultimos || []).map((r: any, i: number) => (
                   <tr key={i} className="border-b border-surface-border/50">
                     <td className="table-td num">{r.received_date ? formatDate(r.received_date) : "—"}</td>
                     <td className="table-td text-success num">{formatCurrency(r.amount)}</td>
@@ -272,7 +272,7 @@ export default function PresentationTab({ confId }: { confId: number }) {
       {/* 5 — PENDÊNCIAS */}
       <section>
         <SectionTitle n={5} title="Pendências" sub={`inadimplentes em ${data.month_label}`} />
-        {data.pendencias.length === 0 ? (
+        {(data.pendencias || []).length === 0 ? (
           <div className="card text-center py-6 text-success text-sm">✓ Nenhuma bet inadimplente na competência.</div>
         ) : (
           <div className="card p-0 overflow-hidden">
@@ -282,7 +282,7 @@ export default function PresentationTab({ confId }: { confId: number }) {
                 <th className="table-th">Notificações</th><th className="table-th">Última notificação</th><th className="table-th">Resposta</th>
               </tr></thead>
               <tbody>
-                {data.pendencias.map((p: any) => (
+                {(data.pendencias || []).map((p: any) => (
                   <tr key={p.operator_id} className="border-b border-surface-border/50">
                     <td className="table-td text-white">{p.label}{p.cnpj && <span className="block text-[11px] text-muted font-mono">{p.cnpj}</span>}</td>
                     <td className="table-td num">{p.amount_due ? formatCurrency(p.amount_due) : <span className="text-muted text-xs">não declarado</span>}</td>
@@ -305,11 +305,11 @@ export default function PresentationTab({ confId }: { confId: number }) {
         <div className="grid lg:grid-cols-2 gap-4">
           <div className="card">
             <p className="text-sm font-semibold text-white mb-3">Cronograma do ciclo</p>
-            {data.proximos.cronograma.length === 0
+            {(data.proximos?.cronograma || []).length === 0
               ? <p className="text-xs text-muted">Nenhum ciclo ativo — crie o ciclo da competência em Cobranças.</p>
               : (
                 <div className="space-y-2">
-                  {data.proximos.cronograma.map((c: any, i: number) => (
+                  {(data.proximos?.cronograma || []).map((c: any, i: number) => (
                     <div key={i} className="flex items-center justify-between text-sm border-b border-surface-border/40 pb-2 last:border-0">
                       <span className={c.done ? "text-muted line-through" : "text-slate-200"}>{c.done ? "✓ " : ""}{c.label}</span>
                       <span className="text-xs text-muted num flex-shrink-0 ml-3">{formatDate(c.due)}</span>
